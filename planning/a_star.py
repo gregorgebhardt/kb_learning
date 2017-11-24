@@ -140,7 +140,7 @@ class AStar:
 
         return came_from, cost_so_far
 
-
+# TODO check this file
 if __name__ == '__main__':
     grid = SquareGrid(10, 10, 2)
     astar = AStar(grid)

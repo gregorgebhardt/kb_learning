@@ -1,17 +1,20 @@
 import numpy as np
 import scipy.linalg
 
+from sklearn.gaussian_process.kernels import Kernel
+from gym import Space
+
 # def fromSerializableDict(d):
 #     return SparseGPPolicy.fromSerializableDict(d)
 
 
 class SparseGPPolicy:
-    def __init__(self, kernel, action_range, gp_min_variance=1.0, gp_regularizer=0.05):
+    def __init__(self, kernel: Kernel, action_space: Space, gp_min_variance=1.0, gp_regularizer=0.05):
+        # TODO add documentation
         """
 
         :param kernel:
-        :param action_range: d x 2 ndarray, where d is the number of action dimensions, with the bounds on the actions.
-                             the lower bounds in the first column, the upper bounds in the second column
+        :param action_space: gym.Space
         :param gp_min_variance:
         :param gp_regularizer:
         """
@@ -28,39 +31,12 @@ class SparseGPPolicy:
         self.sparse_states = None
         self.k_cholesky = None
         self.kernel = kernel
-        self.action_range = action_range
-
-    # def getSerializableDict(self):
-    #     d = self.__dict__.copy()
-    #     d['kernel'] = self.kernel.getSerializableDict()
-    #     d['aRange'] = pickle.dumps(self.action_range, protocol=2)
-    #     if self.trained:
-    #         d['Ssub'] = pickle.dumps(self.Ssub, protocol=2)
-    #         d['alpha'] = pickle.dumps(self.alpha, protocol=2)
-    #         d['cholKy'] = pickle.dumps(self.cholKy, protocol=2)
-    #     return d
-    #
-    # @staticmethod
-    # def fromSerializableDict(d):
-    #     d['kernel'] = Kernel.Kernel.fromSerializableDict(d['kernel'])
-    #     d['aRange'] = pickle.loads(d['aRange'])
-    #     if d['trained']:
-    #         d['Ssub'] = pickle.loads(d['Ssub'])
-    #         d['alpha'] = pickle.loads(d['alpha'])
-    #         d['cholKy'] = pickle.loads(d['cholKy'])
-    #     obj = SparseGPPolicy(d['kernel'], d['aRange'])
-    #     obj.__dict__ = d
-    #     return obj
+        self.action_space = action_space
 
     def _get_random_actions(self, num_samples=1):
-        action_dim = self.action_range.shape[0]
-        action_low = self.action_range[:, 0]
-        action_high = self.action_range[:, 1]
-        actions = np.random.uniform(low=np.repeat(action_low.T, num_samples, 0),
-                                    high=np.repeat(action_high.T, num_samples, 0),
-                                    size=(num_samples, action_dim))
+        samples = (self.action_space.sample() for _ in range(num_samples))
 
-        return actions
+        return samples
 
     def train(self, state, actions, weights, sparse_states):
         self.sparse_states = sparse_states

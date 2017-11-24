@@ -7,9 +7,9 @@ from sklearn.metrics.pairwise import pairwise_distances
 
 
 class KilobotKernel(Kernel):
-    def __init__(self, bandwidth):
+    def __init__(self, bandwidth=1.0, num_processes=1):
         self._kernel_func = RBF(bandwidth)
-        self.num_processes = 1
+        self.num_processes = num_processes
 
     def _compute_kb_distance(self, k1, k2):
         """Computes the kb distance matrix between any configuration in k1 and any configuration in k2.
@@ -75,9 +75,9 @@ class KilobotKernel(Kernel):
 
 
 class MahaKernel(Kernel):
-    def __init__(self, bandwidth):
+    def __init__(self, bandwidth=1.0, num_processes=1):
         self.bandwidth = bandwidth
-        self.num_processes = 1
+        self.num_processes = num_processes
 
     def __call__(self, X, Y=None, eval_gradient=False):
         return pairwise_distances(X, Y, metric='mahalanobis', n_jobs=self.num_processes, VI=self.bandwidth)
@@ -92,7 +92,7 @@ class MahaKernel(Kernel):
 class StateKernel(Kernel):
     _extra_dims = 2
 
-    def __init__(self, bandwidth_light, bandwidth_kb, weight):
+    def __init__(self, bandwidth_light=1.0, bandwidth_kb=1.0, weight=.5):
         self._kb_kernel = KilobotKernel(bandwidth_kb)
         self._l_kernel = MahaKernel(bandwidth_light)
         self._weight = weight
