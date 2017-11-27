@@ -1,12 +1,9 @@
-import numpy as np
-import pandas as pd
-
-from reps.sparse_gp_policy import SparseGPPolicy
-from kernel import StateKernel, StateActionKernel
+import abc
 
 from cluster_work import ClusterWork
 
-import abc
+from kb_learning.kernel import StateKernel
+from kb_learning.reps.sparse_gp_policy import SparseGPPolicy
 
 
 class KilobotLearner(ClusterWork):
