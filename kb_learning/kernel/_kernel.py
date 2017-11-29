@@ -92,9 +92,9 @@ class MahaKernel(Kernel):
 class StateKernel(Kernel):
     _extra_dims = 2
 
-    def __init__(self, bandwidth_light=1.0, bandwidth_kb=1.0, weight=.5):
-        self._kb_kernel = KilobotKernel(bandwidth_kb)
-        self._l_kernel = MahaKernel(bandwidth_light)
+    def __init__(self, bandwidth_light=1.0, bandwidth_kb=1.0, weight=.5, num_processes=1):
+        self._kb_kernel = KilobotKernel(bandwidth_kb, num_processes=num_processes)
+        self._l_kernel = MahaKernel(bandwidth_light, num_processes=num_processes)
         self._weight = weight
 
     @property

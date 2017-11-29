@@ -3,7 +3,7 @@ from numexpr import evaluate as ev
 from scipy.optimize import minimize
 
 
-class ACReps:
+class ActorCriticReps:
     def __init__(self):
         # upper bound on the KL between the old and new state-action distribution
         self.epsilon_action = 0.5

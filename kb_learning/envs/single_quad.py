@@ -114,3 +114,6 @@ class QuadPushingEnv(KilobotsEnv):
 
             self._add_kilobot(PhototaxisKilobot(self.world, position=_position, orientation=_orientation,
                                                 light=self._light))
+
+        # step world once to resolve collisions
+        self._step_world()

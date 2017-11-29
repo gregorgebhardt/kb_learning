@@ -102,6 +102,7 @@ class SparseGPPolicy:
         action_dim = self.alpha.shape[1]
 
         if low_memory:
+            # TODO check against IP implementation
             k_ = self.gp_prior_variance * self.kernel(states, self.sparse_states)
         else:
             k_ = self.gp_prior_variance * self.kernel(states, self.sparse_states)
@@ -132,3 +133,6 @@ class SparseGPPolicy:
         action_samples = norm_variates * gp_sigma + gp_mean
 
         return action_samples
+
+    def __call__(self, states):
+        self.sample_actions(states)
