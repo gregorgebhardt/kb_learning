@@ -73,10 +73,20 @@ class KilobotKernel(Kernel):
     def is_stationary(self):
         return True
 
+    def set_bandwidth(self, bandwidth):
+        self._kernel_func.set_params(length_scale=bandwidth)
+
+    def set_params(self, **params):
+        if 'bandwidth' in params:
+            self._kernel_func.set_params(length_scale=params['bandwidth'])
+
 
 class MahaKernel(Kernel):
     def __init__(self, bandwidth=1.0, num_processes=1):
-        self.bandwidth = bandwidth
+        if type(bandwidth) in [float, int]:
+            self.bandwidth = 1 / bandwidth
+        else:
+            self.bandwidth = np.diag(1 / bandwidth)
         self.num_processes = num_processes
 
     def __call__(self, X, Y=None, eval_gradient=False):
@@ -87,6 +97,15 @@ class MahaKernel(Kernel):
 
     def is_stationary(self):
         return True
+
+    def set_params(self, **params):
+        if 'bandwidth' in params:
+            if type(params['bandwidth']) in [float, int]:
+                self.bandwidth = 1 / params['bandwidth']
+            else:
+                self.bandwidth = np.diag(1 / params['bandwidth'])
+        if 'num_processes' in params:
+            self.num_processes = params['num_processes']
 
 
 class StateKernel(Kernel):
@@ -129,6 +148,14 @@ class StateKernel(Kernel):
 
     def is_stationary(self):
         return self._l_kernel.is_stationary() and self._kb_kernel.is_stationary()
+
+    def set_params(self, **params):
+        if 'bandwidth' in params:
+            bandwidth_kb = params['bandwidth'][:-self._extra_dims]
+            bandwidth_l = params['bandwidth'][-self._extra_dims:]
+
+            self._kb_kernel.set_params(bandwidth=bandwidth_kb)
+            self._l_kernel.set_params(bandwidth=bandwidth_l)
 
 
 class StateActionKernel(StateKernel):
