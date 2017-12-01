@@ -26,9 +26,9 @@ def register_quadpushing_environment(weight: float, num_kilobots: int):
     return _name
 
 
-def register_kilobot_environments(weights: Union(Iterable[float], float) = None,
-                                  num_kilobots: Union(Iterable[int], int) = None,
-                                  iterator: Iterator=None) -> Union(dict, str):
+def register_kilobot_environments(weights: Union[Iterable[float], float] = None,
+                                  num_kilobots: Union[Iterable[int], int] = None,
+                                  iterator: Iterator=None) -> Union[dict, str]:
     """Creates subclasses of the QuadPushing environment of the Kilobot gym with the given weights and numbers of
     Kilobots and register the subclass as a gym. The ids of the created and registered environments are returned as
     string (if a single environment has been created) or as dictionary. If both, weights and num_kilobots are
