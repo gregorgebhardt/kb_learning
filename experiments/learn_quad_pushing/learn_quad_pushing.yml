@@ -1,0 +1,22 @@
+---
+# DEFAULT
+name: "DEFAULT"
+repetitions: 1
+iterations: 25
+path: "data/quad_pushing"
+
+params:
+  sampling:
+    num_kilobots: 10
+    num_episodes: 120
+    num_steps_per_episode: 100
+  kernel:
+    num_processes: 1
+---
+name: "learn_5_w_factors"
+params:
+    sampling:
+      num_kilobots: 15
+list:
+  reward:
+    w_factor: [.0, .25, .5, .75, 1.]
