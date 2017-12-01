@@ -1,7 +1,7 @@
 from typing import Iterable, Union, Iterator
 
 
-def register_kilobot_environment(weight: float, num_kilobots: int):
+def register_quadpushing_environment(weight: float, num_kilobots: int):
     """Create a subclass of the QuadPushing environment of the Kilobot gym with the given weight and number of
     Kilobots and register the subclass as a gym. Returns the id of the registered gym.
 
@@ -60,22 +60,22 @@ def register_kilobot_environments(weights: Union(Iterable[float], float) = None,
         n_scalar = False
 
     if w_scalar and n_scalar:
-        _id = register_kilobot_environment(weights, num_kilobots)
+        _id = register_quadpushing_environment(weights, num_kilobots)
     elif w_scalar:
         _id = dict()
         for _n in num_kilobots:
-            _id[_n] = register_kilobot_environment(weights, _n)
+            _id[_n] = register_quadpushing_environment(weights, _n)
     elif n_scalar:
         _id = dict()
         for _w in weights:
-            _id[_w] = register_kilobot_environment(_w, num_kilobots)
+            _id[_w] = register_quadpushing_environment(_w, num_kilobots)
     else:
         _id = dict()
         for _w, _n in iterator(weights, num_kilobots):
             if _w not in _id.keys():
                 _id[_w] = dict()
 
-            _id[_w][_n] = register_kilobot_environment(_w, _n)
+            _id[_w][_n] = register_quadpushing_environment(_w, _n)
 
     return _id
 
