@@ -7,9 +7,8 @@ path: "data/quad_pushing"
 
 params:
   sampling:
-    num_kilobots: 10
-    num_episodes: 120
-    num_steps_per_episode: 100
+    num_episodes: 50
+    num_steps_per_episode: 20
   kernel:
     num_processes: 1
 ---
@@ -18,5 +17,5 @@ params:
     sampling:
       num_kilobots: 15
 list:
-  reward:
+  sampling:
     w_factor: [.0, .25, .5, .75, 1.]

@@ -7,7 +7,7 @@ from sklearn.metrics.pairwise import pairwise_distances
 
 
 class KilobotKernel(Kernel):
-    def __init__(self, bandwidth=1.0, num_processes=1):
+    def __init__(self, bandwidth=1., num_processes=1):
         self._kernel_func = RBF(bandwidth)
         self.num_processes = num_processes
 
@@ -36,7 +36,7 @@ class KilobotKernel(Kernel):
         k_m = np.empty((1, k2.shape[0]))
         for i in range(k2.shape[0]):
             k2_reshaped = np.reshape(k2[i, :], (m, 2))
-            k_m[i] = self._kernel_func(k2_reshaped).sum()
+            k_m[0, i] = self._kernel_func(k2_reshaped).sum()
 
         k_m /= m ** 2
 
@@ -74,11 +74,14 @@ class KilobotKernel(Kernel):
         return True
 
     def set_bandwidth(self, bandwidth):
+        bandwidth = bandwidth.reshape((-1, 2)).mean(axis=0)
         self._kernel_func.set_params(length_scale=bandwidth)
 
     def set_params(self, **params):
         if 'bandwidth' in params:
-            self._kernel_func.set_params(length_scale=params['bandwidth'])
+            self.set_bandwidth(params['bandwidth'])
+        if 'num_processes' in params:
+            self.num_processes = params['num_processes']
 
 
 class MahaKernel(Kernel):
@@ -126,15 +129,15 @@ class StateKernel(Kernel):
         self._l_kernel.num_processes = num_processes
 
     def __call__(self, X, Y=None, eval_gradient=False):
-        l1 = X[:, :self._extra_dims]
-        k1 = X[:, self._extra_dims:]
+        k1 = X[:, :-self._extra_dims]
+        l1 = X[:, -self._extra_dims:]
 
         if Y is None:
             k_l = self._l_kernel(l1)
             k_kb = self._kb_kernel(k1)
         else:
-            l2 = Y[:, :self._extra_dims]
-            k2 = Y[:, self._extra_dims:]
+            k2 = Y[:, :-self._extra_dims]
+            l2 = Y[:, -self._extra_dims:]
 
             k_l = self._l_kernel(l1, l2)
             k_kb = self._kb_kernel(k1, k2)

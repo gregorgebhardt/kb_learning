@@ -18,12 +18,13 @@ def register_quadpushing_environment(weight: float, num_kilobots: int):
     assert 0 < num_kilobots, "num_kilobots has to be a positive integer."
 
     _name = 'QuadPushingEnv_w{:03}_kb{}'.format(int(weight * 100), num_kilobots)
+    _id = 'QuadPushingEnv_w{:03}_kb{}-v0'.format(int(weight * 100), num_kilobots)
 
     globals()[_name] = QuadPushingEnvWith(weight, num_kilobots)
-    register(id='Kilobots-QuadPushingEnv_w{:03}_kb{}-v0'.format(int(weight * 100), num_kilobots),
+    register(id=_id,
              entry_point='kb_learning.envs:' + _name)
 
-    return _name
+    return _id
 
 
 def register_kilobot_environments(weights: Union[Iterable[float], float] = None,

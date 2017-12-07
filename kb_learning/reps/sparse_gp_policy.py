@@ -34,7 +34,7 @@ class SparseGPPolicy:
         self.action_space = action_space
 
     def _get_random_actions(self, num_samples=1):
-        samples = (self.action_space.sample() for _ in range(num_samples))
+        samples = np.array([*(self.action_space.sample() for _ in range(num_samples))])
 
         return samples
 
@@ -97,7 +97,10 @@ class SparseGPPolicy:
 
     def sample_actions(self, states, low_memory=False):
         if not self.trained:
-            return self._get_random_actions(states.shape[0])
+            if states.ndim > 1:
+                return self._get_random_actions(states.shape[0])
+            else:
+                return self._get_random_actions(1)
 
         action_dim = self.alpha.shape[1]
 
@@ -135,4 +138,4 @@ class SparseGPPolicy:
         return action_samples
 
     def __call__(self, states):
-        self.sample_actions(states)
+        return self.sample_actions(states)

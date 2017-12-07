@@ -54,13 +54,13 @@ class ActorCriticReps:
         if (eta * sum_z) == 0:
             g_dot_eta = 1e100
         else:
-            g_dot_eta = epsilon + np.log(g_log_part) - z.dot(q_norm - v).sum() / (eta * sum_z)
+            g_dot_eta = epsilon + np.log(g_log_part) - (z * (q_norm - v)).sum() / (eta * sum_z)
         g_dot[-1] = g_dot_eta
 
-        g_dot_theta = phi_hat - phi.dot(z).sum(0) / sum_z + 2 * self.alpha * theta.T
+        g_dot_theta = phi_hat - (phi * z[:, None]).sum(0) / sum_z + 2 * self.alpha * theta.T
         g_dot[0:self.num_features] = g_dot_theta
 
-        return g, g_dot  # 0.5 * g_dot
+        return g, 0.5 * g_dot  # 0.5 * g_dot
 
     def _numerical_dual_gradient(self, Q, phi, phi_hat, theta, eta):
         params = np.r_[theta, eta]
@@ -108,7 +108,8 @@ class ActorCriticReps:
             print('Gradient error: {:f}'.format(abs(g_dot - g_dot_numeric).max()))
 
         def optim_func(params):
-            self._dual_function(Q=Q, phi=phi, phi_hat=phi_hat, theta=params[0:self.num_features], eta=params[-1])
+            return self._dual_function(Q=Q, phi=phi, phi_hat=phi_hat,
+                                       theta=params[0:self.num_features], eta=params[-1])
 
         res = minimize(optim_func, start_params, method='L-BFGS-B',
                        bounds=bounds, jac=True,
@@ -146,7 +147,7 @@ class ActorCriticReps:
             if kl_divergence > 3 or np.isnan(kl_divergence):
                 print('KL_divergence warning')
 
-            state_feature_difference = phi_hat - phi.dot(weights).sum(0)
+            state_feature_difference = phi_hat - (phi * weights.reshape((-1, 1))).sum(0)
 
             feature_error = abs(state_feature_difference).max()
             print('Feature Error: {:f}, KL: {:f}'.format(feature_error, kl_divergence))
