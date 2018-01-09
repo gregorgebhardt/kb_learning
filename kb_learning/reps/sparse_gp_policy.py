@@ -18,7 +18,7 @@ class SparseGPPolicy:
         :param gp_min_variance:
         :param gp_regularizer:
         """
-        self.gp_prior_variance = 0.1
+        self.gp_prior_variance = 0.001
         self.gp_regularizer = gp_regularizer  # TODO toolbox / NLopt
         self.SparseGPInducingOutputRegularization = 1e-6
 
@@ -72,7 +72,7 @@ class SparseGPPolicy:
                     _regularizer *= 2
 
         feature_vectors = kernel_vectors.dot(k_cholesky_inv).dot(k_cholesky_t_inv)
-        feature_vectors_w = feature_vectors * weights
+        feature_vectors_w = feature_vectors * weights[:, None]
 
         x = feature_vectors_w.T.dot(feature_vectors)
         x += np.eye(feature_vectors.shape[1]) * self.SparseGPInducingOutputRegularization
@@ -134,6 +134,10 @@ class SparseGPPolicy:
 
         norm_variates = np.random.normal(0.0, 1.0, (states.shape[0], action_dim))
         action_samples = norm_variates * gp_sigma + gp_mean
+
+        # check samples against bounds from action space
+        action_samples = np.minimum(action_samples, self.action_space.high)
+        action_samples = np.maximum(action_samples, self.action_space.low)
 
         return action_samples
 

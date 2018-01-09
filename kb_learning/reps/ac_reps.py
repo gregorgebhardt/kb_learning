@@ -31,7 +31,7 @@ class ActorCriticReps:
         log_z = (q_norm - v) / eta
 
         g = 0
-        g_dot = np.zeros(self.num_features + 1)
+        g_dot = np.zeros(phi.shape[1] + 1)
 
         if log_z.max() > 500:
             g = 1e30 - eta
@@ -45,10 +45,10 @@ class ActorCriticReps:
         if sum_z < realmin:
             sum_z = realmin
 
-        g_log_part = (1.0 / self.num_samples) * sum_z
+        g_log_part = (1.0 / phi.shape[0]) * sum_z
 
         g += eta * np.log(g_log_part) + v_hat + max_advantage
-        g += eta * epsilon + self.alpha * (theta.T.dot(theta))
+        g += eta * epsilon + self.alpha * (theta.dot(theta))
 
         # gradient
         if (eta * sum_z) == 0:
@@ -57,7 +57,7 @@ class ActorCriticReps:
             g_dot_eta = epsilon + np.log(g_log_part) - (z * (q_norm - v)).sum() / (eta * sum_z)
         g_dot[-1] = g_dot_eta
 
-        g_dot_theta = phi_hat - (phi * z[:, None]).sum(0) / sum_z + 2 * self.alpha * theta.T
+        g_dot_theta = phi_hat - (phi * z[:, None]).sum(0) / sum_z + 2 * self.alpha * theta
         g_dot[0:self.num_features] = g_dot_theta
 
         return g, 0.5 * g_dot  # 0.5 * g_dot
@@ -96,14 +96,14 @@ class ActorCriticReps:
         return np.nansum(p * np.log(p * self.num_samples))
 
     def _optimize_dual_function(self, Q, phi, phi_hat, theta, eta):
-        lower_bound = np.r_[-1e10 * np.ones(self.num_features), 1e-20]
-        upper_bound = np.r_[+1e10 * np.ones(self.num_features), 1e+10]
+        lower_bound = np.r_[-1e10 * np.ones(phi.shape[1]), 1e-20]
+        upper_bound = np.r_[+1e10 * np.ones(phi.shape[1]), 1e+10]
         bounds = list(map(tuple, np.c_[lower_bound, upper_bound]))
 
         start_params = np.r_[theta, eta]
 
         # test gradient
-        if True:
+        if False:
             g_dot, g_dot_numeric = self._numerical_dual_gradient(Q=Q, phi=phi, phi_hat=phi_hat, theta=theta, eta=eta)
             print('Gradient error: {:f}'.format(abs(g_dot - g_dot_numeric).max()))
 
@@ -118,7 +118,7 @@ class ActorCriticReps:
                                 'ftol': self.tolerance_f,
                                 'disp': False})
 
-        return res.x[0:self.num_features], res.x[-1]
+        return res.x[0:phi.shape[1]], res.x[-1]
 
     def compute_weights(self, Q, phi):
         self.num_samples, self.num_features = phi.shape
@@ -136,7 +136,7 @@ class ActorCriticReps:
         last_feature_error = np.Inf
         without_improvement = 0
 
-        return_weights = np.ones((self.num_samples, 1)) / self.num_samples
+        return_weights = np.ones(self.num_samples) / self.num_samples
 
         for i in range(self.max_iter_reps):
             theta, eta = self._optimize_dual_function(Q, phi, phi_hat, theta, eta)
@@ -170,7 +170,7 @@ class ActorCriticReps:
 
                 if abs(kl_divergence - self.epsilon_action) < 0.05 \
                         and feature_error < 0.001:
-                    print('Found sufficient solution.')
+                    print('Found sufficient solutions.')
                     break
 
             if (abs(state_feature_difference) - last_feature_error).max() > -0.000001:

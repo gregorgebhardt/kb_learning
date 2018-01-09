@@ -5,6 +5,8 @@ from scipy.spatial.distance import pdist, squareform
 from sklearn.gaussian_process.kernels import Kernel, RBF
 from sklearn.metrics.pairwise import pairwise_distances
 
+from kb_learning.tools import np_chunks
+
 
 class KilobotKernel(Kernel):
     def __init__(self, bandwidth=1., num_processes=1):
@@ -18,30 +20,42 @@ class KilobotKernel(Kernel):
         :param k2: m x 2*d2 matrix of m configurations with each d2 kilobots
         :return: n x m matrix with the distances between the configurations in k1 and k2
         """
-        # number of kilobots in A
-        n = k1.shape[1] // 2
+        # number of samples in k1
+        if len(k1.shape) > 1:
+            n = k1.shape[0]
+        else:
+            n = 1
+            k1 = k1[np.newaxis, :]
 
-        # number of kilobots in B
-        m = k2.shape[1] // 2
+        # number of samples in k2
+        if len(k2.shape) > 1:
+            m = k2.shape[0]
+        else:
+            m = 1
+            k2 = k2[np.newaxis, :]
 
-        # compute the kernel values within each configuration of k1
-        k_n = np.empty((k1.shape[0], 1))
-        for i in range(int(k1.shape[0])):
-            k1_reshaped = np.reshape(k1[i, :], (n, 2))
-            k_n[i] = self._kernel_func(k1_reshaped).sum()
+        # number of kilobots in k1
+        num_kb_1 = k1.shape[-1] // 2
+        # number of kilobots in k2
+        num_kb_2 = k2.shape[-1] // 2
 
-        k_n /= n ** 2
-
-        # compute the kernel values within each configuration of k2
-        k_m = np.empty((1, k2.shape[0]))
-        for i in range(k2.shape[0]):
-            k2_reshaped = np.reshape(k2[i, :], (m, 2))
-            k_m[0, i] = self._kernel_func(k2_reshaped).sum()
-
-        k_m /= m ** 2
-
+        # reshape matrices
         k1_reshaped = np.c_[k1.flat[0::2], k1.flat[1::2]]
         k2_reshaped = np.c_[k2.flat[0::2], k2.flat[1::2]]
+
+        # compute the kernel values within each configuration of k1
+        k_n = np.empty((n, 1))
+        for i, chunk in enumerate(np_chunks(k1_reshaped, num_kb_1)):
+            k_n[i] = self._kernel_func(chunk).sum()
+
+        k_n /= num_kb_1 ** 2
+
+        # compute the kernel values within each configuration of k2
+        k_m = np.empty((1, m))
+        for i, chunk in enumerate(np_chunks(k2_reshaped, num_kb_2)):
+            k_m.flat[i] = self._kernel_func(chunk).sum()
+
+        k_m /= num_kb_2 ** 2
 
         # compute kernel between all kilobot positions
         k_nm = self._kernel_func(k1_reshaped, k2_reshaped)
@@ -54,8 +68,10 @@ class KilobotKernel(Kernel):
         # cumsum for a certain block, we take the cumsum at the lower-right entry of said block and subtract the
         # cumsum at the lower-right entry of the block at its left and at its top. Since both of these two cumsums
         # include the cumsum of the whole submatrix before the block, we need to add this value again.
-        k_nm = k_nm[n::n, m::m] - k_nm[0:-1:n, m::m] - k_nm[n::n, 0:-1:m] + k_nm[0:-1:n, 0:-1:m]
-        k_nm / (0.5 * m * n)
+        k_nm = k_nm[num_kb_1::num_kb_1, num_kb_2::num_kb_2] \
+               - k_nm[0:-1:num_kb_1, num_kb_2::num_kb_2] \
+               - k_nm[num_kb_1::num_kb_1, 0:-1:num_kb_2] + k_nm[0:-1:num_kb_1, 0:-1:num_kb_2]
+        k_nm /= (0.5 * num_kb_1 * num_kb_2)
 
         return k_n + k_m - k_nm
 
@@ -68,7 +84,9 @@ class KilobotKernel(Kernel):
             return self._compute_kb_distance(X, Y)
 
     def diag(self, X):
-        return np.ones((X.shape[0], 1))
+        if len(X.shape) > 1:
+            return np.zeros((X.shape[0], 1))
+        return np.zeros(1)
 
     def is_stationary(self):
         return True
@@ -145,9 +163,10 @@ class StateKernel(Kernel):
         return np.exp(-self._weight * k_l - (1 - self._weight) * k_kb)
 
     def diag(self, X):
-        light_dims = X[:, :self._extra_dims]
-        kb_dims = X[:, self._extra_dims:]
-        return np.exp(-self._weight * self._l_kernel.diag(light_dims) - (1 - self._weight) * self._kb_kernel(kb_dims))
+        kb_dims = X[:, :-self._extra_dims]
+        light_dims = X[:, -self._extra_dims:]
+        return np.exp(-self._weight * self._l_kernel.diag(light_dims)
+                      - (1 - self._weight) * self._kb_kernel.diag(kb_dims))
 
     def is_stationary(self):
         return self._l_kernel.is_stationary() and self._kb_kernel.is_stationary()

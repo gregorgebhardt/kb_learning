@@ -2,13 +2,13 @@
 # DEFAULT
 name: "DEFAULT"
 repetitions: 1
-iterations: 25
+iterations: 15
 path: "data/quad_pushing"
 
 params:
   sampling:
-    num_episodes: 50
-    num_steps_per_episode: 20
+    num_episodes: 100
+    num_steps_per_episode: 125
   kernel:
     num_processes: 1
 ---
@@ -16,6 +16,10 @@ name: "learn_5_w_factors"
 params:
     sampling:
       num_kilobots: 15
+    lstd:
+      num_features: 500
+    gp:
+      num_sparse_states: 500
 list:
   sampling:
     w_factor: [.0, .25, .5, .75, 1.]

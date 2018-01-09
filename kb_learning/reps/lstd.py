@@ -1,4 +1,5 @@
 import numpy as np
+from ..tools import np_chunks
 
 
 class LeastSquaresTemporalDifference:
@@ -39,28 +40,29 @@ class LeastSquarsTemporalDifferenceOptimized:
         K = np.zeros((feature_dim, feature_dim))
         K_next = self.regularization_factor * np.eye(feature_dim)
         K_inv = np.eye(feature_dim) / self.regularization_factor
-        b = np.zeros(feature_dim)
+        b = np.zeros((feature_dim, 1))
 
-        for s, a, r, s_ in zip(chunks(states, chunk_size), chunks(actions, chunk_size),
-                               chunks(rewards, chunk_size), chunks(next_states, chunk_size)):
-            phi = feature_mapping(s, a).squeeze()
-            # TODO there is a bug in the kernel functions. values are way too large
+        for s, a, r, s_ in zip(np_chunks(states, chunk_size), np_chunks(actions, chunk_size),
+                               np_chunks(rewards, chunk_size), np_chunks(next_states, chunk_size)):
+            phi = feature_mapping(s, a)
             # TODO adapt this function to process chunks of data
             phi_next = np.array([feature_mapping(s_, policy(s_)) for _ in range(num_policy_samples)]).mean(0)
-            phi_outer = np.outer(phi, phi)
+            # if chunk_size is 1:
+            #     phi_outer = np.outer(phi, phi)
+            #     phi_outer_next = np.outer(phi, phi_next)
+            # else:
+            phi_outer = phi.T.dot(phi)
+            phi_outer_next = phi.T.dot(phi_next)
 
             K += phi_outer
-            K_next += self.discount_factor * np.outer(phi, phi_next)
-            K_inv -= K_inv.dot(phi_outer).dot(K_inv) / (1 + phi.dot(K_inv).dot(phi.T))
+            K_next += self.discount_factor * phi_outer_next
+            # K_inv -= K_inv.dot(phi_outer).dot(K_inv) / (1 + phi.dot(K_inv).dot(phi.T))
+            K_inv -= K_inv.dot(phi.T).dot(np.linalg.inv(np.eye(phi.shape[0]) + phi.dot(K_inv).dot(phi.T))).dot(
+                phi).dot(K_inv)
 
-            b += phi * r
+            b += phi.T.dot(r)
 
         A = (K - K_next + self.regularization_factor * np.eye(feature_dim)).dot(K_inv)
 
-        return np.linalg.solve(A.dot(K).dot(A.T) + self.projection_regularization_factor * np.eye(feature_dim),
-                               A.dot(K).dot(K_inv).dot(b))
-
-
-def chunks(l, n):
-    for i in range(0, len(l), n):
-        yield l[i:i+n]
+        return np.ravel(np.linalg.solve(A.dot(K).dot(A.T) + self.projection_regularization_factor * np.eye(feature_dim),
+                                        A.dot(K).dot(K_inv).dot(b)))

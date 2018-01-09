@@ -1,5 +1,6 @@
 import abc
 import os
+import gc
 
 import multiprocessing
 from typing import Tuple
@@ -23,9 +24,20 @@ import pandas as pd
 import pickle
 
 
+class KilobotSampler:
+    _VERBOSE = False
+
+    def __init__(self, num_episodes: int, num_steps_per_episode: int, *args, **kwargs):
+        self.num_episodes = num_episodes
+        self.num_steps_per_episode = num_steps_per_episode
+
+    @abc.abstractmethod
+    def __call__(self):
+        raise NotImplementedError
+
+
 class KilobotLearner(ClusterWork):
-    def __init__(self):
-        self._env_id: str = None
+    _sampler_class = None
 
     @abc.abstractmethod
     def iterate(self, config: dict, rep: int, n: int) -> dict:
@@ -39,12 +51,11 @@ class KilobotLearner(ClusterWork):
 class ACRepsLearner(KilobotLearner):
     _default_params = {
         'sampling': {
-            'num_kilobots': 10,
+            'num_kilobots': 15,
             'w_factor': .0,
-            'num_episodes': 120,
-            'num_steps_per_episode': 1,
-            'num_samples_per_iteration': 20,  # todo: clarify this variable
-            'num_SARS_samples': 5000
+            'num_episodes': 100,
+            'num_steps_per_episode': 125,
+            'num_SARS_samples': 10000
         },
         'kernel': {
             'bandwidth_factor_kb': 1.,
@@ -52,19 +63,19 @@ class ACRepsLearner(KilobotLearner):
             'weight': .5,
             'num_processes': 4
         },
-        'learn_iterations': 1,
+        'learn_iterations': 5,
         'lstd': {
             'discount_factor': .99,
-            'num_features': 200,
+            'num_features': 1000,
             'num_policy_samples': 5,
         },
         'reps': {
-            'epsilon': .5
+            'epsilon': .3
         },
         'gp': {
             'min_variance': .0,
             'regularizer': .05,
-            'num_sparse_states': 100,
+            'num_sparse_states': 1000,
             'num_learn_iterations': 1,
             'epsilon': .0,
             'epsilon_factor': 1.
@@ -97,9 +108,13 @@ class ACRepsLearner(KilobotLearner):
             print('sampling environment')
         it_sars, it_info = self._get_samples(sampling_params['num_episodes'],
                                              sampling_params['num_steps_per_episode'],
-                                             sampling_params['w_factor'], sampling_params['num_kilobots'])
+                                             sampling_params['w_factor'],
+                                             sampling_params['num_kilobots'],
+                                             parallel=True)
 
-        # TODO reward is always zero!!!!
+        mean_R = it_sars['R'].groupby(level=1).sum().mean().values
+        if self._VERBOSE:
+            print('mean reward: {}'.format(mean_R))
 
         # add samples to data set and select subset
         _extended_SARS = self._SARS.append(it_sars, ignore_index=True)
@@ -138,6 +153,8 @@ class ACRepsLearner(KilobotLearner):
             return self._state_action_kernel(np.c_[state, action], lstd_samples[['S', 'A']].values)
 
         for i in range(params['learn_iterations']):
+            print('learning iteration _{}_'.format(i))
+
             # compute feature expectation (is included in lstd code)
             # learn theta (parameters of Q-function) using lstd
             if self._VERBOSE:
@@ -147,7 +164,7 @@ class ACRepsLearner(KilobotLearner):
                                                num_policy_samples=params['lstd']['num_policy_samples'],
                                                states=self._SARS['S'].values, actions=self._SARS['A'].values,
                                                rewards=self._SARS['R'].values, next_states=self._SARS['S_'].values,
-                                               chunk_size=10)
+                                               chunk_size=100)
 
             # compute sample weights using AC-REPS
             if self._VERBOSE:
@@ -165,18 +182,13 @@ class ACRepsLearner(KilobotLearner):
 
         # save some stuff
         log_path = os.path.join(config['log_path'], '{:02d}'.format(rep), '{:02d}'.format(n), '')
-        with open(log_path + 'policy.pkl', mode='w') as policy_file:
+        os.makedirs(log_path, exist_ok=True)
+        with open(log_path + 'policy.pkl', mode='w+b') as policy_file:
             pickle.dump(self.policy, policy_file)
 
-        # evaluate policy
-        if self._VERBOSE:
-            print('evaluating learned policy')
-        it_sars, _ = self._get_samples(sampling_params['num_episodes'],
-                                       sampling_params['num_steps_per_episode'],
-                                       sampling_params['w_factor'], sampling_params['num_kilobots'])
+        return_dict = dict(mean_R=mean_R)
 
-        return_dict = dict(mean_R_old=self._SARS['R'].groupby(level=1).sum().mean(),
-                           mean_R_new=it_sars['R'].groupby(level=1).sum().mean())
+        gc.collect()
 
         return return_dict
 
@@ -200,7 +212,8 @@ class ACRepsLearner(KilobotLearner):
         self.ac_reps = ActorCriticReps()
         self.ac_reps.epsilon_action = params['reps']['epsilon']
 
-        self.policy = SparseGPPolicy(kernel=self._state_kernel, action_space=CircularGradientLight().action_space)
+        self.policy = SparseGPPolicy(kernel=self._state_kernel, action_space=CircularGradientLight().action_space,
+                                     gp_min_variance=0.005, gp_regularizer=0.001)
 
         _kb_columns_level = ['kb_{}'.format(i) for i in range(params['sampling']['num_kilobots'])]
         self._kilobots_columns = pd.MultiIndex.from_product([_kb_columns_level, ['x', 'y']])
@@ -217,69 +230,85 @@ class ACRepsLearner(KilobotLearner):
 
         self._SARS = pd.DataFrame(columns=self._SARS_columns)
 
-    @staticmethod
-    @abc.abstractmethod
-    def _get_environment(w_factor: float, num_kilobots: int) -> Tuple[KilobotsEnv, str]:
-        pass
+    def _get_samples_parallel(self, num_episodes: int, num_steps_per_episode: int, w_factor: float, num_kilobots: int):
+        num_workers = 4
 
-    def _simulate_episode(self, num_steps):
-        env = gym.make(self._env_id)
+        pool = multiprocessing.Pool(num_workers)
+        # TODO replace number of workers with parameter
+        episodes_per_worker = [num_episodes // num_workers] * num_workers
+        episodes_per_worker[-1] += num_episodes % num_workers  # the last one takes the shitload
+
+        samplers = list(map(lambda eps_p_w: self._sampler_class(eps_p_w, num_steps_per_episode, w_factor,
+                                                                num_kilobots, self.policy),
+                            episodes_per_worker))
+
+        results = pool.map(self._sampler_class.__call__, samplers)
+
+        # combine results
+        it_sars_data = results[0][0]
+        it_info = results[0][1]
+
+        for sars_i, info_i in results[1:]:
+            it_sars_data = np.concatenate((it_sars_data, sars_i))
+            it_info += info_i
+
+        _index = pd.MultiIndex.from_product([range(num_episodes), range(num_steps_per_episode)])
+        it_sars = pd.DataFrame(data=it_sars_data, index=_index, columns=self._SARS_columns)
+        return it_sars, it_info
+
+    def _get_samples(self, num_episodes: int, num_steps_per_episode: int, w_factor: float, num_kilobots: int,
+                     parallel: bool = False):
+        if parallel:
+            return self._get_samples_parallel(num_episodes, num_steps_per_episode, w_factor, num_kilobots)
+
+        sampler = self._sampler_class(num_episodes, num_steps_per_episode, w_factor, num_kilobots, self.policy)
+
+        it_sars_data, it_info = sampler()
+
+        _index = pd.MultiIndex.from_product([range(num_episodes), range(num_steps_per_episode)])
+        it_sars = pd.DataFrame(data=it_sars_data, index=_index, columns=self._SARS_columns)
+        return it_sars, it_info
+
+
+class QuadPushingSampler(KilobotSampler):
+    def __init__(self, num_episodes: int, num_steps_per_episode: int,
+                 w_factor: float, num_kilobots: int, policy=None):
+        super().__init__(num_episodes, num_steps_per_episode)
+
+        self.w_factor = w_factor
+        self.num_kilobots = num_kilobots
+
+        self.policy = policy
+
+    def set_policy(self, policy):
+        self.policy = policy
+
+    def __call__(self):
+        env_id = kb_envs.get_quadpushing_environment(weight=self.w_factor, num_kilobots=self.num_kilobots)
+        env = gym.make(env_id)
+
         state = env.get_state()
-        state_dims = len(state)
-        sars_columns = 2 * state_dims + 1 + len(env.action_space.sample())
+        state_dims = len(state) - 3
 
-        ep_sars = np.empty((num_steps, sars_columns))
-        ep_info = []
-
-        # if self._VERBOSE:
-        #     env.render()
-
-        for step in range(num_steps):
-            ep_sars[step, :state_dims] = state
-
-            action = self.policy(state.reshape((1, -1)))[0]
-            state, reward, done, info = env.step(action)
-
-            # collect samples in DataFrame
-            ep_sars[step, state_dims:] = np.r_[action, reward, state]
-
-            ep_info.append(info)
-
-            if self._VERBOSE and info:
-                print(info)
-
-            if done:
-                return ep_sars, ep_info
-
-    def _get_samples_parallel(self, num_episodes: int, steps_per_episode: int):
-        pool = multiprocessing.Pool(4)
-        results = pool.map(lambda ep: self._simulate_episode(steps_per_episode), range(num_episodes))
-        # TODO implement
-
-        pass
-
-    def _get_samples(self, num_episodes, num_steps_per_episode, w_factor, num_kilobots):
-
-        it_sars_data = np.empty((num_episodes * num_steps_per_episode, len(self._SARS_columns)))
+        # TODO remove magic numbers
+        it_sars_data = np.empty((self.num_episodes * self.num_steps_per_episode, 2 * state_dims + 3))
         it_info = []
 
-        env, env_id = self._get_environment(w_factor, num_kilobots)
-
-        state = env.get_state()
-        state_dims = len(state)
-
         # generate samples
-        for ep in range(num_episodes):
+        for ep in range(self.num_episodes):
             env.reset()
-            # if self._VERBOSE:
-            #     env.render()
-            for step in range(num_steps_per_episode):
-                i = ep * num_steps_per_episode + step
+            state = env.get_state()
+            state = state[:-3]
+            if self._VERBOSE:
+                env.render()
+            for step in range(self.num_steps_per_episode):
+                i = ep * self.num_steps_per_episode + step
 
                 it_sars_data[i, :state_dims] = state
 
                 action = self.policy(state.reshape((1, -1)))[0]
                 state, reward, done, info = env.step(action)
+                state = state[:-3]
 
                 # collect samples in DataFrame
                 it_sars_data[i, state_dims:] = np.r_[action, reward, state]
@@ -290,19 +319,11 @@ class ACRepsLearner(KilobotLearner):
                     print(info)
 
                 if done:
-                    _index = pd.MultiIndex.from_product([range(num_episodes), range(num_steps_per_episode)])
-                    it_sars = pd.DataFrame(data=it_sars_data, index=_index, columns=self._SARS_columns)
-                    return it_sars, it_info
+                    return it_sars_data, it_info
 
-        _index = pd.MultiIndex.from_product([range(num_episodes), range(num_steps_per_episode)])
-        it_sars = pd.DataFrame(data=it_sars_data, index=_index, columns=self._SARS_columns)
-        return it_sars, it_info
+        return it_sars_data, it_info
 
 
 class QuadPushingACRepsLearner(ACRepsLearner):
-    @staticmethod
-    def _get_environment(w_factor: float, num_kilobots: int):
-        env_id = kb_envs.register_quadpushing_environment(w_factor, num_kilobots)
-        environment = gym.make(env_id)
-
-        return environment, env_id
+    _sampler_class = QuadPushingSampler
+    # _sampler_class._VERBOSE = True
