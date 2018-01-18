@@ -3,6 +3,8 @@ from setuptools import setup, find_packages
 from codecs import open
 from os import path
 
+from Cython.Build import cythonize
+
 here = path.abspath(path.dirname(__file__))
 
 # Get the long description from the README file
@@ -71,6 +73,8 @@ setup(
     # Alternatively, if you want to distribute just a my_module.py, uncomment
     # this:
     py_modules=["kb_learning"],
+
+    # ext_modules = cythonize("kb_learning/kernel/_kilobot_kernel.pyx"),
 
     # List run-time dependencies here.  These will be installed by pip when
     # your project is installed. For an analysis of "install_requires" vs pip's

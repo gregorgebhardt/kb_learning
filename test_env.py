@@ -1,10 +1,15 @@
-import gym
-import kb_learning.envs
-
 import numpy as np
+from kb_learning.learner._learner import QuadPushingACRepsLearner
 
-env = gym.make('Kilobots-QuadPushingEnv_w{:03}_kb{}-v0'.format(int(.0 * 100), 15))
 
-env.render()
-for i in range(120):
-    env.step(env.action_space.sample())
+zeros = np.array([[.0, .0]])
+
+
+def policy(s):
+    return zeros
+
+
+learner = QuadPushingACRepsLearner()
+learner.policy = policy
+
+learner._get_samples_parallel(100, 125, .0, 15)

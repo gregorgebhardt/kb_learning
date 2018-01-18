@@ -8,16 +8,16 @@ class LeastSquaresTemporalDifference:
         self.lstd_regularization_factor = 1e-8
         self.lstd_projection_regularization_factor = 1e-6
 
-    def learnLSTD(self, phi, phi_next, reward):
+    def learn_q_function(self, phi, phi_next, rewards):
         """compute the parameters theta of an approximation to the Q-function Q(s,a) = phi(s,a) * theta
 
         :param phi: the state-action features for samples s, a
         :param phi_next: the next state action features for samples s', a'
-        :param reward: the reward for taking action a in state s
+        :param rewards: the reward for taking action a in state s
         :return: the parameters theta of the Q-function approximation
         """
         _A = phi.T.dot(phi - self.discount_factor * phi_next)
-        _b = (phi * reward).sum(axis=0).T
+        _b = (phi * rewards).sum(axis=0).T
 
         _I = np.eye(phi.shape[1])
 
@@ -28,7 +28,7 @@ class LeastSquaresTemporalDifference:
         return np.linalg.solve(_X.T.dot(_X) + self.lstd_projection_regularization_factor * _I, _X.T.dot(_y))
 
 
-class LeastSquarsTemporalDifferenceOptimized:
+class LeastSquaresTemporalDifferenceOptimized:
     def __init__(self, discount_factor=0.98, regularization_factor=1e-8, projection_regularization_factor=1e-6):
         self.discount_factor = discount_factor
         self.regularization_factor = regularization_factor
@@ -45,7 +45,7 @@ class LeastSquarsTemporalDifferenceOptimized:
         for s, a, r, s_ in zip(np_chunks(states, chunk_size), np_chunks(actions, chunk_size),
                                np_chunks(rewards, chunk_size), np_chunks(next_states, chunk_size)):
             phi = feature_mapping(s, a)
-            # TODO adapt this function to process chunks of data
+            # TODO take mean of GP instead of samples
             phi_next = np.array([feature_mapping(s_, policy(s_)) for _ in range(num_policy_samples)]).mean(0)
             # if chunk_size is 1:
             #     phi_outer = np.outer(phi, phi)

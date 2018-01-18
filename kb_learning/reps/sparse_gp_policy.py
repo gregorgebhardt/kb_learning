@@ -39,10 +39,18 @@ class SparseGPPolicy:
         return samples
 
     def train(self, state, actions, weights, sparse_states):
+        """
+
+        :param state: N x d_states
+        :param actions: N x d_actions
+        :param weights: N
+        :param sparse_states: M x d_states
+        :return:
+        """
+
         self.sparse_states = sparse_states
 
         # kernel matrix on subset of samples
-        # TODO check self.kernel (needs to be state or state-action kernel?)
         k = self.gp_prior_variance * self.kernel(sparse_states, sparse_states)
 
         weights /= weights.max()
@@ -56,7 +64,6 @@ class SparseGPPolicy:
         else:
             raise Exception("SparseGPPolicy: Cholesky decomposition failed")
 
-        # TODO check self.kernel (needs to be state or state-action kernel?)
         kernel_vectors = self.gp_prior_variance * self.kernel(state, sparse_states)
 
         _regularizer = 0

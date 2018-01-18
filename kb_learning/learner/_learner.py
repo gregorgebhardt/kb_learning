@@ -9,9 +9,14 @@ from cluster_work import ClusterWork
 
 from kb_learning.kernel import StateKernel, StateActionKernel
 from kb_learning.kernel import compute_median_bandwidth
-from kb_learning.reps.lstd import LeastSquarsTemporalDifferenceOptimized
+from kb_learning.reps.lstd import LeastSquaresTemporalDifferenceOptimized, LeastSquaresTemporalDifference
 from kb_learning.reps.ac_reps import ActorCriticReps
 from kb_learning.reps.sparse_gp_policy import SparseGPPolicy
+
+# import pyximport
+# pyximport.install()
+#
+# from kb_learning.reps.sparse_gp_policy_c import SparseGPPolicy
 
 import gym
 import kb_learning.envs as kb_envs
@@ -22,6 +27,8 @@ import numpy as np
 import pandas as pd
 
 import pickle
+
+from kb_learning.tools import np_chunks
 
 
 class KilobotSampler:
@@ -61,13 +68,13 @@ class ACRepsLearner(KilobotLearner):
             'bandwidth_factor_kb': 1.,
             'bandwidth_factor_la': 1.,
             'weight': .5,
-            'num_processes': 4
+            'num_processes': 2
         },
-        'learn_iterations': 5,
+        'learn_iterations': 1,
         'lstd': {
             'discount_factor': .99,
             'num_features': 1000,
-            'num_policy_samples': 5,
+            'num_policy_samples': 1,
         },
         'reps': {
             'epsilon': .3
@@ -76,7 +83,6 @@ class ACRepsLearner(KilobotLearner):
             'min_variance': .0,
             'regularizer': .05,
             'num_sparse_states': 1000,
-            'num_learn_iterations': 1,
             'epsilon': .0,
             'epsilon_factor': 1.
         }
@@ -134,7 +140,7 @@ class ACRepsLearner(KilobotLearner):
 
         # compute feature matrices
         if self._VERBOSE:
-            print('computing lstd features')
+            print('selecting lstd samples')
         lstd_samples = self._SARS[['S', 'A']].sample(params['lstd']['num_features'])
 
         # phi_s = self._state_kernel(self._SARS['S'].values, lstd_samples['S'].values)
@@ -153,31 +159,55 @@ class ACRepsLearner(KilobotLearner):
             return self._state_action_kernel(np.c_[state, action], lstd_samples[['S', 'A']].values)
 
         for i in range(params['learn_iterations']):
-            print('learning iteration _{}_'.format(i))
+            # print('learning iteration _{}_'.format(i))
 
-            # compute feature expectation (is included in lstd code)
+            # compute features
+            if self._VERBOSE:
+                print('lstd: compute features')
+            phi_SA = state_action_features(self._SARS['S'].values, self._SARS['A'].values)
+            phi_SA_next = state_action_features(self._SARS['S'].values, self.policy(self._SARS['A'].values))
+
             # learn theta (parameters of Q-function) using lstd
             if self._VERBOSE:
                 print('lstd: learning theta')
-            theta = self.lstd.learn_q_function(feature_mapping=state_action_features,
-                                               feature_dim=params['lstd']['num_features'], policy=self.policy,
-                                               num_policy_samples=params['lstd']['num_policy_samples'],
-                                               states=self._SARS['S'].values, actions=self._SARS['A'].values,
-                                               rewards=self._SARS['R'].values, next_states=self._SARS['S_'].values,
-                                               chunk_size=100)
+
+            # theta = self.lstd.learn_q_function(feature_mapping=state_action_features,
+            #                                    feature_dim=params['lstd']['num_features'], policy=self.policy,
+            #                                    num_policy_samples=params['lstd']['num_policy_samples'],
+            #                                    states=self._SARS['S'].values, actions=self._SARS['A'].values,
+            #                                    rewards=self._SARS['R'].values, next_states=self._SARS['S_'].values,
+            #                                    chunk_size=100)
+
+            theta = self.lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._SARS['R'].values)
+
+            # compute q-function
+            if self._VERBOSE:
+                print('ac-reps: compute q-function')
+            q_fct = phi_SA.dot(theta)
+
+            # compute state features
+            if self._VERBOSE:
+                print('ac-reps: compute state features')
+            phi_S = state_features(self._SARS['S'].values)
+
+            # for s, a in zip(np_chunks(self._SARS['S'].values, 100), np_chunks(self._SARS['S'].values, 100)):
+            #     q_fct = np.append(q_fct, state_action_features(s, a).dot(theta))
+            #     phi_S = np.append(phi_S, state_features(s))
+            # q_fct = state_action_features(self._SARS['S'].values, self._SARS['A'].values).dot(theta)
 
             # compute sample weights using AC-REPS
             if self._VERBOSE:
                 print('ac-reps: learning weights')
-            q_fct = state_action_features(self._SARS['S'].values, self._SARS['A'].values).dot(theta)
-            weights = self.ac_reps.compute_weights(q_fct, state_features(self._SARS['S'].values))
+            weights = self.ac_reps.compute_weights(q_fct, phi_S)
 
             # get subset for sparse GP
             if self._VERBOSE:
-                print('gp: fitting to policy')
+                print('gp: select samples for gp')
             gp_samples = self._SARS['S'].sample(params['gp']['num_sparse_states']).values
 
             # fit weighted GP to samples
+            if self._VERBOSE:
+                print('gp: fitting to policy')
             self.policy.train(self._SARS['S'].values, self._SARS['A'].values, weights, gp_samples)
 
         # save some stuff
@@ -206,7 +236,8 @@ class ACRepsLearner(KilobotLearner):
                                                       bandwidth_light=kernel_params['bandwidth_factor_la'],
                                                       num_processes=kernel_params['num_processes'])
 
-        self.lstd = LeastSquarsTemporalDifferenceOptimized()
+        self.lstd = LeastSquaresTemporalDifference()
+        # self.lstd = LeastSquaresTemporalDifference()
         self.lstd.discount_factor = params['lstd']['discount_factor']
 
         self.ac_reps = ActorCriticReps()
@@ -243,6 +274,8 @@ class ACRepsLearner(KilobotLearner):
                             episodes_per_worker))
 
         results = pool.map(self._sampler_class.__call__, samplers)
+
+        pool.close()
 
         # combine results
         it_sars_data = results[0][0]
@@ -294,8 +327,10 @@ class QuadPushingSampler(KilobotSampler):
         it_sars_data = np.empty((self.num_episodes * self.num_steps_per_episode, 2 * state_dims + 3))
         it_info = []
 
+        # TODO sample episodes in parallel
         # generate samples
         for ep in range(self.num_episodes):
+            print(ep)
             env.reset()
             state = env.get_state()
             state = state[:-3]
@@ -324,6 +359,48 @@ class QuadPushingSampler(KilobotSampler):
         return it_sars_data, it_info
 
 
+class QuadPushingParallelSampler(QuadPushingSampler):
+    def __init__(self, num_episodes: int, num_steps_per_episode: int,
+                 w_factor: float, num_kilobots: int, policy=None):
+        super().__init__(num_episodes, num_steps_per_episode, w_factor, num_kilobots, policy)
+
+    def __call__(self):
+        env_id = kb_envs.get_quadpushing_environment(weight=self.w_factor, num_kilobots=self.num_kilobots)
+        envs = [gym.make(env_id) for i in range(self.num_episodes)]
+
+        states = np.array([e.get_state() for e in envs])
+        reward = np.empty((self.num_episodes, 1))
+        info = list()
+
+        state_dims = states.shape[1] - 3
+
+        # TODO remove magic numbers
+        it_sars_data = np.empty((self.num_episodes * self.num_steps_per_episode, 2 * state_dims + 3))
+        # it_info = []
+
+        for step in range(self.num_steps_per_episode):
+            print(step)
+            # i = self.num_steps_per_episode + step
+
+            it_sars_data[step::self.num_steps_per_episode, :state_dims] = states[:, :-3]
+
+            actions = self.policy(states[:, :-3])
+            srdi = [e.step(a) for e, a in zip(envs, actions)]
+            for i in range(self.num_episodes):
+                states[i, :] = srdi[i][0]
+                reward[i] = srdi[i][1]
+                info.append(srdi[i][3])
+            # state = state[:-3]
+
+            # collect samples in DataFrame
+            it_sars_data[step::self.num_steps_per_episode, state_dims:] = np.c_[actions, reward, states[:, :-3]]
+
+            # if done:
+            #     return it_sars_data, it_info
+
+        return it_sars_data, info
+
+
 class QuadPushingACRepsLearner(ACRepsLearner):
-    _sampler_class = QuadPushingSampler
+    _sampler_class = QuadPushingParallelSampler
     # _sampler_class._VERBOSE = True
