@@ -4,27 +4,23 @@ import scipy.linalg
 from sklearn.gaussian_process.kernels import Kernel
 from gym import Space
 
-# def fromSerializableDict(d):
-#     return SparseGPPolicy.fromSerializableDict(d)
-
 
 class SparseGPPolicy:
-    def __init__(self, kernel: Kernel, action_space: Space, gp_min_variance=1.0, gp_regularizer=0.05):
+    def __init__(self, kernel: Kernel, action_space: Space):
         # TODO add documentation
         """
 
         :param kernel:
         :param action_space: gym.Space
-        :param gp_min_variance:
-        :param gp_regularizer:
         """
         self.gp_prior_variance = 0.001
-        self.gp_regularizer = gp_regularizer  # TODO toolbox / NLopt
-        self.SparseGPInducingOutputRegularization = 1e-6
+        self.gp_regularizer = 1e-9
+        self.gp_noise_variance = 1e-6
 
-        self.gp_min_variance = gp_min_variance
+        self.gp_min_variance = 0.005
         self.use_gp_bug = False
 
+        self.Q_Km = None
         self.alpha = None
         self.trained = False
 
@@ -38,7 +34,7 @@ class SparseGPPolicy:
 
         return samples
 
-    def train(self, state, actions, weights, sparse_states):
+    def train(self, states, actions, weights, sparse_states):
         """
 
         :param state: N x d_states
@@ -50,42 +46,70 @@ class SparseGPPolicy:
 
         self.sparse_states = sparse_states
 
-        # kernel matrix on subset of samples
-        k = self.gp_prior_variance * self.kernel(sparse_states, sparse_states)
-
         weights /= weights.max()
 
-        for i in range(100):
-            try:
-                self.k_cholesky = scipy.linalg.cholesky(k + np.eye(k.shape[0]) * self.gp_regularizer * 2**i)
-                break
-            except scipy.linalg.LinAlgError:
-                continue
-        else:
-            raise Exception("SparseGPPolicy: Cholesky decomposition failed")
+        # kernel matrix on subset of samples
+        K_m = self.gp_prior_variance * self.kernel(sparse_states)
+        K_mn = self.gp_prior_variance * self.kernel(sparse_states, states)
 
-        kernel_vectors = self.gp_prior_variance * self.kernel(state, sparse_states)
-
-        _regularizer = 0
+        # fix cholesky with regularizer
+        reg_I = self.gp_regularizer * np.eye(K_m.shape[0])
         while True:
             try:
-                k_cholesky_inv = np.linalg.pinv(self.k_cholesky + _regularizer * np.eye(self.k_cholesky.shape[0]))
-                k_cholesky_t_inv = np.linalg.pinv(self.k_cholesky.T + _regularizer * np.eye(self.k_cholesky.shape[0]))
+                K_m_c = scipy.linalg.cholesky(K_m, lower=True), True
+                print('regularization for chol: {}'.format(reg_I[0, 0]))
                 break
-            except scipy.linalg.LinAlgError:
-                if _regularizer == 0:
-                    _regularizer = 1e-10
-                else:
-                    _regularizer *= 2
+            except np.linalg.LinAlgError:
+                K_m += reg_I
+                reg_I *= 2
+        else:
+            raise Exception("SparseGPPolicy: Cholesky decomposition failed")
+        # sparse_weights = weights[sparse_index]
+        # K_m = K_m_c[0].dot(np.diag(sparse_weights)).dot(K_m_c[0].T)
 
-        feature_vectors = kernel_vectors.dot(k_cholesky_inv).dot(k_cholesky_t_inv)
-        feature_vectors_w = feature_vectors * weights[:, None]
+        L = self.kernel.diag(states) \
+            - np.sum(K_mn * scipy.linalg.cho_solve(K_m_c, K_mn), axis=0).squeeze() \
+            + self.gp_noise_variance
+        L = np.diag((1 / L) * weights)
 
-        x = feature_vectors_w.T.dot(feature_vectors)
-        x += np.eye(feature_vectors.shape[1]) * self.SparseGPInducingOutputRegularization
-        y = np.linalg.solve(x, feature_vectors_w.T).dot(actions)
+        Q = K_m + K_mn.dot(L).dot(K_mn.T)
+        self.alpha = np.linalg.solve(Q, K_mn).dot(L).dot(actions)
 
-        self.alpha = np.linalg.solve(self.k_cholesky, np.linalg.solve(self.k_cholesky.T, y))
+        self.Q_Km = np.linalg.pinv(K_m) - np.linalg.pinv(Q)
+
+        # k = self.gp_prior_variance * self.kernel(sparse_states, sparse_states)
+
+        # for i in range(100):
+        #     try:
+        #         self.k_cholesky = scipy.linalg.cholesky(k + np.eye(k.shape[0]) * self.gp_regularizer * 2**i)
+        #         break
+        #     except scipy.linalg.LinAlgError:
+        #         continue
+        # else:
+        #     raise Exception("SparseGPPolicy: Cholesky decomposition failed")
+        #
+        # kernel_vectors = self.gp_prior_variance * self.kernel(state, sparse_states)
+        #
+        # _regularizer = 0
+        # while True:
+        #     try:
+        #         k_cholesky_inv = np.linalg.pinv(self.k_cholesky + _regularizer * np.eye(self.k_cholesky.shape[0]))
+        #         k_cholesky_t_inv = np.linalg.pinv(self.k_cholesky.T + _regularizer * np.eye(self.k_cholesky.shape[0]))
+        #         break
+        #     except scipy.linalg.LinAlgError:
+        #         if _regularizer == 0:
+        #             _regularizer = 1e-10
+        #         else:
+        #             _regularizer *= 2
+        #
+        # feature_vectors = kernel_vectors.dot(k_cholesky_inv).dot(k_cholesky_t_inv)
+        # feature_vectors_w = feature_vectors * weights[:, None]
+        #
+        # x = feature_vectors_w.T.dot(feature_vectors)
+        # x += np.eye(feature_vectors.shape[1]) * self.SparseGPInducingOutputRegularization
+        # y = np.linalg.solve(x, feature_vectors_w.T).dot(actions)
+        #
+        # self.alpha = np.linalg.solve(self.k_cholesky, np.linalg.solve(self.k_cholesky.T, y))
 
         self.trained = True
 
@@ -99,10 +123,10 @@ class SparseGPPolicy:
             else:
                 return self._get_random_actions(S.shape[0])
 
-        k_ = self.gp_prior_variance * self.kernel(S, self.sparse_states)
-        return k_.dot(self.alpha)
+        k = self.kernel(S, self.sparse_states)
+        return k.T.dot(self.alpha)
 
-    def sample_actions(self, states, low_memory=False):
+    def sample_actions(self, states):
         if not self.trained:
             if states.ndim > 1:
                 return self._get_random_actions(states.shape[0])
@@ -111,20 +135,19 @@ class SparseGPPolicy:
 
         action_dim = self.alpha.shape[1]
 
-        if low_memory:
-            # TODO check against IP implementation
-            k_ = self.gp_prior_variance * self.kernel(states, self.sparse_states)
-        else:
-            k_ = self.gp_prior_variance * self.kernel(states, self.sparse_states)
+        k = self.kernel(states, self.sparse_states) * self.gp_prior_variance
 
-        gp_mean = k_.dot(self.alpha)
+        gp_mean = k.dot(self.alpha)
 
-        temp = np.linalg.solve(self.k_cholesky.T, k_.T)
-        temp = np.square(temp.T)
-        gp_sigma = temp.sum(1)
+        gp_sigma = self.gp_prior_variance * self.kernel.diag(states) \
+            - np.sum(k.T * self.Q_Km.dot(k.T), axis=0) + self.gp_noise_variance
 
-        kernel_self = self.gp_prior_variance * self.kernel.diag(states)
-        gp_sigma = kernel_self.squeeze() - gp_sigma.squeeze()
+        # temp = np.linalg.solve(self.k_cholesky.T, k_.T)
+        # temp = np.square(temp.T)
+        # gp_sigma = temp.sum(1)
+        #
+        # kernel_self = self.gp_prior_variance * self.kernel.diag(states)
+        # gp_sigma = kernel_self.squeeze() - gp_sigma.squeeze()
 
         if gp_sigma.shape == ():  # single number
             gp_sigma = np.array([gp_sigma])

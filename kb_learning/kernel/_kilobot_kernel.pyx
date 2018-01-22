@@ -131,6 +131,7 @@ cdef class ExponentialQuadraticKernel(Kernel):
 cdef class KilobotKernel:
     def __init__(self, bandwidth_factor=1., num_processes=1):
         self._kernel_func = ExponentialQuadraticKernel()
+        self.bandwidth_factor = bandwidth_factor
         # self.num_processes = num_processes
 
     cdef _compute_kb_distance(self, np.ndarray k1, np.ndarray k2):
@@ -166,8 +167,11 @@ cdef class KilobotKernel:
         cdef np.ndarray k_nm = np.empty((q, r))
         k_n = self._kernel_func.get_gram_matrix_multi(k1_reshaped).sum(axis=(1, 2)) / (num_kb_1 ** 2)
         k_m = self._kernel_func.get_gram_matrix_multi(k2_reshaped).sum(axis=(1, 2)) / (num_kb_2 ** 2)
-        for i in range(0,r,10):
-            k_nm[:, r:r+10] = self._kernel_func.get_gram_matrix_multi(k1_reshaped, k2_reshaped[r:r+10]).sum(axis=(2, 3))
+        cdef int chunk_size = 100
+        for i in range(0, r, chunk_size):
+            k_nm[:, i:i+chunk_size] = self._kernel_func.get_gram_matrix_multi(
+                k1_reshaped, k2_reshaped[i:i+chunk_size]).sum(axis=(2, 3))
+        # k_nm[k_nm < 1e-12] = 0
         k_nm /= (0.5 * num_kb_1 * num_kb_2)
 
         # compute the kernel values within each configuration of k1
@@ -210,17 +214,12 @@ cdef class KilobotKernel:
 
         return k_n[:, np.newaxis] + k_m[np.newaxis, :] - k_nm
 
-    def __call__(self, X, Y=None, eval_gradient=False):
-        # if self.num_processes > 1:
-        #     return pairwise_distances(X, Y, self._compute_kb_distance, n_jobs=self.num_processes)
-        # else:
-        # if Y is None:
-        #     return squareform(pdist(X, self._compute_kb_distance))
-        return self._compute_kb_distance(X, Y)
+    def __call__(self, k1, k2, eval_gradient=False):
+        return self._compute_kb_distance(k1, k2)
 
     def diag(self, X):
         if len(X.shape) > 1:
-            return np.zeros((X.shape[0], 1))
+            return np.zeros((X.shape[0],))
         return np.zeros(1)
 
     def is_stationary(self):
@@ -228,11 +227,9 @@ cdef class KilobotKernel:
 
     def set_bandwidth(self, bandwidth):
         bandwidth = bandwidth.reshape((-1, 2)).mean(axis=0)
-        self._kernel_func.bandwidth = bandwidth
+        self._kernel_func.bandwidth = self.bandwidth_factor * bandwidth
 
     def set_params(self, **params):
         if 'bandwidth' in params:
             self.set_bandwidth(params['bandwidth'])
-        if 'num_processes' in params:
-            self.num_processes = params['num_processes']
 

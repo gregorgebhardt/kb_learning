@@ -56,7 +56,11 @@ class QuadPushingEnv(KilobotsEnv):
                               + (self._light.get_state(),)
                               + tuple(o.get_pose() for o in self._objects))
 
-    def _reward(self, state, _, new_state):
+    def get_observation(self):
+        return np.concatenate(tuple(k.get_position() for k in self._kilobots)
+                              + (self._light.get_state(),))
+
+    def get_reward(self, state, _, new_state):
         obj_pose = state[self._num_kilobots * 2 + 2:]
         obj_pose_new = new_state[self._num_kilobots * 2 + 2:]
 
