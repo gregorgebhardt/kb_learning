@@ -4,6 +4,9 @@ import scipy.linalg
 from sklearn.gaussian_process.kernels import Kernel
 from gym import Space
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class SparseGPPolicy:
     def __init__(self, kernel: Kernel, action_space: Space):
@@ -57,7 +60,7 @@ class SparseGPPolicy:
         while True:
             try:
                 K_m_c = scipy.linalg.cholesky(K_m, lower=True), True
-                print('regularization for chol: {}'.format(reg_I[0, 0]))
+                logger.info('regularization for chol: {}'.format(reg_I[0, 0]))
                 break
             except np.linalg.LinAlgError:
                 K_m += reg_I

@@ -2,6 +2,9 @@ import numpy as np
 from numexpr import evaluate as ev
 from scipy.optimize import minimize
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class ActorCriticReps:
     def __init__(self):
@@ -105,7 +108,7 @@ class ActorCriticReps:
         # test gradient
         if False:
             g_dot, g_dot_numeric = self._numerical_dual_gradient(Q=Q, phi=phi, phi_hat=phi_hat, theta=theta, eta=eta)
-            print('Gradient error: {:f}'.format(abs(g_dot - g_dot_numeric).max()))
+            logger.info('Gradient error: {:f}'.format(abs(g_dot - g_dot_numeric).max()))
 
         def optim_func(params):
             return self._dual_function(Q=Q, phi=phi, phi_hat=phi_hat,
@@ -145,24 +148,24 @@ class ActorCriticReps:
             kl_divergence = self._get_KL_divergence(weights)
 
             if kl_divergence > 3 or np.isnan(kl_divergence):
-                print('KL_divergence warning')
+                logger.warning('KL_divergence warning')
 
             state_feature_difference = phi_hat - (phi * weights.reshape((-1, 1))).sum(0)
 
             feature_error = abs(state_feature_difference).max()
-            print('Feature Error: {:f}, KL: {:f}'.format(feature_error, kl_divergence))
+            logger.info('Feature Error: {:f}, KL: {:f}'.format(feature_error, kl_divergence))
 
             if not np.isinf(best_feature_error) and i >= 10 and feature_error >= best_feature_error:
                 without_improvement = without_improvement + 1
             if without_improvement >= 3:
-                print('No improvement within the last 3 iterations.')
+                logger.info('No improvement within the last 3 iterations.')
                 break
 
             if abs(kl_divergence - self.epsilon_action) < 0.05 \
                     and feature_error < 0.01 \
                     and feature_error < best_feature_error:
 
-                print('Accepted solution.')
+                logger.info('Accepted solution.')
                 without_improvement = 0
                 return_weights = weights
 
@@ -170,11 +173,11 @@ class ActorCriticReps:
 
                 if abs(kl_divergence - self.epsilon_action) < 0.05 \
                         and feature_error < 0.001:
-                    print('Found sufficient solutions.')
+                    logger.info('Found sufficient solutions.')
                     break
 
             if (abs(state_feature_difference) - last_feature_error).max() > -0.000001:
-                print('Solution unchanged or degrading, restart from new point')
+                logger.info('Solution unchanged or degrading, restart from new point')
                 theta = np.random.random(theta.shape) * 2.0 - 1.0
                 last_feature_error = np.Inf
             else:

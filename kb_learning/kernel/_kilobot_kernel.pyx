@@ -167,7 +167,7 @@ cdef class KilobotKernel:
         cdef np.ndarray k_nm = np.empty((q, r))
         k_n = self._kernel_func.get_gram_matrix_multi(k1_reshaped).sum(axis=(1, 2)) / (num_kb_1 ** 2)
         k_m = self._kernel_func.get_gram_matrix_multi(k2_reshaped).sum(axis=(1, 2)) / (num_kb_2 ** 2)
-        cdef int chunk_size = 100
+        cdef int chunk_size = 10
         for i in range(0, r, chunk_size):
             k_nm[:, i:i+chunk_size] = self._kernel_func.get_gram_matrix_multi(
                 k1_reshaped, k2_reshaped[i:i+chunk_size]).sum(axis=(2, 3))
