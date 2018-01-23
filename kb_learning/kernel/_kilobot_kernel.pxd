@@ -1,10 +1,6 @@
 cimport numpy as np
 
-cdef class Kernel:
-    cdef np.ndarray get_gram_matrix(self, np.ndarray a, np.ndarray b=?)
-    cdef np.ndarray get_gram_matrix_multi(self, np.ndarray a, np.ndarray b=?)
-
-cdef class ExponentialQuadraticKernel(Kernel):
+cdef class ExponentialQuadraticKernel:
     cdef public np.ndarray bandwidth
     cdef int normalized
     cdef np.ndarray get_gram_matrix(self, np.ndarray a, np.ndarray b=?)
@@ -14,5 +10,5 @@ cdef class ExponentialQuadraticKernel(Kernel):
 
 cdef class KilobotKernel:
     cdef public double bandwidth_factor
-    cdef Kernel _kernel_func
-    cdef _compute_kb_distance(self, np.ndarray k1, np.ndarray k2)
+    cdef ExponentialQuadraticKernel _kernel_func
+    cdef np.ndarray _compute_kb_distance(self, np.ndarray k1, np.ndarray k2)

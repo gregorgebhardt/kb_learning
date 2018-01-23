@@ -1,3 +1,6 @@
+from cython.parallel import prange
+# from cython.view cimport array as cvarray
+
 import numpy as np
 cimport numpy as np
 
@@ -7,32 +10,8 @@ DTYPE = np.float64
 
 ctypedef np.float_t DTYPE_t
 
-cdef class Kernel:
-    # Evaluates kernel for all elements
-    # Compute gram matrix of the form
-    #  -----------------------------
-    #  | k(x₁,y₁) | k(x₁,y₂) | ... |
-    #  -----------------------------
-    #  | k(x₂,y₁) | k(x₂,y₂) | ... |
-    #  -----------------------------
-    #  | ...      | ...      | ... |
-    #  -----------------------------
-    # if y=None, K(x,x) is computed
-    cdef np.ndarray get_gram_matrix(self, np.ndarray a, np.ndarray b=None):
-        pass
 
-    cdef np.ndarray get_gram_matrix_multi(self, np.ndarray a, np.ndarray b=None):
-        pass
-
-    # Returns the diagonal of the gram matrix
-    # which means the kernel is evaluated between every data point and itself
-    def get_gram_diag(self, data):
-        diag = np.zeros(data.shape[0])
-
-        for i in range(data.shape[0]):
-            diag[i] = self.__call__(data[i, :], data[i, :])
-
-cdef class ExponentialQuadraticKernel(Kernel):
+cdef class ExponentialQuadraticKernel:
     def __init__(self, normalized=0):
         self.normalized = normalized
 
@@ -70,28 +49,40 @@ cdef class ExponentialQuadraticKernel(Kernel):
         :param b: r x m x d matrix of kilobot positions
         :return:  q x r x n x m matrix if a and b are given, q x n x n if only a is given
         """
-        assert a.dtype == DTYPE
+        # assert a.dtype == DTYPE
 
-        cdef np.ndarray q, sq_dist
+        cdef int q, n
+        cdef int r, m
 
-        if np.isscalar(self.bandwidth):
-            q = np.eye(a.shape[-1]) / (self.bandwidth ** 2)
-        else:
-            # assert (a.shape[-1] == self.bandwidth.shape[0])
-            q = np.diag((np.ones(self.bandwidth.shape[0]) / (self.bandwidth ** 2)))
+        q = a.shape[0]
+        n = a.shape[1]
 
-        cdef np.ndarray aq = a.dot(q)
+        cdef np.ndarray sq_dist
+
+        cdef np.ndarray bw = np.array(1 / (self.bandwidth ** 2), ndmin=3)
+
+        cdef np.ndarray aq = a * bw
         cdef np.ndarray aq_a = np.sum(aq * a, axis=-1)
         cdef np.ndarray bq_b
         if b is None:
-            sq_dist = aq_a[..., np.newaxis, :] + aq_a[..., np.newaxis]
-            sq_dist -= 2 * np.sum(aq[:, :, np.newaxis, :] * a[:, np.newaxis, :, :], axis=-1)
+            sq_dist = aq_a[:, None, :] + aq_a[:, :, None]
+            sq_dist -= 2 * np.einsum('qid,qjd->qij', aq, a)
+            # for i in range(q):
+            #     sq_dist[i, 0, :, :] = np.add(aq_a[i, None, :], aq_a[i, :, None])
+            #     sq_dist[i, 0, :, :] -= 2 * np.sum(np.multiply(aq[i, :, None, :], a[1, None, :, :]), axis=-1)
         else:
+            r = b.shape[0]
+            m = b.shape[1]
             assert b.dtype == DTYPE
-            bq_b = np.sum(b.dot(q) * b, axis=-1)
-            sq_dist = aq_a[:, np.newaxis, :, np.newaxis] + bq_b[np.newaxis, :, np.newaxis, :]
-            sq_dist -= 2 * np.sum(aq[:, np.newaxis, :, np.newaxis, :] * b[np.newaxis, :, np.newaxis, :, :], axis=-1)
-        cdef np.ndarray K = np.exp(-0.5 * sq_dist)
+            bq_b = np.sum((b * bw) * b, axis=-1)
+            sq_dist = aq_a[:, None, :, None] + bq_b[None, :, None, :]
+            sq_dist -= 2 * np.einsum('qid,rjd->qrij', aq, b)
+            # sq_dist = np.zeros((q, r, n, m))
+            # for i in range(q):
+            #     for j in range(r):
+            #         sq_dist[i, j, :, :] = np.subtract(np.add(aq_a[i, None, :, None], bq_b[None, j, None, :]),
+            #             2 * np.sum(np.multiply(aq[i, None, :, None, :], b[None, j, None, :, :]), axis=-1))
+        cdef np.ndarray K = np.exp(np.multiply(-0.5, sq_dist))
 
         return K
 
@@ -109,7 +100,7 @@ cdef class ExponentialQuadraticKernel(Kernel):
                                                       gram_matrix.shape[1]])
 
         for dim in range(self.bandwidth.shape[0]):
-            sqdist = (data[:, dim, np.newaxis] - data[:, dim]) ** 2
+            sqdist = (data[:, dim, None] - data[:, dim]) ** 2
             gradient_matrices[dim, :, :] = gram_matrix * (sqdist / (self.bandwidth[dim] ** 3))
 
         return gradient_matrices, gram_matrix
@@ -126,7 +117,7 @@ cdef class ExponentialQuadraticKernel(Kernel):
 
         cdef np.ndarray scaleddist = -2 * (cur_data.dot(q) - ref_data.dot(q))
 
-        return gram_matrix.T[np.newaxis, ...] * scaleddist
+        return gram_matrix.T[None, ...] * scaleddist
 
 cdef class KilobotKernel:
     def __init__(self, bandwidth_factor=1., num_processes=1):
@@ -134,7 +125,7 @@ cdef class KilobotKernel:
         self.bandwidth_factor = bandwidth_factor
         # self.num_processes = num_processes
 
-    cdef _compute_kb_distance(self, np.ndarray k1, np.ndarray k2):
+    cdef np.ndarray _compute_kb_distance(self, np.ndarray k1, np.ndarray k2):
         """Computes the kb distance matrix between any configuration in k1 and any configuration in k2.
 
         :param k1: q x 2*d1 matrix of q configurations with each d1 kilobots
@@ -143,7 +134,8 @@ cdef class KilobotKernel:
         """
         cdef int N, m
         cdef int num_kb_1, num_kb_2
-
+        cdef int q, r
+        cdef int i
 
         # number of samples in k1
         q = k1.shape[0]
@@ -157,62 +149,21 @@ cdef class KilobotKernel:
         num_kb_2 = k2.shape[1] // 2
 
         # reshape matrices
-        # cdef np.ndarray k1_reshaped = np.c_[k1.flat[0::2], k1.flat[1::2]]
-        # cdef np.ndarray k2_reshaped = np.c_[k2.flat[0::2], k2.flat[1::2]]
-
         cdef np.ndarray k1_reshaped = k1.reshape(q, num_kb_1, 2)
         cdef np.ndarray k2_reshaped = k2.reshape(r, num_kb_2, 2)
 
-        cdef np.ndarray k_n, k_m
-        cdef np.ndarray k_nm = np.empty((q, r))
+        cdef np.ndarray[DTYPE_t, ndim=1] k_n, k_m
+        cdef np.ndarray[DTYPE_t, ndim=2] k_nm = np.empty((q, r), dtype=DTYPE)
         k_n = self._kernel_func.get_gram_matrix_multi(k1_reshaped).sum(axis=(1, 2)) / (num_kb_1 ** 2)
         k_m = self._kernel_func.get_gram_matrix_multi(k2_reshaped).sum(axis=(1, 2)) / (num_kb_2 ** 2)
-        cdef int chunk_size = 10
+        cdef int chunk_size = 50
         for i in range(0, r, chunk_size):
             k_nm[:, i:i+chunk_size] = self._kernel_func.get_gram_matrix_multi(
                 k1_reshaped, k2_reshaped[i:i+chunk_size]).sum(axis=(2, 3))
         # k_nm[k_nm < 1e-12] = 0
-        k_nm /= (0.5 * num_kb_1 * num_kb_2)
+        k_nm = np.divide(k_nm, 0.5 * num_kb_1 * num_kb_2)
 
-        # compute the kernel values within each configuration of k1
-        # cdef np.ndarray k_n = np.empty((n, 1))
-        # cdef np.ndarray k_m = np.empty((1, m))
-        # cdef np.ndarray k_nm = np.empty((n, m))
-        #
-        # cdef int i, j
-        # cdef np.ndarray chunk_n, chunk_m
-        # for i in range(n):
-        #     k_n[i] = self._kernel_func.get_gram_matrix(k1_reshaped[i*num_kb_1:(i+1)*num_kb_1]).sum()
-        #
-        #     for j in range(m):
-        #         if i == 0:
-        #             # compute the kernel values within each configuration of k2
-        #             k_m.flat[j] = self._kernel_func.get_gram_matrix(k2_reshaped[j * num_kb_2:(j + 1) * num_kb_2]).sum()
-        #
-        #         k_nm[i, j] = self._kernel_func.get_gram_matrix(k1_reshaped[i * num_kb_1:(i + 1) * num_kb_1],
-        #                                        k2_reshaped[j * num_kb_2:(j + 1) * num_kb_2]).sum()
-        #
-        # k_n /= num_kb_1 ** 2
-        # k_m /= num_kb_2 ** 2
-        # k_nm /= (0.5 * num_kb_1 * num_kb_2)
-
-        # # compute kernel between all kilobot positions
-        # k_nm = self._kernel_func(k1_reshaped, k2_reshaped)
-        # # add column and row of zeros
-        # k_nm = np.c_[np.zeros((k_nm.shape[0] + 1, 1)), np.r_[np.zeros((1, k_nm.shape[1])), k_nm]]
-        # # compute the cumulative sum in both directions
-        # k_nm = k_nm.cumsum(axis=0).cumsum(axis=1)
-        #
-        # # We are interested in the cumsum of the block matrices for each combination of configuration. To get this
-        # # cumsum for a certain block, we take the cumsum at the lower-right entry of said block and subtract the
-        # # cumsum at the lower-right entry of the block at its left and at its top. Since both of these two cumsums
-        # # include the cumsum of the whole submatrix before the block, we need to add this value again.
-        # k_nm = k_nm[num_kb_1::num_kb_1, num_kb_2::num_kb_2] \
-        #        - k_nm[0:-1:num_kb_1, num_kb_2::num_kb_2] \
-        #        - k_nm[num_kb_1::num_kb_1, 0:-1:num_kb_2] + k_nm[0:-1:num_kb_1, 0:-1:num_kb_2]
-        # k_nm /= (0.5 * num_kb_1 * num_kb_2)
-
-        return k_n[:, np.newaxis] + k_m[np.newaxis, :] - k_nm
+        return k_n[:, None] + k_m[None, :] - k_nm
 
     def __call__(self, k1, k2, eval_gradient=False):
         return self._compute_kb_distance(k1, k2)

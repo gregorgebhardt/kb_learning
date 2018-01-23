@@ -1,13 +1,10 @@
 import numpy as np
-# np.seterr(all='raise')
 
-# from scipy.spatial.distance import pdist, squareform
-
-# from sklearn.gaussian_process.kernels import Kernel, RBF
 from sklearn.metrics.pairwise import pairwise_distances
 
 from . import KilobotKernel
 
+# from ._kilobot_kernel_numba import KilobotKernel
 
 # class Kernel:
 #     # Evaluates kernel for all elements
@@ -73,22 +70,23 @@ from . import KilobotKernel
 #         """
 #         # assert a.dtype == DTYPE
 #
-#         if np.isscalar(self.bandwidth):
-#             q = np.eye(a.shape[-1]) / (self.bandwidth ** 2)
-#         else:
-#             # assert (a.shape[-1] == self.bandwidth.shape[0])
-#             q = np.diag((np.ones(self.bandwidth.shape[0]) / (self.bandwidth ** 2)))
+#         # if np.isscalar(self.bandwidth):
+#         #     q = np.eye(a.shape[-1]) / (self.bandwidth ** 2)
+#         # else:
+#         #     # assert (a.shape[-1] == self.bandwidth.shape[0])
+#         #     q = np.diag((np.ones(self.bandwidth.shape[0]) / (self.bandwidth ** 2)))
+#         bw = np.array(1/ (self.bandwidth**2), ndmin=3)
 #
-#         aq = a.dot(q)
+#         aq = a * bw
 #         aq_a = np.sum(aq * a, axis=-1)
 #         if b is None:
-#             sq_dist = aq_a[..., np.newaxis, :] + aq_a[..., np.newaxis]
-#             sq_dist -= 2 * np.sum(aq[:, :, np.newaxis, :] * a[:, np.newaxis, :, :], axis=-1)
+#             sq_dist = aq_a[:, None, :] + aq_a[:, :, None]
+#             sq_dist -= 2 * np.einsum('qid,qjd->qij', aq, a)
 #         else:
 #             # assert b.dtype == DTYPE
-#             bq_b = np.sum(b.dot(q) * b, axis=-1)
-#             sq_dist = aq_a[:, np.newaxis, :, np.newaxis] + bq_b[np.newaxis, :, np.newaxis, :]
-#             sq_dist -= 2 * np.sum(aq[:, np.newaxis, :, np.newaxis, :] * b[np.newaxis, :, np.newaxis, :, :], axis=-1)
+#             bq_b = np.sum((b * bw) * b, axis=-1)
+#             sq_dist = aq_a[:, None, :, None] + bq_b[None, :, None, :]
+#             sq_dist -= 2 * np.einsum('qid,rjd->qrij', aq, b)
 #         K = np.exp(-0.5 * sq_dist)
 #
 #         return K
@@ -160,7 +158,7 @@ from . import KilobotKernel
 #         k_nm = np.empty((q, r))
 #         k_n = self._kernel_func.get_gram_matrix_multi(k1_reshaped).sum(axis=(1, 2)) / (num_kb_1 ** 2)
 #         k_m = self._kernel_func.get_gram_matrix_multi(k2_reshaped).sum(axis=(1, 2)) / (num_kb_2 ** 2)
-#         chunk_size = 100
+#         chunk_size = 50
 #         for i in range(0, r, chunk_size):
 #             k_nm[:, i:i+chunk_size] = self._kernel_func.get_gram_matrix_multi(
 #                 k1_reshaped, k2_reshaped[i:i+chunk_size]).sum(axis=(2, 3))
@@ -263,7 +261,7 @@ class StateKernel:
             bandwidth_kb = params['bandwidth'][:-self._extra_dims]
             bandwidth_l = params['bandwidth'][-self._extra_dims:]
 
-            self._kb_kernel.set_params(bandwidth=bandwidth_kb)
+            self._kb_kernel.set_bandwidth(bandwidth_kb)
             self._l_kernel.set_params(bandwidth=bandwidth_l)
 
 
