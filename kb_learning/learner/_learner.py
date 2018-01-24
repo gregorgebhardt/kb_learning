@@ -22,6 +22,7 @@ from kb_learning.reps.sparse_gp_policy import SparseGPPolicy
 
 from gym_kilobots.lib import CircularGradientLight
 
+from kb_learning.envs.sampler import KilobotSampler
 from kb_learning.envs.sampler import ParallelQuadPushingSampler as Sampler
 
 
@@ -35,7 +36,7 @@ logger.setLevel(logging.INFO)
 
 
 class KilobotLearner(ClusterWork):
-    _sampler_class = None
+    _sampler_class: KilobotSampler = None
 
     @abc.abstractmethod
     def iterate(self, config: dict, rep: int, n: int) -> dict:
@@ -206,27 +207,34 @@ class ACRepsLearner(KilobotLearner):
 
         self.policy = SparseGPPolicy(kernel=self._state_kernel, action_space=CircularGradientLight().action_space)
 
-        _kb_columns_level = ['kb_{}'.format(i) for i in range(params['sampling']['num_kilobots'])]
-        self._kilobots_columns = pd.MultiIndex.from_product([_kb_columns_level, ['x', 'y']])
-        self._light_columns = pd.MultiIndex.from_product([['light'], ['x', 'y']])
-        self._state_columns = self._kilobots_columns.append(self._light_columns)
-        self._action_columns = pd.MultiIndex.from_product([['action'], ['x', 'y']])
+        kb_columns_level = ['kb_{}'.format(i) for i in range(params['sampling']['num_kilobots'])]
+        kilobots_columns = pd.MultiIndex.from_product([['S'], kb_columns_level, ['x', 'y']])
+        light_columns = pd.MultiIndex.from_product([['S'], ['light'], ['x', 'y']])
+        state_columns = kilobots_columns.append(light_columns)
+        action_columns = pd.MultiIndex.from_product([['A'], ['x', 'y'], ['']])
+        reward_columns = pd.MultiIndex.from_arrays([['R'], [''], ['']])
+        next_state_columns = state_columns.copy()
+        next_state_columns.set_levels(['S_'], 0, inplace=True)
 
-        self._SARS_columns = pd.MultiIndex.from_arrays([['S'] * len(self._state_columns) +
-                                                        ['A'] * len(self._action_columns) + ['R'] +
-                                                        ['S_'] * len(self._state_columns),
-                                                        [*range(len(self._state_columns))] +
-                                                        [*range(len(self._action_columns))] + [0] +
-                                                        [*range(len(self._state_columns))]])
+        # self._SARS_columns = pd.MultiIndex.from_arrays([['S'] * len(state_columns) +
+        #                                                 ['A'] * len(action_columns) + ['R'] +
+        #                                                 ['S_'] * len(state_columns),
+        #                                                 [*range(len(state_columns))] +
+        #                                                 [*range(len(action_columns))] + [0] +
+        #                                                 [*range(len(state_columns))]])
+
+        self._SARS_columns = state_columns.append(action_columns).append(reward_columns).append(next_state_columns)
 
         self._SARS = pd.DataFrame(columns=self._SARS_columns)
 
         sampling_params = params['sampling']
-        self._sampler = self._sampler_class(sampling_params['num_episodes'],
-                                            sampling_params['num_steps_per_episode'],
-                                            sampling_params['num_kilobots'],
-                                            sampling_params['w_factor'],
-                                            self.policy, sampling_params['num_workers'])
+        self._sampler = self._sampler_class(num_episodes=sampling_params['num_episodes'],
+                                            num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                            num_kilobots=sampling_params['num_kilobots'],
+                                            column_index=self._SARS_columns,
+                                            w_factor=sampling_params['w_factor'],
+                                            policy=self.policy,
+                                            num_workers=sampling_params['num_workers'])
 
 
 class QuadPushingACRepsLearner(ACRepsLearner):
