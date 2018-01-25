@@ -107,6 +107,11 @@ class ACRepsLearner(KilobotLearner):
 
         logger.info('sampling environment')
         it_sars, it_info = self._sampler()
+        import matplotlib.pyplot as plt
+        from kb_learning.tools.plotting import plot_light_trajectory
+        fig, ax = plt.subplots(1)
+        plot_light_trajectory(it_sars['S'], ax)
+        fig.show()
 
         mean_R = it_sars['R'].groupby(level=1).sum().mean().values
         logger.info('mean reward: {}'.format(mean_R))

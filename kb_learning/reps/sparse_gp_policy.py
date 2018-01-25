@@ -30,12 +30,17 @@ class SparseGPPolicy:
         self.sparse_states = None
         self.k_cholesky = None
         self.kernel = kernel
+        # TODO fix this: don't use the action space here, use bounds
         self.action_space = action_space
 
     def _get_random_actions(self, num_samples=1):
         samples = np.array([*(self.action_space.sample() for _ in range(num_samples))])
 
         return samples
+
+    @staticmethod
+    def set_seed(seed):
+        np.random.seed(seed)
 
     def train(self, states, actions, weights, sparse_states):
         """
