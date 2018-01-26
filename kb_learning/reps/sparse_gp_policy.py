@@ -1,3 +1,4 @@
+from typing import Tuple
 import numpy as np
 import scipy.linalg
 
@@ -9,18 +10,18 @@ logger = logging.getLogger(__name__)
 
 
 class SparseGPPolicy:
-    def __init__(self, kernel: Kernel, action_space: Space):
+    def __init__(self, kernel: Kernel, action_bounds: Tuple[np.ndarray, np.ndarray]):
         # TODO add documentation
         """
 
         :param kernel:
         :param action_space: gym.Space
         """
-        self.gp_prior_variance = 0.001
+        self.gp_prior_variance = 0.01
         self.gp_regularizer = 1e-9
         self.gp_noise_variance = 1e-6
 
-        self.gp_min_variance = 0.005
+        self.gp_min_variance = 0.0005
         self.use_gp_bug = False
 
         self.Q_Km = None
@@ -31,10 +32,16 @@ class SparseGPPolicy:
         self.k_cholesky = None
         self.kernel = kernel
         # TODO fix this: don't use the action space here, use bounds
-        self.action_space = action_space
+        self.action_bounds = action_bounds
+        self.action_dim = action_bounds[0].shape[0]
 
     def _get_random_actions(self, num_samples=1):
-        samples = np.array([*(self.action_space.sample() for _ in range(num_samples))])
+        # sample random numbers in [0.0, 1.0)
+        samples = np.random.random((num_samples, self.action_dim))
+        # multiply by range
+        samples *= self.action_bounds[1] - self.action_bounds[0]
+        # add lower bound to the samples
+        samples += self.action_bounds[0]
 
         return samples
 
@@ -73,8 +80,6 @@ class SparseGPPolicy:
                 reg_I *= 2
         else:
             raise Exception("SparseGPPolicy: Cholesky decomposition failed")
-        # sparse_weights = weights[sparse_index]
-        # K_m = K_m_c[0].dot(np.diag(sparse_weights)).dot(K_m_c[0].T)
 
         L = self.kernel.diag(states) \
             - np.sum(K_mn * scipy.linalg.cho_solve(K_m_c, K_mn), axis=0).squeeze() \
@@ -85,40 +90,6 @@ class SparseGPPolicy:
         self.alpha = np.linalg.solve(Q, K_mn).dot(L).dot(actions)
 
         self.Q_Km = np.linalg.pinv(K_m) - np.linalg.pinv(Q)
-
-        # k = self.gp_prior_variance * self.kernel(sparse_states, sparse_states)
-
-        # for i in range(100):
-        #     try:
-        #         self.k_cholesky = scipy.linalg.cholesky(k + np.eye(k.shape[0]) * self.gp_regularizer * 2**i)
-        #         break
-        #     except scipy.linalg.LinAlgError:
-        #         continue
-        # else:
-        #     raise Exception("SparseGPPolicy: Cholesky decomposition failed")
-        #
-        # kernel_vectors = self.gp_prior_variance * self.kernel(state, sparse_states)
-        #
-        # _regularizer = 0
-        # while True:
-        #     try:
-        #         k_cholesky_inv = np.linalg.pinv(self.k_cholesky + _regularizer * np.eye(self.k_cholesky.shape[0]))
-        #         k_cholesky_t_inv = np.linalg.pinv(self.k_cholesky.T + _regularizer * np.eye(self.k_cholesky.shape[0]))
-        #         break
-        #     except scipy.linalg.LinAlgError:
-        #         if _regularizer == 0:
-        #             _regularizer = 1e-10
-        #         else:
-        #             _regularizer *= 2
-        #
-        # feature_vectors = kernel_vectors.dot(k_cholesky_inv).dot(k_cholesky_t_inv)
-        # feature_vectors_w = feature_vectors * weights[:, None]
-        #
-        # x = feature_vectors_w.T.dot(feature_vectors)
-        # x += np.eye(feature_vectors.shape[1]) * self.SparseGPInducingOutputRegularization
-        # y = np.linalg.solve(x, feature_vectors_w.T).dot(actions)
-        #
-        # self.alpha = np.linalg.solve(self.k_cholesky, np.linalg.solve(self.k_cholesky.T, y))
 
         self.trained = True
 
@@ -151,13 +122,6 @@ class SparseGPPolicy:
         gp_sigma = self.gp_prior_variance * self.kernel.diag(states) \
             - np.sum(k.T * self.Q_Km.dot(k.T), axis=0) + self.gp_noise_variance
 
-        # temp = np.linalg.solve(self.k_cholesky.T, k_.T)
-        # temp = np.square(temp.T)
-        # gp_sigma = temp.sum(1)
-        #
-        # kernel_self = self.gp_prior_variance * self.kernel.diag(states)
-        # gp_sigma = kernel_self.squeeze() - gp_sigma.squeeze()
-
         if gp_sigma.shape == ():  # single number
             gp_sigma = np.array([gp_sigma])
 
@@ -175,8 +139,8 @@ class SparseGPPolicy:
         action_samples = norm_variates * gp_sigma + gp_mean
 
         # check samples against bounds from action space
-        action_samples = np.minimum(action_samples, self.action_space.high)
-        action_samples = np.maximum(action_samples, self.action_space.low)
+        action_samples = np.minimum(action_samples, self.action_bounds[1])
+        action_samples = np.maximum(action_samples, self.action_bounds[0])
 
         return action_samples
 

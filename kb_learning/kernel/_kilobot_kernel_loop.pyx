@@ -1,5 +1,7 @@
 from cython.parallel import prange
 # from cython.view cimport array as cvarray
+import cython
+cimport cython
 
 import numpy as np
 cimport numpy as np
@@ -7,8 +9,7 @@ cimport numpy as np
 from kb_learning.tools import np_chunks
 
 DTYPE = np.float64
-
-ctypedef np.float_t DTYPE_t
+ctypedef np.float64_t DTYPE_t
 
 
 cdef class ExponentialQuadraticKernel:
@@ -42,7 +43,10 @@ cdef class ExponentialQuadraticKernel:
 
         return K
 
-    cdef np.ndarray get_gram_matrix_multi(self, np.ndarray a, np.ndarray b=None):
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.nonecheck(False)
+    cdef np.ndarray get_gram_matrix_multi(self, np.ndarray[DTYPE_t, ndim=3] a, np.ndarray[DTYPE_t, ndim=3] b=None):
         """
         
         :param a: q x n x d matrix of kilobot positions
@@ -51,34 +55,49 @@ cdef class ExponentialQuadraticKernel:
         """
         # assert a.dtype == DTYPE
 
-        # cdef Py_ssize_t q, n
-        # cdef Py_ssize_t r, m
+        cdef Py_ssize_t q, n, d
+        cdef Py_ssize_t r, m
+        cdef Py_ssize_t i, j, k, l, s
 
-        # q = a.shape[0]
-        # n = a.shape[1]
+        q = a.shape[0]
+        n = a.shape[1]
+        d = a.shape[2]
 
-        cdef np.ndarray sq_dist
+        cdef np.ndarray[DTYPE_t, ndim=4] sq_dist
 
         cdef np.ndarray bw = np.array(1 / (self.bandwidth ** 2), ndmin=3)
 
-        cdef np.ndarray aq = a * bw
-        cdef np.ndarray aq_a = np.sum(aq * a, axis=-1)
-        cdef np.ndarray bq_b
+        cdef np.ndarray[DTYPE_t, ndim=3] aq = a * bw
+        cdef np.ndarray[DTYPE_t, ndim=2] aq_a = np.sum(aq * a, axis=-1)
+        cdef np.ndarray[DTYPE_t, ndim=2] bq_b
         if b is None:
-            sq_dist = aq_a[..., np.newaxis, :] + aq_a[..., np.newaxis]
-            sq_dist -= 2 * np.sum(aq[:, :, np.newaxis, :] * a[:, np.newaxis, :, :], axis=-1)
             # sq_dist = aq_a[:, None, :] + aq_a[:, :, None]
             # sq_dist -= 2 * np.einsum('qid,qjd->qij', aq, a)
+            sq_dist = np.zeros((q, 1, n, n))
+            for i in range(q):
+                for j in range(n):
+                    for k in range(n):
+                        sq_dist[i, 0, j, k] = aq_a[i, j] + aq_a[i, k]
+                            # - 2 * np.sum(aq[i, j, :] * a[i, k, :], axis=-1)
+                        for s in range(d):
+                            sq_dist[i, 0, j, k] -= 2 * aq[i, j, s] * a[i, k, s]
         else:
-            # r = b.shape[0]
-            # m = b.shape[1]
+            r = b.shape[0]
+            m = b.shape[1]
             assert b.dtype == DTYPE
             bq_b = np.sum((b * bw) * b, axis=-1)
-            sq_dist = aq_a[:, np.newaxis, :, np.newaxis] + bq_b[np.newaxis, :, np.newaxis, :]
-            sq_dist -= 2 * np.sum(aq[:, np.newaxis, :, np.newaxis, :] * b[np.newaxis, :, np.newaxis, :, :], axis=-1)
             # sq_dist = aq_a[:, None, :, None] + bq_b[None, :, None, :]
             # sq_dist -= 2 * np.einsum('qid,rjd->qrij', aq, b)
-        cdef np.ndarray K = np.exp(-0.5 * sq_dist)
+            sq_dist = np.zeros((q, r, n, m))
+            for i in range(q):
+                for j in range(r):
+                    for k in range(n):
+                        for l in range(m):
+                            sq_dist[i, j, k, l] = aq_a[i, k] + bq_b[j, l]
+                                # - 2 * np.sum(aq[i, k, :] * b[j, l, :], axis=-1)
+                            for s in range(d):
+                                sq_dist[i, j, k, l] -= 2 * aq[i, k, s] * b[j, l, s]
+        cdef np.ndarray K = np.exp(np.multiply(-0.5, sq_dist.squeeze()))
 
         return K
 

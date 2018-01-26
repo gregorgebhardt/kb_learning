@@ -139,7 +139,6 @@ class ParallelQuadPushingSampler(QuadPushingSampler):
 
         state_dims = states.shape[1]
         action_dims = sum(ParallelQuadPushingSampler.envs[0].action_space.shape)
-        print('worker seed {}'.format(ParallelQuadPushingSampler.worker_seed))
 
         it_sars_data = np.empty((num_episodes * num_steps, 2 * state_dims + action_dims + 1))
         # policy.set_seed(np.random.seed() + ParallelQuadPushingSampler.worker_seed)

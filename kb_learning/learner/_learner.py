@@ -107,13 +107,13 @@ class ACRepsLearner(KilobotLearner):
 
         logger.info('sampling environment')
         it_sars, it_info = self._sampler()
-        import matplotlib.pyplot as plt
-        from kb_learning.tools.plotting import plot_light_trajectory
-        fig, ax = plt.subplots(1)
-        plot_light_trajectory(it_sars['S'], ax)
-        fig.show()
+        # import matplotlib.pyplot as plt
+        # from kb_learning.tools.plotting import plot_light_trajectory
+        # fig, ax = plt.subplots(1)
+        # plot_light_trajectory(it_sars['S'], ax)
+        # fig.show()
 
-        mean_R = it_sars['R'].groupby(level=1).sum().mean().values
+        mean_R = it_sars['R'].groupby(level=0).sum().mean()
         logger.info('mean reward: {}'.format(mean_R))
 
         # add samples to data set and select subset
@@ -126,7 +126,7 @@ class ACRepsLearner(KilobotLearner):
         # compute kernel parameters
         logger.debug('computing kernel bandwidths')
         bandwidth = compute_median_bandwidth(self._SARS[['S', 'A']], sample_size=500)
-        bandwidth_s = bandwidth[:len(self._state_columns)]
+        bandwidth_s = bandwidth[:len(self._SARS['S'].columns)]
 
         self._state_kernel.set_params(bandwidth=bandwidth_s)
         self._state_action_kernel.set_params(bandwidth=bandwidth)
@@ -155,14 +155,14 @@ class ACRepsLearner(KilobotLearner):
 
             # learn theta (parameters of Q-function) using lstd
             logger.info('learning theta [LSTD]')
-            theta = self.lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._SARS['R'].values)
+            theta = self.lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._SARS[['R']].values)
 
             # compute q-function
             logger.debug('compute q-function')
             q_fct = phi_SA.dot(theta)
 
             # compute state features
-            logger.debug('compute state features')
+            logger.info('compute state features')
             phi_S = state_features(self._SARS['S'].values)
 
             # compute sample weights using AC-REPS
@@ -210,7 +210,8 @@ class ACRepsLearner(KilobotLearner):
         self.ac_reps = ActorCriticReps()
         self.ac_reps.epsilon_action = params['reps']['epsilon']
 
-        self.policy = SparseGPPolicy(kernel=self._state_kernel, action_space=CircularGradientLight().action_space)
+        action_bounds = CircularGradientLight.action_space.low, CircularGradientLight.action_space.high
+        self.policy = SparseGPPolicy(kernel=self._state_kernel, action_bounds=action_bounds)
 
         kb_columns_level = ['kb_{}'.format(i) for i in range(params['sampling']['num_kilobots'])]
         kilobots_columns = pd.MultiIndex.from_product([['S'], kb_columns_level, ['x', 'y']])
