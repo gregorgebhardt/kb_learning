@@ -6,6 +6,9 @@ cimport cython
 import numpy as np
 cimport numpy as np
 
+from math import exp
+from math cimport exp
+
 from kb_learning.tools import np_chunks
 
 DTYPE = np.float64
@@ -46,7 +49,8 @@ cdef class ExponentialQuadraticKernel:
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.nonecheck(False)
-    cdef np.ndarray get_gram_matrix_multi(self, np.ndarray[DTYPE_t, ndim=3] a, np.ndarray[DTYPE_t, ndim=3] b=None):
+    cdef np.ndarray[DTYPE_t, ndim=4] get_gram_matrix_multi(self, np.ndarray[DTYPE_t, ndim=3] a,
+                                                           np.ndarray[DTYPE_t, ndim=3] b=None):
         """
         
         :param a: q x n x d matrix of kilobot positions
@@ -70,36 +74,33 @@ cdef class ExponentialQuadraticKernel:
         cdef np.ndarray[DTYPE_t, ndim=3] aq = a * bw
         cdef np.ndarray[DTYPE_t, ndim=2] aq_a = np.sum(aq * a, axis=-1)
         cdef np.ndarray[DTYPE_t, ndim=2] bq_b
+        cdef DTYPE kb_sum
         if b is None:
-            # sq_dist = aq_a[:, None, :] + aq_a[:, :, None]
-            # sq_dist -= 2 * np.einsum('qid,qjd->qij', aq, a)
-            sq_dist = np.zeros((q, 1, n, n))
+            sq_dist = np.zeros((q, 1))
             for i in range(q):
                 for j in range(n):
                     for k in range(n):
-                        sq_dist[i, 0, j, k] = aq_a[i, j] + aq_a[i, k]
-                            # - 2 * np.sum(aq[i, j, :] * a[i, k, :], axis=-1)
+                        kb_sum = .0
+                        kb_sum = -aq_a[i, j] - aq_a[i, k]
                         for s in range(d):
-                            sq_dist[i, 0, j, k] -= 2 * aq[i, j, s] * a[i, k, s]
+                            kb_sum += aq[i, j, s] * a[i, k, s]
+                        sq_dist[i, j] += exp(kb_sum)
         else:
             r = b.shape[0]
             m = b.shape[1]
             assert b.dtype == DTYPE
             bq_b = np.sum((b * bw) * b, axis=-1)
-            # sq_dist = aq_a[:, None, :, None] + bq_b[None, :, None, :]
-            # sq_dist -= 2 * np.einsum('qid,rjd->qrij', aq, b)
-            sq_dist = np.zeros((q, r, n, m))
+            sq_dist = np.zeros((q, r))
             for i in range(q):
                 for j in range(r):
                     for k in range(n):
                         for l in range(m):
-                            sq_dist[i, j, k, l] = aq_a[i, k] + bq_b[j, l]
-                                # - 2 * np.sum(aq[i, k, :] * b[j, l, :], axis=-1)
+                            kb_sum = .0
+                            kb_sum = -aq_a[i, k] - bq_b[j, l]
                             for s in range(d):
-                                sq_dist[i, j, k, l] -= 2 * aq[i, k, s] * b[j, l, s]
-        cdef np.ndarray K = np.exp(np.multiply(-0.5, sq_dist.squeeze()))
-
-        return K
+                                kb_sum += aq[i, k, s] * b[j, l, s]
+                            sq_dist[i, j] += exp(kb_sum)
+        return sq_dist
 
     def get_gram_diag(self, np.ndarray data):
         return np.ones(data.shape[0])
