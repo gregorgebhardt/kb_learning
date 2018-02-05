@@ -1,6 +1,8 @@
 from cython.parallel import prange
 # from cython.view cimport array as cvarray
 
+cimport cython
+
 import numpy as np
 cimport numpy as np
 
@@ -42,6 +44,9 @@ cdef class ExponentialQuadraticKernel:
 
         return K
 
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.nonecheck(False)
     cdef np.ndarray get_gram_matrix_multi(self, np.ndarray a, np.ndarray b=None):
         """
         
@@ -59,25 +64,25 @@ cdef class ExponentialQuadraticKernel:
 
         cdef np.ndarray sq_dist
 
-        cdef np.ndarray bw = np.array(1 / (self.bandwidth ** 2), ndmin=3)
+        cdef np.ndarray bw = 1 / (self.bandwidth ** 2)
 
         cdef np.ndarray aq = a * bw
         cdef np.ndarray aq_a = np.sum(aq * a, axis=-1)
         cdef np.ndarray bq_b
         if b is None:
-            sq_dist = aq_a[..., np.newaxis, :] + aq_a[..., np.newaxis]
-            sq_dist -= 2 * np.sum(aq[:, :, np.newaxis, :] * a[:, np.newaxis, :, :], axis=-1)
-            # sq_dist = aq_a[:, None, :] + aq_a[:, :, None]
-            # sq_dist -= 2 * np.einsum('qid,qjd->qij', aq, a)
+            # sq_dist = aq_a[..., np.newaxis, :] + aq_a[..., np.newaxis]
+            # sq_dist -= 2 * np.sum(aq[:, :, np.newaxis, :] * a[:, np.newaxis, :, :], axis=-1)
+            sq_dist = aq_a[:, None, :] + aq_a[:, :, None]
+            sq_dist -= 2 * np.einsum('qid,qjd->qij', aq, a)
         else:
             # r = b.shape[0]
             # m = b.shape[1]
-            assert b.dtype == DTYPE
+            # assert b.dtype == DTYPE
             bq_b = np.sum((b * bw) * b, axis=-1)
-            sq_dist = aq_a[:, np.newaxis, :, np.newaxis] + bq_b[np.newaxis, :, np.newaxis, :]
-            sq_dist -= 2 * np.sum(aq[:, np.newaxis, :, np.newaxis, :] * b[np.newaxis, :, np.newaxis, :, :], axis=-1)
-            # sq_dist = aq_a[:, None, :, None] + bq_b[None, :, None, :]
-            # sq_dist -= 2 * np.einsum('qid,rjd->qrij', aq, b)
+            # sq_dist = aq_a[:, np.newaxis, :, np.newaxis] + bq_b[np.newaxis, :, np.newaxis, :]
+            # sq_dist -= 2 * np.sum(aq[:, np.newaxis, :, np.newaxis, :] * b[np.newaxis, :, np.newaxis, :, :], axis=-1)
+            sq_dist = aq_a[:, None, :, None] + bq_b[None, :, None, :]
+            sq_dist -= 2 * np.einsum('qid,rjd->qrij', aq, b)
         cdef np.ndarray K = np.exp(-0.5 * sq_dist)
 
         return K

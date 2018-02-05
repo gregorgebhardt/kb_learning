@@ -1,7 +1,7 @@
 import numpy as np
 
 from gym_kilobots.envs import KilobotsEnv
-from gym_kilobots.lib import PhototaxisKilobot, SimplePhototaxisKilobot, CornerQuad, CircularGradientLight
+from gym_kilobots.lib import PhototaxisKilobot, SimplePhototaxisKilobot, Quad, CircularGradientLight
 
 import abc
 
@@ -34,9 +34,9 @@ class QuadPushingEnv(KilobotsEnv):
     _spawn_type_ratio = -.95
     # _sampling_max_radius = .5
     _spawn_radius_variance = .2 * _light_radius
-    _light_max_dist = .5 * _object_size
+    _light_max_dist = 1. * _object_size
     _spawn_angle_mean = 0
-    _spawn_angle_variance = np.pi
+    _spawn_angle_variance = .5 * np.pi
 
     @property
     @abc.abstractmethod
@@ -82,9 +82,9 @@ class QuadPushingEnv(KilobotsEnv):
         np.random.seed(self.seed()[0])
         # initialize object always at (0, 0) with 0 orientation (we do not need to vary the object position and
         # orientation since we will later adapt the state based on the object pose.)
-        self._objects.append(CornerQuad(width=self._object_size, height=self._object_size,
-                                        position=self._object_init[:2], orientation=self._object_init[2],
-                                        world=self.world))
+        self._objects.append(Quad(width=self._object_size, height=self._object_size,
+                                  position=self._object_init[:2], orientation=self._object_init[2],
+                                  world=self.world))
 
         # determine the sampling mode for this episode
         _spawn_randomly = np.random.rand() < np.abs(self._spawn_type_ratio)

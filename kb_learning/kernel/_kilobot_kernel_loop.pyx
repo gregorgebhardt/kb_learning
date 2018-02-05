@@ -1,4 +1,4 @@
-from cython.parallel import prange
+from cython.parallel import parallel, prange
 # from cython.view cimport array as cvarray
 import cython
 cimport cython
@@ -7,7 +7,7 @@ import numpy as np
 cimport numpy as np
 
 from math import exp
-from math cimport exp
+from libc.math cimport exp
 
 from kb_learning.tools import np_chunks
 
@@ -19,38 +19,10 @@ cdef class ExponentialQuadraticKernel:
     def __init__(self, normalized=0):
         self.normalized = normalized
 
-    cdef np.ndarray get_gram_matrix(self, np.ndarray a, np.ndarray b=None):
-        assert a.dtype == DTYPE
-
-        cdef np.ndarray q, sqdist
-
-        if np.isscalar(self.bandwidth):
-            q = np.eye(a.shape[1]) / (self.bandwidth ** 2)
-        else:
-            assert (a.shape[1] == self.bandwidth.shape[0])
-            q = np.diag((np.ones(self.bandwidth.shape[0]) / (self.bandwidth ** 2)))
-
-        cdef np.ndarray aq = a.dot(q)
-        cdef np.ndarray aq_a = np.sum(aq * a, axis=1)
-        cdef np.ndarray bq_b
-        if b is None:
-            sqdist = aq_a[:, np.newaxis] + aq_a - 2 * aq.dot(a.T)
-        else:
-            bq_b = np.sum(b.dot(q) * b, axis=1)
-            # Equivalent to MATLAB bsxfun(@plus, ..)
-            sqdist = aq_a[:, np.newaxis] + bq_b - 2 * aq.dot(b.T)
-        cdef np.ndarray K = np.exp(-0.5 * sqdist)
-
-        if self.normalized:
-            K = K / np.sqrt(np.prod(self.bandwidth) ** 2 * (2 * np.pi) ** a.shape[1])
-
-        return K
-
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.nonecheck(False)
-    cdef np.ndarray[DTYPE_t, ndim=4] get_gram_matrix_multi(self, np.ndarray[DTYPE_t, ndim=3] a,
-                                                           np.ndarray[DTYPE_t, ndim=3] b=None):
+    cdef double[:, :] get_gram_matrix_multi(self, double[:, :, :] a, double[:, :, :] b=None):
         """
         
         :param a: q x n x d matrix of kilobot positions
@@ -67,73 +39,51 @@ cdef class ExponentialQuadraticKernel:
         n = a.shape[1]
         d = a.shape[2]
 
-        cdef np.ndarray[DTYPE_t, ndim=4] sq_dist
-
-        cdef np.ndarray bw = np.array(1 / (self.bandwidth ** 2), ndmin=3)
-
-        cdef np.ndarray[DTYPE_t, ndim=3] aq = a * bw
-        cdef np.ndarray[DTYPE_t, ndim=2] aq_a = np.sum(aq * a, axis=-1)
-        cdef np.ndarray[DTYPE_t, ndim=2] bq_b
-        cdef DTYPE kb_sum
+        cdef double[:, :] sq_dist
         if b is None:
-            sq_dist = np.zeros((q, 1))
-            for i in range(q):
-                for j in range(n):
-                    for k in range(n):
-                        kb_sum = .0
-                        kb_sum = -aq_a[i, j] - aq_a[i, k]
-                        for s in range(d):
-                            kb_sum += aq[i, j, s] * a[i, k, s]
-                        sq_dist[i, j] += exp(kb_sum)
+            sq_dist = np.empty((q, 1))
         else:
             r = b.shape[0]
             m = b.shape[1]
-            assert b.dtype == DTYPE
-            bq_b = np.sum((b * bw) * b, axis=-1)
-            sq_dist = np.zeros((q, r))
-            for i in range(q):
-                for j in range(r):
-                    for k in range(n):
-                        for l in range(m):
+            # bq_b = np.sum((b * bw) * b, axis=-1)
+            sq_dist = np.empty((q, r))
+
+
+        cdef double[:] bw = 1 / (-2 * self.bandwidth ** 2)
+
+        # cdef np.ndarray[DTYPE_t, ndim=3] aq = a * bw
+        # cdef np.ndarray[DTYPE_t, ndim=2] aq_a = np.sum(aq * a, axis=-1)
+        # cdef np.ndarray[DTYPE_t, ndim=2] bq_b
+        cdef DTYPE_t kb_sum
+        with nogil, parallel(num_threads=8):
+            if b is None:
+                for i in prange(q):
+                    sq_dist[i, 0] = .0
+                    for j in range(n):
+                        for k in range(n):
                             kb_sum = .0
-                            kb_sum = -aq_a[i, k] - bq_b[j, l]
                             for s in range(d):
-                                kb_sum += aq[i, k, s] * b[j, l, s]
-                            sq_dist[i, j] += exp(kb_sum)
+                                kb_sum = (a[i, j, s]**2 + a[i, k, s]**2) * bw[s]
+                                kb_sum -= 2 * a[i, j, s] * bw[s] * a[i, k, s]
+                            sq_dist[i, 0] += exp(kb_sum)
+                    sq_dist[i, 0] /= n**2
+            else:
+                for i in prange(q, schedule='guided'):
+                    for j in range(r):
+                        sq_dist[i, j] = .0
+                        for k in range(n):
+                            for l in range(m):
+                                kb_sum = .0
+                                for s in range(d):
+                                    kb_sum = (a[i, k, s] ** 2 + b[j, l, s] ** 2) * bw[s]
+                                    kb_sum -= 2 * a[i, k, s] * bw[s] * b[j, l, s]
+                                sq_dist[i, j] += exp(kb_sum)
+                        sq_dist[i, j] /= n * m
+                        sq_dist[i, j] *= 2
         return sq_dist
 
     def get_gram_diag(self, np.ndarray data):
         return np.ones(data.shape[0])
-
-    cpdef get_derivation_param(self, np.ndarray data):
-        """
-        
-        :param data: n x d
-        :return: p x n x n, where p is the number of bandwidth parameters
-        """
-        cdef np.ndarray gram_matrix = self.get_gram_matrix(data, data)
-        cdef np.ndarray gradient_matrices = np.zeros([self.bandwidth.shape[0], gram_matrix.shape[0],
-                                                      gram_matrix.shape[1]])
-
-        for dim in range(self.bandwidth.shape[0]):
-            sqdist = (data[:, dim, None] - data[:, dim]) ** 2
-            gradient_matrices[dim, :, :] = gram_matrix * (sqdist / (self.bandwidth[dim] ** 3))
-
-        return gradient_matrices, gram_matrix
-
-    cpdef get_derivation_data(self, np.ndarray ref_data, np.ndarray cur_data):
-        """
-
-        :param ref_data: n x d
-        :param cur_data: m x d
-        :return: m x d x n
-        """
-        cdef np.ndarray gram_matrix = self.get_gram_matrix(ref_data, cur_data)
-        cdef np.ndarray q = np.diag((np.ones(self.bandwidth.shape[0]) / (self.bandwidth ** 2)))
-
-        cdef np.ndarray scaleddist = -2 * (cur_data.dot(q) - ref_data.dot(q))
-
-        return gram_matrix.T[None, ...] * scaleddist
 
 cdef class KilobotKernel:
     def __init__(self, bandwidth_factor=1., num_processes=1):
@@ -168,18 +118,25 @@ cdef class KilobotKernel:
         cdef np.ndarray k1_reshaped = k1.reshape(q, num_kb_1, 2)
         cdef np.ndarray k2_reshaped = k2.reshape(r, num_kb_2, 2)
 
-        cdef np.ndarray[DTYPE_t, ndim=1] k_n, k_m
-        cdef np.ndarray[DTYPE_t, ndim=2] k_nm = np.empty((q, r), dtype=DTYPE)
-        k_n = self._kernel_func.get_gram_matrix_multi(k1_reshaped).sum(axis=(1, 2)) / (num_kb_1 ** 2)
-        k_m = self._kernel_func.get_gram_matrix_multi(k2_reshaped).sum(axis=(1, 2)) / (num_kb_2 ** 2)
-        cdef int chunk_size = 50
-        for i in range(0, r, chunk_size):
-            k_nm[:, i:i+chunk_size] = self._kernel_func.get_gram_matrix_multi(
-                k1_reshaped, k2_reshaped[i:i+chunk_size]).sum(axis=(2, 3))
+        cdef double[:, :] k_n, k_m, k_nm
+        # cdef np.ndarray[DTYPE_t, ndim=2] k_nm = np.empty((q, r), dtype=DTYPE)
+        k_n = self._kernel_func.get_gram_matrix_multi(k1_reshaped)  # / (num_kb_1 ** 2)
+        k_m = self._kernel_func.get_gram_matrix_multi(k2_reshaped)  # / (num_kb_2 ** 2)
+        # cdef int chunk_size = 50
+        # for i in range(0, r, chunk_size):
+        #     k_nm[:, i:i+chunk_size] = self._kernel_func.get_gram_matrix_multi(
+        #         k1_reshaped, k2_reshaped[i:i+chunk_size])
+        k_nm = self._kernel_func.get_gram_matrix_multi(k1_reshaped, k2_reshaped)
         # k_nm[k_nm < 1e-12] = 0
-        k_nm = np.divide(k_nm, 0.5 * num_kb_1 * num_kb_2)
+        # k_nm = np.divide(k_nm, 0.5 * num_kb_1 * num_kb_2)
 
-        return k_n[:, None] + k_m[None, :] - k_nm
+        for i in range(q):
+            for j in range(r):
+                k_nm[i, j] = -k_nm[i, j] + k_n[i, 0] + k_m[j, 0]
+
+        K = np.asarray(k_nm)
+
+        return K
 
     def __call__(self, k1, k2, eval_gradient=False):
         return self._compute_kb_distance(k1, k2)

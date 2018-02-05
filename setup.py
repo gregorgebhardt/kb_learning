@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 from codecs import open
 from os import path
 
-from Cython.Build import cythonize
+# from Cython.Build import cythonize
 
 here = path.abspath(path.dirname(__file__))
 
@@ -80,5 +80,6 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['cluster_work', 'numpy', 'pandas', 'gym', 'gym_kilobots', 'numexpr', 'scipy', 'scikit-learn']
+    install_requires=['cluster_work', 'numpy', 'pandas', 'gym', 'gym_kilobots', 'numexpr', 'scipy', 'scikit-learn',
+                      'cython']
 )

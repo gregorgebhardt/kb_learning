@@ -65,6 +65,10 @@ class QuadPushingSampler(KilobotSampler):
         for i, e in enumerate(self.envs):
             e.seed(self.seed * 100 + i)
 
+    @property
+    def env(self):
+        return self.envs[0]
+
     def set_policy(self, policy):
         self.policy = policy
 

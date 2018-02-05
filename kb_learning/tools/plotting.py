@@ -1,28 +1,104 @@
 from matplotlib.axes import Axes
+from matplotlib.collections import LineCollection
+from matplotlib.colors import Normalize
+
+from gym_kilobots.envs import KilobotsEnv
+from gym_kilobots.lib.body import Body
+
+import mpld3
+
 import pandas as pd
 import numpy as np
 from typing import Union
 
+import os
 
-def plot_light_trajectory(states: Union[np.ndarray, pd.DataFrame], axes: Axes):
-    if type(states) is pd.DataFrame:
-        light_states = states['light']
-        # light_states.unstack(0).plot(x='x', y='y', ax=axes, legend=False)
-        if type(light_states.index) is pd.MultiIndex:
-            light_x = light_states['x'].unstack(0).values
-            light_y = light_states['y'].unstack(0).values
-        else:
-            light_x = light_states['x'].values
-            light_y = light_states['y'].values
+
+def plot_light_trajectory(axes: Axes, light_states: pd.DataFrame):
+    # light_states.index.shape
+    num_episodes, num_steps = light_states.index.levshape
+
+    line_collections = []
+
+    for _, traj in light_states.groupby(level=0):
+        segments = np.r_['2,3,0', traj[:-1], traj[1:]].swapaxes(1, 2)
+        lc = LineCollection(segments, cmap='viridis', norm=Normalize(10, num_steps-10))
+        color = np.arange(num_steps)
+        lc.set_array(color)
+        lc.set_linewidth(1.)
+        line_collections.append(lc)
+
+        axes.add_collection(lc)
+
+    return line_collections
+
+
+def plot_value_function(axes: Axes, V, x_range, y_range, **kwargs):
+    im = axes.imshow(V, extent=x_range+y_range, **kwargs)
+    return im
+
+
+def plot_policy(axes: Axes, actions, x_range, y_range, **kwargs):
+    if type(actions) is tuple:
+        A, sigma = actions
+        # color = (sigma - sigma.min()) / (sigma.max() - sigma.min()) / 2 + .5
+        color = sigma
     else:
-        light_x = states[..., -2]
-        light_y = states[..., -1]
+        A = actions
+        color = 1.
 
-    axes.plot(light_x, light_y)
+    [X, Y] = np.meshgrid(np.linspace(*x_range, A.shape[1]), np.linspace(*y_range, A.shape[0]))
+    return axes.quiver(X, Y, A[..., 0], A[..., 1], color, angles='xy', **kwargs)
 
 
-#  def plot_swarm_scatter(states: Union[np.ndarray, pd.DataFrame], axes: Axes = None):
-#     if axes is None:
-#         axes = Axes()
-#
-#     swarm
+def plot_objects(axes: Axes, env: KilobotsEnv, **kwargs):
+    for o in env.get_objects():
+        o.plot(axes, alpha=.5, **kwargs)
+
+
+def plot_trajectory_reward_distribution(axes: Axes, reward: pd.DataFrame):
+    mean_reward = reward.groupby(level=1).mean()
+    std_reward = reward.groupby(level=1).std()
+
+    x = np.arange(mean_reward.shape[0])
+
+    axes.plot(x, reward.unstack(level=0), 'k-', alpha=.3)
+    axes.fill_between(x, mean_reward-2*std_reward, mean_reward+2*std_reward, alpha=.5)
+    axes.plot(x, mean_reward)
+
+
+browser_controller = None
+
+
+def show_plot_in_browser(figure, filename=None, path=None, overwrite=True, browser='google-chrome',
+                         show=True):
+    if path is None:
+        import tempfile
+        path = tempfile.gettempdir()
+    if filename is None:
+        filename = 'plot.html'
+
+    html_full_path = os.path.join(path, filename)
+    root, ext = os.path.splitext(html_full_path)
+    root_i = root + '_{}'
+    i = 1
+
+    if overwrite and os.path.exists(html_full_path):
+        os.remove(html_full_path)
+    else:
+        while os.path.exists(html_full_path):
+            html_full_path = root_i.format(i) + ext
+            i = i + 1
+
+    with open(html_full_path, mode='w') as html_file:
+        mpld3.save_html(figure, html_file)
+
+    if not show:
+        return
+
+    global browser_controller
+    if browser_controller is None:
+        import webbrowser
+        browser_controller = webbrowser.get(browser)
+
+    browser_controller.open(html_full_path)
