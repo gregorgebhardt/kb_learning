@@ -48,7 +48,6 @@ cdef class ExponentialQuadraticKernel:
             # bq_b = np.sum((b * bw) * b, axis=-1)
             sq_dist = np.empty((q, r))
 
-
         cdef double[:] bw = 1 / (-2 * self.bandwidth ** 2)
 
         # cdef np.ndarray[DTYPE_t, ndim=3] aq = a * bw

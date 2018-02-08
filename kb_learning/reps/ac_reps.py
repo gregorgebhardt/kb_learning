@@ -3,7 +3,8 @@ from numexpr import evaluate as ev
 from scipy.optimize import minimize
 
 import logging
-logger = logging.getLogger(__name__)
+
+logger = logging.getLogger('kb_learning')
 
 
 class ActorCriticReps:

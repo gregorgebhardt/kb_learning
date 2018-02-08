@@ -1,17 +1,18 @@
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize
+import matplotlib
 
 from gym_kilobots.envs import KilobotsEnv
-from gym_kilobots.lib.body import Body
 
 import mpld3
 
 import pandas as pd
 import numpy as np
-from typing import Union
 
 import os
+
+matplotlib.rc('font', family='Oswald')
 
 
 def plot_light_trajectory(axes: Axes, light_states: pd.DataFrame):
@@ -67,11 +68,7 @@ def plot_trajectory_reward_distribution(axes: Axes, reward: pd.DataFrame):
     axes.plot(x, mean_reward)
 
 
-browser_controller = None
-
-
-def show_plot_in_browser(figure, filename=None, path=None, overwrite=True, browser='google-chrome',
-                         show=True):
+def save_plot_as_html(figure, filename=None, path=None, overwrite=True):
     if path is None:
         import tempfile
         path = tempfile.gettempdir()
@@ -79,21 +76,33 @@ def show_plot_in_browser(figure, filename=None, path=None, overwrite=True, brows
         filename = 'plot.html'
 
     html_full_path = os.path.join(path, filename)
-    root, ext = os.path.splitext(html_full_path)
-    root_i = root + '_{}'
-    i = 1
 
     if overwrite and os.path.exists(html_full_path):
         os.remove(html_full_path)
-    else:
+    elif os.path.exists(html_full_path):
+        root, ext = os.path.splitext(html_full_path)
+        root_i = root + '_{}'
+        i = 1
         while os.path.exists(html_full_path):
             html_full_path = root_i.format(i) + ext
             i = i + 1
 
-    with open(html_full_path, mode='w') as html_file:
-        mpld3.save_html(figure, html_file)
+    html_data = mpld3.fig_to_html(figure)
 
-    if not show:
+    with open(html_full_path, mode='w') as html_file:
+        # mpld3.save_html(figure, html_file)
+        html_file.write(html_data)
+
+    return html_full_path
+
+browser_controller = None
+
+
+def show_plot_in_browser(figure, filename=None, path=None, overwrite=True, browser='google-chrome',
+                         save_only=False):
+    html_full_path = save_plot_as_html(figure, filename, path, overwrite)
+
+    if save_only:
         return
 
     global browser_controller

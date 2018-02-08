@@ -1,1 +1,1 @@
-from ._learner import QuadPushingACRepsLearner
+from ._learner import ACRepsLearner

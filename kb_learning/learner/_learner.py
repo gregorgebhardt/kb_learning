@@ -1,12 +1,15 @@
 import abc
 import os
+import sys
 import gc
 
 import logging
 
 from cluster_work import ClusterWork
 
-from kb_learning.kernel import StateKernel, StateActionKernel
+from kb_learning.kernel import KilobotStateKernel, KilobotStateActionKernel
+from kb_learning.kernel import MeanStateKernel, MeanStateActionKernel
+from kb_learning.kernel import MeanCovStateKernel, MeanCovStateActionKernel
 from kb_learning.kernel import compute_median_bandwidth
 from kb_learning.reps.lstd import LeastSquaresTemporalDifference
 from kb_learning.reps.ac_reps import ActorCriticReps
@@ -20,19 +23,24 @@ from kb_learning.envs.sampler import ParallelQuadPushingSampler as Sampler
 import matplotlib.pyplot as plt
 from matplotlib import cm, gridspec
 from kb_learning.tools.plotting import plot_light_trajectory, plot_value_function, plot_policy, show_plot_in_browser, \
-    plot_objects, plot_trajectory_reward_distribution
+    save_plot_as_html, plot_objects, plot_trajectory_reward_distribution
 
 import numpy as np
 import pandas as pd
 
 import pickle
 
-logger = logging.getLogger(__name__)
+formatter = logging.Formatter('[%(asctime)s] [KBL] %(message)s')
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(formatter)
+
+logger = logging.getLogger('kb_learning')
 logger.setLevel(logging.INFO)
+logger.addHandler(handler)
 
 
 class KilobotLearner(ClusterWork):
-    _sampler_class: KilobotSampler = None
+    Sampler: KilobotSampler = None
 
     @abc.abstractmethod
     def iterate(self, config: dict, rep: int, n: int) -> dict:
@@ -54,6 +62,7 @@ class ACRepsLearner(KilobotLearner):
             'num_workers': 4
         },
         'kernel': {
+            'type': 'kilobot',
             'bandwidth_factor_kb': 1.,
             'bandwidth_factor_la': 1.,
             'weight': .5,
@@ -76,6 +85,10 @@ class ACRepsLearner(KilobotLearner):
             'num_sparse_states': 1000,
         }
     }
+
+    StateKernel = KilobotStateKernel
+    StateActionKernel = KilobotStateActionKernel
+    Sampler = Sampler
 
     def __init__(self):
         super().__init__()
@@ -214,8 +227,10 @@ class ACRepsLearner(KilobotLearner):
             ax_aft_P.set_title('value function and policy, after reps, iteration {}'.format(self._it))
 
             # finalize plotting
+            # fig.show()
+            # save_plot_as_html(fig, path=self._log_path_rep, filename='plot_{:02d}.html'.format(self._it))
             show_plot_in_browser(fig, path=self._log_path_rep, filename='plot_{:02d}.html'.format(self._it),
-                                 overwrite=True, show=not self._no_gui)
+                                 overwrite=True, save_only=self._no_gui)
             plt.close(fig)
 
         # save some stuff
@@ -232,15 +247,22 @@ class ACRepsLearner(KilobotLearner):
 
     def reset(self, config: dict, rep: int) -> None:
         kernel_params = self._params['kernel']
-        self._state_kernel = StateKernel(weight=kernel_params['weight'],
-                                         bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                         bandwidth_light=kernel_params['bandwidth_factor_la'],
-                                         num_processes=kernel_params['num_processes'])
+        if kernel_params['type'] == 'mean':
+            self.StateKernel = MeanStateKernel
+            self.StateActionKernel = MeanStateActionKernel
+        elif kernel_params['type'] == 'mean-cov':
+            self.StateKernel = MeanCovStateKernel
+            self.StateActionKernel = MeanCovStateActionKernel
 
-        self._state_action_kernel = StateActionKernel(weight=kernel_params['weight'],
-                                                      bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                                      bandwidth_light=kernel_params['bandwidth_factor_la'],
-                                                      num_processes=kernel_params['num_processes'])
+        self._state_kernel = self.StateKernel(weight=kernel_params['weight'],
+                                              bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
+                                              bandwidth_light=kernel_params['bandwidth_factor_la'],
+                                              num_processes=kernel_params['num_processes'])
+
+        self._state_action_kernel = self.StateActionKernel(weight=kernel_params['weight'],
+                                                           bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
+                                                           bandwidth_light=kernel_params['bandwidth_factor_la'],
+                                                           num_processes=kernel_params['num_processes'])
 
         self.lstd = LeastSquaresTemporalDifference()
         # self.lstd = LeastSquaresTemporalDifference()
@@ -277,13 +299,14 @@ class ACRepsLearner(KilobotLearner):
         self._SARS = pd.DataFrame(columns=self._SARS_columns)
 
         sampling_params = self._params['sampling']
-        self._sampler = self._sampler_class(num_episodes=sampling_params['num_episodes'],
-                                            num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                            num_kilobots=sampling_params['num_kilobots'],
-                                            column_index=self._SARS_columns,
-                                            w_factor=sampling_params['w_factor'],
-                                            policy=self.policy,
-                                            num_workers=sampling_params['num_workers'])
+        self._sampler = self.Sampler(num_episodes=sampling_params['num_episodes'],
+                                     num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                     num_kilobots=sampling_params['num_kilobots'],
+                                     column_index=self._SARS_columns,
+                                     w_factor=sampling_params['w_factor'],
+                                     policy=self.policy,
+                                     num_workers=sampling_params['num_workers'],
+                                     seed=self._seed)
 
     def _compute_value_function_grid(self, state_action_features, theta, steps_x=50, steps_y=25):
         x_range = self._sampler.env.world_x_range
@@ -321,7 +344,3 @@ class ACRepsLearner(KilobotLearner):
         actions = mean_actions, sigma_actions
 
         return actions, x_range, y_range
-
-
-class QuadPushingACRepsLearner(ACRepsLearner):
-    _sampler_class = Sampler

@@ -5,7 +5,8 @@ import scipy.linalg
 from sklearn.gaussian_process.kernels import Kernel
 
 import logging
-logger = logging.getLogger(__name__)
+
+logger = logging.getLogger('kb_learning')
 
 
 class SparseGPPolicy:

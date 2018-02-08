@@ -1,0 +1,6 @@
+def make_ext(modname, pyxfilename):
+    from distutils.extension import Extension
+    return Extension(name=modname,
+                     sources=[pyxfilename],
+                     extra_compile_args=['-xHost', '-O3'])
+                     # extra_compile_args=['-Ofast', '-march=corei7-avx'])

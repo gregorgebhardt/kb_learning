@@ -88,6 +88,7 @@ class QuadPushingSampler(KilobotSampler):
 
             actions = self.policy(states)
             srdi = [e.step(a) for e, a in zip(self.envs, actions)]
+
             for i in range(self.num_episodes):
                 states[i, :] = srdi[i][0]
                 reward[i] = srdi[i][1]
@@ -116,6 +117,11 @@ class ParallelQuadPushingSampler(QuadPushingSampler):
                                          initargs=[w_factor, num_kilobots, episodes_per_worker])
 
         self.pool.map(ParallelQuadPushingSampler._set_seed, [self._seed] * self.num_workers)
+
+    def __del__(self):
+        self.pool.terminate()
+        self.pool.join()
+        self.pool.close()
 
     @QuadPushingSampler.seed.setter
     def seed(self, seed):

@@ -5,6 +5,7 @@ repetitions: 20 # 20
 iterations: 30
 path: "data/learn_quad_pushing"
 plotting: true
+gui: false
 
 params:
   sampling:
@@ -12,17 +13,31 @@ params:
     num_steps_per_episode: 125 # 125
     num_SARS_samples: 5000 # 10000
     num_workers: 8
+    num_kilobots: 15
   kernel:
     num_processes: 1
+  lstd:
+    num_features: 500 # 1000
+  gp:
+    num_sparse_states: 500 # 1000
 ---
 name: "learn_5_w_factors"
+list:
+  sampling:
+    w_factor: [.0, .25, .5, .75, 1.]
+---
+name: "learn_5_w_factors_mean_kernel"
 params:
-    sampling:
-      num_kilobots: 15
-    lstd:
-      num_features: 500 # 1000
-    gp:
-      num_sparse_states: 500 # 1000
+  kernel:
+    type: 'mean'
+list:
+  sampling:
+    w_factor: [.0, .25, .5, .75, 1.]
+---
+name: "learn_5_w_factors_meancov_kernel"
+params:
+  kernel:
+    type: 'mean-cov'
 list:
   sampling:
     w_factor: [.0, .25, .5, .75, 1.]
