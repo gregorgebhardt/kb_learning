@@ -195,7 +195,13 @@ class MahaKernel:
             self.bandwidth = np.diag(1 / bandwidth)
         self.num_processes = num_processes
 
+        self._preprocessor = None
+
     def __call__(self, X, Y=None, eval_gradient=False):
+        if self._preprocessor:
+            X = self._preprocessor(X)
+            if Y is not None:
+                Y = self._preprocessor(Y)
         return pairwise_distances(X, Y, metric='mahalanobis', n_jobs=self.num_processes, VI=self.bandwidth)
 
     def diag(self, X):
@@ -218,58 +224,18 @@ class MeanKernel(MahaKernel):
     def __init__(self, bandwidth_factor=1.0, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.bandwidth_factor = bandwidth_factor
-
         self.bandwidth = self.bandwidth_factor * self.bandwidth
 
-    def __call__(self, k1, k2=None, eval_gradient=False):
-        # number of samples in k1
-        q = k1.shape[0]
-        # number of kilobots in k1
-        num_kb_1 = k1.shape[1] // 2
-
-        k1_reshaped = k1.reshape(q, num_kb_1, 2)
-        k1 = np.mean(k1_reshaped, axis=1)
-
-        if k2 is not None:
-            # number of samples in k2
-            r = k2.shape[0]
-            # number of kilobots in k2
-            num_kb_2 = k2.shape[1] // 2
-
-            k2_reshaped = k2.reshape(r, num_kb_2, 2)
-            k2 = np.mean(k2_reshaped, axis=1)
-
-        return pairwise_distances(k1, k2, metric='mahalanobis', n_jobs=self.num_processes, VI=self.bandwidth)
+        from ._preprocessors import compute_mean_position
+        self._preprocessor = compute_mean_position
 
 
 class MeanCovKernel(MeanKernel):
-    def __call__(self, k1, k2=None, eval_gradient=False):
-        # number of samples in k1
-        q = k1.shape[0]
-        # number of kilobots in k1
-        num_kb_1 = k1.shape[1] // 2
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-        k1_reshaped = k1.reshape(q, num_kb_1, 2)
-        k1_mean = np.mean(k1_reshaped, axis=1, keepdims=True)
-        k1_norm = k1_reshaped - k1_mean
-        k1_cov = np.einsum('qni,qnk->qik', k1_norm, k1_norm)
-        k1_cov = np.reshape(k1_cov, newshape=(q, -1))
-        k1 = np.c_[k1_mean.squeeze(), k1_cov]
-
-        if k2 is not None:
-            # number of samples in k2
-            r = k2.shape[0]
-            # number of kilobots in k2
-            num_kb_2 = k2.shape[1] // 2
-
-            k2_reshaped = k2.reshape(r, num_kb_2, 2)
-            k2_mean = np.mean(k2_reshaped, axis=1, keepdims=True)
-            k2_norm = k2_reshaped - k2_mean
-            k2_cov = np.einsum('qni,qnk->qik', k2_norm, k2_norm)
-            k2_cov = np.reshape(k2_cov, newshape=(r, -1))
-            k2 = np.c_[k2_mean.squeeze(), k2_cov]
-
-        return pairwise_distances(k1, k2, metric='mahalanobis', n_jobs=self.num_processes, VI=self.bandwidth)
+        from ._preprocessors import compute_mean_and_cov_position
+        self._preprocessor = compute_mean_and_cov_position
 
 
 class KilobotStateKernel:
