@@ -7,7 +7,7 @@
 #SBATCH -e /home/yy05vipo/ftp/kb_learning/experiments/learn_quad_pushing/err.%j
 #SBATCH -o /home/yy05vipo/ftp/kb_learning/experiments/learn_quad_pushing/out.%j
 #
-#SBATCH -n 2               # Number of tasks
+#SBATCH -n 50               # Number of tasks
 #SBATCH -c 8                # Number of cores per task
 #SBATCH --mem-per-cpu=2000  # Main memory in MByte per MPI task
 #SBATCH -t 3:00:00          # Hours, minutes and seconds, or '#SBATCH -t 10' - only minutes
