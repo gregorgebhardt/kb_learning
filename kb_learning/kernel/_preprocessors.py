@@ -3,7 +3,7 @@ import pandas as pd
 import scipy.spatial as spatial
 
 
-def compute_median_bandwidth(data, quantile=.5, sample_size=1000):
+def compute_median_bandwidth(data, quantile=.5, sample_size=1000, preprocessor=None):
     """Computes a bandwidth for the given data set using the median heuristic.
     Other quantiles can be chosen with the quantile keyword argument.
 
@@ -15,19 +15,22 @@ def compute_median_bandwidth(data, quantile=.5, sample_size=1000):
     Returns:
     bandwidths -- an array with the bandwidth for each variable
     """
-    if len(data.shape) > 1:
-        num_variables = data.shape[1]
-    else:
-        num_variables = 1
-
-    bandwidths = np.zeros(num_variables)
-
     num_data_points = data.shape[0]
 
     if sample_size > num_data_points:
         data_points = data.values
     else:
         data_points = data.sample(sample_size).values
+
+    if preprocessor:
+        data_points = preprocessor(data_points)
+
+    if len(data_points.shape) > 1:
+        num_variables = data_points.shape[1]
+    else:
+        num_variables = 1
+
+    bandwidths = np.zeros(num_variables)
 
     for i in range(num_variables):
         distances = spatial.distance.pdist(data_points[:, i:i+1])
@@ -86,3 +89,27 @@ def select_reference_set_randomly(data, size, consecutive_sets=1, group_by=None)
         reference_set = reference_set1
 
     return tuple(reference_set)
+
+
+def compute_mean_position(data):
+    # number of samples in data
+    q = data.shape[0]
+    # number of kilobots in data
+    num_kb = data.shape[1] // 2
+
+    data_reshaped = data.reshape(q, num_kb, 2)
+    return np.mean(data_reshaped, axis=1)
+
+
+def compute_mean_and_cov_position(data):
+    # number of samples in data
+    q = data.shape[0]
+    # number of kilobots in data
+    num_kb_1 = data.shape[1] // 2
+
+    data_reshaped = data.reshape(q, num_kb_1, 2)
+    data_mean = np.mean(data_reshaped, axis=1, keepdims=True)
+    data_norm = data_reshaped - data_mean
+    data_cov = np.einsum('qni,qnk->qik', data_norm, data_norm)
+    data_cov = data_cov[:, [0, 0, 1], [0, 1, 1]]
+    return np.c_[data_mean.squeeze(), data_cov]

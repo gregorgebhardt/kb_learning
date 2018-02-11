@@ -7,7 +7,8 @@ from ._kilobot_kernel_loop import KilobotKernel, ExponentialQuadraticKernel
 # from ._kilobot_kernel import KilobotKernel, ExponentialQuadraticKernel
 from ._kernel import KilobotStateKernel, KilobotStateActionKernel, MeanStateKernel, \
     MeanStateActionKernel, MeanCovStateKernel, MeanCovStateActionKernel
-from ._preprocessors import compute_median_bandwidth, select_reference_set_randomly
+from ._preprocessors import compute_median_bandwidth, select_reference_set_randomly, compute_mean_position, \
+    compute_mean_and_cov_position
 
 __all__ = [
     'KilobotKernel',
@@ -18,5 +19,7 @@ __all__ = [
     'MeanCovStateKernel',
     'MeanCovStateActionKernel',
     'compute_median_bandwidth',
-    'select_reference_set_randomly'
+    'select_reference_set_randomly',
+    'compute_mean_position',
+    'compute_mean_and_cov_position'
 ]

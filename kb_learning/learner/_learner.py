@@ -93,6 +93,7 @@ class ACRepsLearner(KilobotLearner):
     def __init__(self):
         super().__init__()
 
+        self._state_preprocessor = None
         self._state_kernel = None
         self._state_action_kernel = None
 
@@ -112,6 +113,13 @@ class ACRepsLearner(KilobotLearner):
 
         self._state_features = None
         self._state_action_features = None
+
+        self.kilobots_columns = None
+        self.light_columns = None
+        self.state_columns = None
+        self.action_columns = None
+        self.reward_columns = None
+        self.next_state_columns = None
 
     def iterate(self, config: dict, rep: int, n: int) -> dict:
         sampling_params = self._params['sampling']
@@ -142,11 +150,13 @@ class ACRepsLearner(KilobotLearner):
 
         # compute kernel parameters
         logger.debug('computing kernel bandwidths')
-        bandwidth = compute_median_bandwidth(self._SARS[['S', 'A']], sample_size=500)
-        bandwidth_s = bandwidth[:len(self._SARS['S'].columns)]
+        bandwidth_kb = compute_median_bandwidth(self._SARS[self.kilobots_columns], sample_size=500,
+                                                preprocessor=self._state_preprocessor)
+        bandwidth_l = compute_median_bandwidth(self._SARS[self.light_columns], sample_size=500)
+        bandwidth_a = compute_median_bandwidth(self._SARS['A'], sample_size=500)
 
-        self._state_kernel.set_params(bandwidth=bandwidth_s)
-        self._state_action_kernel.set_params(bandwidth=bandwidth)
+        self._state_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_l])
+        self._state_action_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_l, bandwidth_a])
 
         # compute feature matrices
         logger.debug('selecting lstd samples')
@@ -248,9 +258,13 @@ class ACRepsLearner(KilobotLearner):
     def reset(self, config: dict, rep: int) -> None:
         kernel_params = self._params['kernel']
         if kernel_params['type'] == 'mean':
+            from kb_learning.kernel import compute_mean_position
+            self._state_preprocessor = compute_mean_position
             self.StateKernel = MeanStateKernel
             self.StateActionKernel = MeanStateActionKernel
         elif kernel_params['type'] == 'mean-cov':
+            from kb_learning.kernel import compute_mean_and_cov_position
+            self._state_preprocessor = compute_mean_and_cov_position
             self.StateKernel = MeanCovStateKernel
             self.StateActionKernel = MeanCovStateActionKernel
 
@@ -279,13 +293,13 @@ class ACRepsLearner(KilobotLearner):
         self.policy.gp_chol_regularizer = self._params['gp']['chol_regularizer']
 
         kb_columns_level = ['kb_{}'.format(i) for i in range(self._params['sampling']['num_kilobots'])]
-        kilobots_columns = pd.MultiIndex.from_product([['S'], kb_columns_level, ['x', 'y']])
-        light_columns = pd.MultiIndex.from_product([['S'], ['light'], ['x', 'y']])
-        state_columns = kilobots_columns.append(light_columns)
-        action_columns = pd.MultiIndex.from_product([['A'], ['x', 'y'], ['']])
-        reward_columns = pd.MultiIndex.from_arrays([['R'], [''], ['']])
-        next_state_columns = state_columns.copy()
-        next_state_columns.set_levels(['S_'], 0, inplace=True)
+        self.kilobots_columns = pd.MultiIndex.from_product([['S'], kb_columns_level, ['x', 'y']])
+        self.light_columns = pd.MultiIndex.from_product([['S'], ['light'], ['x', 'y']])
+        self.state_columns = self.kilobots_columns.append(self.light_columns)
+        self.action_columns = pd.MultiIndex.from_product([['A'], ['x', 'y'], ['']])
+        self.reward_columns = pd.MultiIndex.from_arrays([['R'], [''], ['']])
+        self.next_state_columns = self.state_columns.copy()
+        self.next_state_columns.set_levels(['S_'], 0, inplace=True)
 
         # self._SARS_columns = pd.MultiIndex.from_arrays([['S'] * len(state_columns) +
         #                                                 ['A'] * len(action_columns) + ['R'] +
@@ -294,7 +308,8 @@ class ACRepsLearner(KilobotLearner):
         #                                                 [*range(len(action_columns))] + [0] +
         #                                                 [*range(len(state_columns))]])
 
-        self._SARS_columns = state_columns.append(action_columns).append(reward_columns).append(next_state_columns)
+        self._SARS_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
+            self.next_state_columns)
 
         self._SARS = pd.DataFrame(columns=self._SARS_columns)
 
