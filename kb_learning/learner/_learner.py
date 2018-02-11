@@ -18,7 +18,7 @@ from kb_learning.reps.sparse_gp_policy import SparseGPPolicy
 from gym_kilobots.lib import CircularGradientLight
 
 from kb_learning.envs.sampler import KilobotSampler
-from kb_learning.envs.sampler import ParallelQuadPushingSampler as Sampler
+from kb_learning.envs.sampler import QuadPushingSampler as Sampler
 
 import matplotlib.pyplot as plt
 from matplotlib import cm, gridspec
