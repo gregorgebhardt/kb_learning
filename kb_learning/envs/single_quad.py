@@ -35,7 +35,7 @@ class QuadPushingEnv(KilobotsEnv):
     # _sampling_max_radius = .5
     _spawn_radius_variance = .2 * _light_radius
     _light_max_dist = 1. * _object_size
-    _spawn_angle_mean = 0
+    _spawn_angle_mean = np.pi
     _spawn_angle_variance = .5 * np.pi
 
     @property
@@ -52,9 +52,12 @@ class QuadPushingEnv(KilobotsEnv):
         super().__init__()
 
     def get_state(self):
-        return np.concatenate(tuple(k.get_position() for k in self._kilobots)
-                              + (self._light.get_state(),)
+        return np.concatenate(tuple(self._transform_position(k.get_position()) for k in self._kilobots)
+                              + (self._transform_position(self._light.get_state()),)
                               + tuple(o.get_pose() for o in self._objects))
+
+    def _transform_position(self, position):
+        return self._objects[0].get_local_point(position)
 
     def get_observation(self):
         return np.concatenate(tuple(k.get_position() for k in self._kilobots)
