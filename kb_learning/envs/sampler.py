@@ -1,5 +1,6 @@
 import abc
 import multiprocessing
+from multiprocessing.pool import ThreadPool
 from typing import Tuple, List
 
 import numpy as np
@@ -7,6 +8,9 @@ import pandas as pd
 
 import gym
 import kb_learning.envs as kb_envs
+import logging
+
+logger = logging.getLogger('kb_learning.sampler')
 
 
 class KilobotSampler:
@@ -50,14 +54,12 @@ class QuadPushingSampler(KilobotSampler):
                          num_kilobots=num_kilobots, column_index=column_index, seed=seed, *args, **kwargs)
 
         self.w_factor = w_factor
-
         self.policy = policy
+        self.envs = []
 
-        env_id = kb_envs.get_quadpushing_environment(weight=w_factor, num_kilobots=num_kilobots)
-        self.envs = [gym.make(env_id) for _ in range(num_episodes)]
-
-        for i, e in enumerate(self.envs):
-            e.seed(self.seed * 100 + i)
+        # create an prototype of the environment
+        self.env_id = kb_envs.get_quadpushing_environment(weight=self.w_factor, num_kilobots=self.num_kilobots)
+        self.env = gym.make(self.env_id)
 
     @KilobotSampler.seed.setter
     def seed(self, seed):
@@ -65,14 +67,20 @@ class QuadPushingSampler(KilobotSampler):
         for i, e in enumerate(self.envs):
             e.seed(self.seed * 100 + i)
 
-    @property
-    def env(self):
-        return self.envs[0]
+    def _init_envs(self):
+        env_id = kb_envs.get_quadpushing_environment(weight=self.w_factor, num_kilobots=self.num_kilobots)
+        self.envs = [gym.make(env_id) for _ in range(self.num_episodes)]
+
+        for i, e in enumerate(self.envs):
+            e.seed(self.seed * 100 + i)
 
     def set_policy(self, policy):
         self.policy = policy
 
     def _sample_sars(self):
+        if len(self.envs) is 0:
+            self._init_envs()
+
         # reset environments and obtain initial states
         states = np.array([e.reset() for e in self.envs])
         reward = np.empty((self.num_episodes, 1))
@@ -100,10 +108,53 @@ class QuadPushingSampler(KilobotSampler):
         return it_sars_data, info
 
 
-class ParallelQuadPushingSampler(QuadPushingSampler):
-    envs = []
-    worker_seed = None
+envs = []
+worker_seed = None
 
+
+def _init_worker(env_id, num_environments):
+    # env_id = kb_envs.get_quadpushing_environment(weight=w_factor, num_kilobots=num_kilobots)
+    global envs, worker_seed
+    envs = [gym.make(env_id) for _ in range(num_environments)]
+    worker_seed = multiprocessing.current_process().pid
+
+
+def _set_worker_seed(seed):
+    global envs, worker_seed
+    for i, e in enumerate(envs):
+        e.seed(worker_seed * 10000 + seed * 100 + i)
+    np.random.seed(worker_seed * 10000 + seed * 100 + 123)
+
+
+def _do_work(policy, num_episodes, num_steps):
+    global envs
+    # reset environments and obtain initial states
+    states = np.array([e.reset() for e in envs[:num_episodes]])
+    reward = np.empty((num_episodes, 1))
+    info = list()
+
+    state_dims = states.shape[1]
+    action_dims = sum(envs[0].action_space.shape)
+
+    it_sars_data = np.empty((num_episodes * num_steps, 2 * state_dims + action_dims + 1))
+
+    for step in range(num_steps):
+        it_sars_data[step::num_steps, :state_dims] = states
+
+        actions = policy(states)
+        srdi = [e.step(a) for e, a in zip(envs[:num_episodes], actions)]
+        for i in range(num_episodes):
+            states[i, :] = srdi[i][0]
+            reward[i] = srdi[i][1]
+            info.append(srdi[i][3])
+
+        # collect samples in DataFrame
+        it_sars_data[step::num_steps, state_dims:] = np.c_[actions, reward, states]
+
+    return it_sars_data, info
+
+
+class ParallelQuadPushingSampler(QuadPushingSampler):
     def __init__(self, num_episodes: int, num_steps_per_episode: int, num_kilobots: int, w_factor: float,
                  column_index: pd.Index, policy=None, seed: int=0, num_workers=None):
         super().__init__(num_episodes=num_episodes, num_steps_per_episode=num_steps_per_episode,
@@ -112,67 +163,17 @@ class ParallelQuadPushingSampler(QuadPushingSampler):
 
         # self._init_worker(w_factor, num_kilobots, 2)
         self.num_workers = num_workers
-        episodes_per_worker = (num_episodes // self.num_workers) + 1
-        self.pool = multiprocessing.Pool(self.num_workers, initializer=ParallelQuadPushingSampler._init_worker,
-                                         initargs=[w_factor, num_kilobots, episodes_per_worker])
-
-        self.pool.map(ParallelQuadPushingSampler._set_seed, [self._seed] * self.num_workers)
-
-    def __del__(self):
-        self.pool.terminate()
-        self.pool.join()
-        self.pool.close()
+        self.episodes_per_worker = (num_episodes // self.num_workers) + 1
 
     @QuadPushingSampler.seed.setter
     def seed(self, seed):
         self._seed = seed
-        self.pool.map(ParallelQuadPushingSampler._set_seed, [self._seed] * self.num_workers)
-
-    @staticmethod
-    def _init_worker(w_factor, num_kilobots, num_environments):
-        env_id = kb_envs.get_quadpushing_environment(weight=w_factor, num_kilobots=num_kilobots)
-        ParallelQuadPushingSampler.envs = [gym.make(env_id) for _ in range(num_environments)]
-        ParallelQuadPushingSampler.worker_seed = multiprocessing.current_process().pid
-
-    @staticmethod
-    def _set_seed(seed):
-        for i, e in enumerate(ParallelQuadPushingSampler.envs):
-            e.seed(ParallelQuadPushingSampler.worker_seed * 10000 + seed * 100 + i)
-        np.random.seed(ParallelQuadPushingSampler.worker_seed * 10000 + seed * 100 + 123)
-
-    @staticmethod
-    def _do_work(policy, num_episodes, num_steps):
-        # reset environments and obtain initial states
-        states = np.array([e.reset() for e in ParallelQuadPushingSampler.envs[:num_episodes]])
-        reward = np.empty((num_episodes, 1))
-        info = list()
-
-        state_dims = states.shape[1]
-        action_dims = sum(ParallelQuadPushingSampler.envs[0].action_space.shape)
-
-        it_sars_data = np.empty((num_episodes * num_steps, 2 * state_dims + action_dims + 1))
-        # policy.set_seed(np.random.seed() + ParallelQuadPushingSampler.worker_seed)
-
-        for step in range(num_steps):
-            # import sys
-            # sys.stdout.write('.')
-            # sys.stdout.flush()
-
-            it_sars_data[step::num_steps, :state_dims] = states
-
-            actions = policy(states)
-            srdi = [e.step(a) for e, a in zip(ParallelQuadPushingSampler.envs[:num_episodes], actions)]
-            for i in range(num_episodes):
-                states[i, :] = srdi[i][0]
-                reward[i] = srdi[i][1]
-                info.append(srdi[i][3])
-
-            # collect samples in DataFrame
-            it_sars_data[step::num_steps, state_dims:] = np.c_[actions, reward, states]
-
-        return it_sars_data, info
 
     def _sample_sars(self):
+        pool = ThreadPool(self.num_workers, initializer=_init_worker, initargs=[self.env_id,
+                                                                                          self.episodes_per_worker])
+        pool.map(_set_worker_seed, [self._seed] * self.num_workers)
+
         episodes_per_work = [self.num_episodes // self.num_workers] * self.num_workers
         for i in range(self.num_episodes % self.num_workers):
             episodes_per_work[i] += 1
@@ -181,7 +182,11 @@ class ParallelQuadPushingSampler(QuadPushingSampler):
         work = [(self.policy, episodes, self.num_steps_per_episode) for episodes in episodes_per_work]
 
         # self._do_work(*work[0])
-        results = self.pool.starmap(ParallelQuadPushingSampler._do_work, work)
+        results = pool.starmap_async(_do_work, work).get(1200)
+
+        pool.terminate()
+        pool.join()
+        pool.close()
 
         # combine results
         it_sars_data = results[0][0]
