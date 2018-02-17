@@ -1,6 +1,5 @@
 import abc
 import os
-import sys
 import gc
 
 import logging
@@ -18,25 +17,19 @@ from kb_learning.reps.sparse_gp_policy import SparseGPPolicy
 from gym_kilobots.lib import CircularGradientLight
 
 from kb_learning.envs.sampler import KilobotSampler
-from kb_learning.envs.sampler import QuadPushingSampler as Sampler
+from kb_learning.envs.sampler import QuadPushingSampler, ParallelQuadPushingSampler
 
 import matplotlib.pyplot as plt
 from matplotlib import cm, gridspec
 from kb_learning.tools.plotting import plot_light_trajectory, plot_value_function, plot_policy, show_plot_in_browser, \
-    save_plot_as_html, plot_objects, plot_trajectory_reward_distribution
+    plot_objects, plot_trajectory_reward_distribution
 
 import numpy as np
 import pandas as pd
 
 import pickle
 
-formatter = logging.Formatter('[%(asctime)s] [KBL] %(message)s')
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(formatter)
-
 logger = logging.getLogger('kb_learning')
-logger.setLevel(logging.INFO)
-logger.addHandler(handler)
 
 
 class KilobotLearner(ClusterWork):
@@ -52,6 +45,7 @@ class KilobotLearner(ClusterWork):
 
 
 class ACRepsLearner(KilobotLearner):
+    _restore_supported = True
     _default_params = {
         'sampling': {
             'num_kilobots': 15,
@@ -59,7 +53,8 @@ class ACRepsLearner(KilobotLearner):
             'num_episodes': 100,
             'num_steps_per_episode': 125,
             'num_SARS_samples': 10000,
-            'num_workers': 4
+            'num_workers': 4,
+            'multiprocessing': False
         },
         'kernel': {
             'type': 'kilobot',
@@ -88,7 +83,6 @@ class ACRepsLearner(KilobotLearner):
 
     StateKernel = KilobotStateKernel
     StateActionKernel = KilobotStateActionKernel
-    Sampler = Sampler
 
     def __init__(self):
         super().__init__()
@@ -185,7 +179,7 @@ class ACRepsLearner(KilobotLearner):
             theta = self.lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._SARS[['R']].values)
 
             # plotting
-            fig = plt.figure(figsize=(10, 18))
+            fig = plt.figure(figsize=(10, 20))
             gs = gridspec.GridSpec(nrows=4, ncols=2, width_ratios=[20, 1], height_ratios=[1, 3, 3, 3])
             ax_R = fig.add_subplot(gs[0, :])
             plot_trajectory_reward_distribution(ax_R, it_sars['R'])
@@ -242,11 +236,6 @@ class ACRepsLearner(KilobotLearner):
             show_plot_in_browser(fig, path=self._log_path_rep, filename='plot_{:02d}.html'.format(self._it),
                                  overwrite=True, save_only=self._no_gui)
             plt.close(fig)
-
-        # save some stuff
-        policy_file_name = os.path.join(self._log_path_rep, 'policy_{:02d}.pkl'.format(self._it))
-        with open(policy_file_name, mode='w+b') as policy_file:
-            pickle.dump(self.policy, policy_file)
 
         return_dict = dict(mean_sum_R=mean_sum_R, median_sum_R=median_sum_R, std_sum_R=std_sum_R,
                            max_sum_R=max_sum_R, min_sum_R=min_sum_R)
@@ -314,14 +303,46 @@ class ACRepsLearner(KilobotLearner):
         self._SARS = pd.DataFrame(columns=self._SARS_columns)
 
         sampling_params = self._params['sampling']
-        self._sampler = self.Sampler(num_episodes=sampling_params['num_episodes'],
-                                     num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                     num_kilobots=sampling_params['num_kilobots'],
-                                     column_index=self._SARS_columns,
-                                     w_factor=sampling_params['w_factor'],
-                                     policy=self.policy,
-                                     num_workers=sampling_params['num_workers'],
-                                     seed=self._seed)
+        if sampling_params['multiprocessing']:
+            sampler_class = ParallelQuadPushingSampler
+        else:
+            sampler_class = QuadPushingSampler
+
+        self._sampler = sampler_class(num_episodes=sampling_params['num_episodes'],
+                                      num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                      num_kilobots=sampling_params['num_kilobots'],
+                                      column_index=self._SARS_columns,
+                                      w_factor=sampling_params['w_factor'],
+                                      policy=self.policy,
+                                      num_workers=sampling_params['num_workers'],
+                                      seed=self._seed)
+
+    def finalize(self):
+        pass
+
+    def save_state(self, config: dict, rep: int, n: int) -> None:
+        # save policy
+        policy_file_name = os.path.join(self._log_path_rep, 'policy_{:02d}.pkl'.format(self._it))
+        with open(policy_file_name, mode='w+b') as policy_file:
+            pickle.dump(self.policy, policy_file)
+
+        # save SARS data
+        SARS_file_name = os.path.join(self._log_path, 'last_SARS.pkl.gz')
+        self._SARS.to_pickle(SARS_file_name, compression='gzip')
+
+    def restore_state(self, config: dict, rep: int, n: int) -> bool:
+        # restore policy
+        policy_file_name = os.path.join(self._log_path_rep, 'policy_{:02d}.pkl'.format(n-1))
+        with open(policy_file_name, mode='r+b') as policy_file:
+            self.policy = pickle.load(policy_file)
+        self._sampler.policy = self.policy
+
+        # restore SARS data
+        SARS_file_name = os.path.join(self._log_path, 'last_SARS.pkl.gz')
+        if not os.path.exists(SARS_file_name):
+            return False
+        self._SARS = pd.read_pickle(SARS_file_name, compression='gzip')
+        return True
 
     def _compute_value_function_grid(self, state_action_features, theta, steps_x=50, steps_y=25):
         x_range = self._sampler.env.world_x_range

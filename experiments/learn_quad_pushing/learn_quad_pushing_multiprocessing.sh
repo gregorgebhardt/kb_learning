@@ -24,4 +24,4 @@ cd /home/yy05vipo/ftp/kb_learning/experiments
 
 srun hostname > $SLURM_JOB_ID.hostfile
 hostfileconv $SLURM_JOB_ID.hostfile -1
-job_stream --hostfile $SLURM_JOB_ID.hostfile.converted -- python learn_quad_pushing/learn_quad_pushing.py -c learn_quad_pushing/learn_quad_pushing.yml --log_level DEBUG
+job_stream --hostfile $SLURM_JOB_ID.hostfile.converted -- python learn_quad_pushing/learn_quad_pushing.py -c learn_quad_pushing/learn_quad_pushing_multiprocessing.yml --log_level DEBUG

@@ -3,7 +3,7 @@
 name: "DEFAULT"
 repetitions: 20 # 20
 iterations: 20
-path: "data/learn_quad_pushing"
+path: "data/learn_quad_pushing_multiprocessing"
 plotting: true
 gui: false
 
@@ -13,6 +13,7 @@ params:
     num_steps_per_episode: 125 # 125
     num_SARS_samples: 10000 # 10000
     num_workers: 8
+    multiprocessing: true
     num_kilobots: 15
   kernel:
     num_processes: 1

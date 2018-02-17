@@ -53,18 +53,18 @@ cdef class ExponentialQuadraticKernel:
         # cdef np.ndarray[DTYPE_t, ndim=3] aq = a * bw
         # cdef np.ndarray[DTYPE_t, ndim=2] aq_a = np.sum(aq * a, axis=-1)
         # cdef np.ndarray[DTYPE_t, ndim=2] bq_b
-        cdef DTYPE_t kb_sum
-        with nogil, parallel(num_threads=8):
+        cdef DTYPE_t kb_sum_1 = .0, kb_sum_2 = .0
+        with nogil, parallel():  # num_threads=8
             if b is None:
                 for i in prange(q):
                     sq_dist[i, 0] = .0
                     for j in range(n):
                         for k in range(n):
-                            kb_sum = .0
+                            kb_sum_1 = .0
                             for s in range(d):
-                                kb_sum = (a[i, j, s]**2 + a[i, k, s]**2) * bw[s]
-                                kb_sum -= 2 * a[i, j, s] * bw[s] * a[i, k, s]
-                            sq_dist[i, 0] += exp(kb_sum)
+                                kb_sum_1 += (a[i, j, s]**2 + a[i, k, s]**2) * bw[s]
+                                kb_sum_1 += -2 * a[i, j, s] * bw[s] * a[i, k, s]
+                            sq_dist[i, 0] += exp(kb_sum_1)
                     sq_dist[i, 0] /= n**2
             else:
                 for i in prange(q, schedule='guided'):
@@ -72,11 +72,11 @@ cdef class ExponentialQuadraticKernel:
                         sq_dist[i, j] = .0
                         for k in range(n):
                             for l in range(m):
-                                kb_sum = .0
+                                kb_sum_2 = .0
                                 for s in range(d):
-                                    kb_sum = (a[i, k, s] ** 2 + b[j, l, s] ** 2) * bw[s]
-                                    kb_sum -= 2 * a[i, k, s] * bw[s] * b[j, l, s]
-                                sq_dist[i, j] += exp(kb_sum)
+                                    kb_sum_2 += (a[i, k, s] ** 2 + b[j, l, s] ** 2) * bw[s]
+                                    kb_sum_2 += -2 * a[i, k, s] * bw[s] * b[j, l, s]
+                                sq_dist[i, j] += exp(kb_sum_2)
                         sq_dist[i, j] /= n * m
                         sq_dist[i, j] *= 2
         return sq_dist

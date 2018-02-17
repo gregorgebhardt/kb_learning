@@ -4,7 +4,7 @@ from scipy.optimize import minimize
 
 import logging
 
-logger = logging.getLogger('kb_learning')
+logger = logging.getLogger('kb_learning.reps')
 
 
 class ActorCriticReps:

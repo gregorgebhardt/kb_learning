@@ -23,6 +23,7 @@ def plot_light_trajectory(axes: Axes, light_states: pd.DataFrame):
 
     for _, traj in light_states.groupby(level=0):
         segments = np.r_['2,3,0', traj[:-1], traj[1:]].swapaxes(1, 2)
+        segments[:, :, 1] *= -1
         lc = LineCollection(segments, cmap='viridis', norm=Normalize(10, num_steps-10))
         color = np.arange(num_steps)
         lc.set_array(color)

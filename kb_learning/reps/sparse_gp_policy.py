@@ -6,7 +6,7 @@ from sklearn.gaussian_process.kernels import Kernel
 
 import logging
 
-logger = logging.getLogger('kb_learning')
+logger = logging.getLogger('kb_learning.gp')
 
 
 class SparseGPPolicy:
@@ -113,7 +113,7 @@ class SparseGPPolicy:
             if sigma_sqr.shape == ():  # single number
                 sigma_sqr = np.array([sigma_sqr])
 
-            sigma_sqr[sigma_sqr < 0] = 0
+            sigma_sqr[sigma_sqr < self.gp_min_variance] = self.gp_min_variance
 
             sigma_action = np.sqrt(sigma_sqr)
 
@@ -128,22 +128,7 @@ class SparseGPPolicy:
             else:
                 return self._get_random_actions(1)
 
-        k = self.gp_prior_variance * self.kernel(states, self.sparse_states)
-
-        gp_mean = k.dot(self.alpha)
-
-        gp_sigma_sqr = self.gp_prior_variance * self.kernel.diag(states) \
-            - np.sum(k.T * self.Q_Km.dot(k.T), axis=0) + self.gp_noise_variance
-
-        if gp_sigma_sqr.shape == ():  # single number
-            gp_sigma_sqr = np.array([gp_sigma_sqr])
-
-        gp_sigma_sqr[gp_sigma_sqr < 0] = self.gp_min_variance
-
-        gp_sigma = np.sqrt(gp_sigma_sqr)
-
-        # gp_sigma = np.sqrt(np.square(gp_sigma) + self.gp_chol_regularizer)
-        # gp_sigma[gp_sigma < self.gp_min_variance] = self.gp_min_variance
+        gp_mean, gp_sigma = self.get_mean_action(states, return_sigma=True)
 
         action_samples = np.random.normal(gp_mean, gp_sigma[:, None])
 
