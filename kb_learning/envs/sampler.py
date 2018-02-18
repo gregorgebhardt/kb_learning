@@ -1,6 +1,5 @@
 import abc
 import multiprocessing
-from multiprocessing.pool import ThreadPool
 from typing import Tuple, List
 
 import numpy as np
@@ -165,15 +164,24 @@ class ParallelQuadPushingSampler(QuadPushingSampler):
         self.num_workers = num_workers
         self.episodes_per_worker = (num_episodes // self.num_workers) + 1
 
+        # for the cluster it is necessary to use the context forkserver here, using a forkserver prevents the forked
+        # processes from taking over handles to files and similar stuff
+        ctx = multiprocessing.get_context('forkserver')
+        self.pool = ctx.Pool(processes=self.num_workers, initializer=_init_worker,
+                             initargs=[self.env_id, self.episodes_per_worker])
+        self.pool.map(_set_worker_seed, [self._seed] * self.num_workers)
+
+    def __del__(self):
+        self.pool.terminate()
+        self.pool.join()
+        self.pool.close()
+
     @QuadPushingSampler.seed.setter
     def seed(self, seed):
         self._seed = seed
+        self.pool.map(_set_worker_seed, [self._seed] * self.num_workers)
 
     def _sample_sars(self):
-        pool = ThreadPool(self.num_workers, initializer=_init_worker, initargs=[self.env_id,
-                                                                                          self.episodes_per_worker])
-        pool.map(_set_worker_seed, [self._seed] * self.num_workers)
-
         episodes_per_work = [self.num_episodes // self.num_workers] * self.num_workers
         for i in range(self.num_episodes % self.num_workers):
             episodes_per_work[i] += 1
@@ -182,11 +190,7 @@ class ParallelQuadPushingSampler(QuadPushingSampler):
         work = [(self.policy, episodes, self.num_steps_per_episode) for episodes in episodes_per_work]
 
         # self._do_work(*work[0])
-        results = pool.starmap_async(_do_work, work).get(1200)
-
-        pool.terminate()
-        pool.join()
-        pool.close()
+        results = self.pool.starmap_async(_do_work, work).get(1200)
 
         # combine results
         it_sars_data = results[0][0]

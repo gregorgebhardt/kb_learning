@@ -16,7 +16,6 @@ from kb_learning.reps.sparse_gp_policy import SparseGPPolicy
 
 from gym_kilobots.lib import CircularGradientLight
 
-from kb_learning.envs.sampler import KilobotSampler
 from kb_learning.envs.sampler import QuadPushingSampler, ParallelQuadPushingSampler
 
 import matplotlib.pyplot as plt
@@ -33,8 +32,6 @@ logger = logging.getLogger('kb_learning')
 
 
 class KilobotLearner(ClusterWork):
-    Sampler: KilobotSampler = None
-
     @abc.abstractmethod
     def iterate(self, config: dict, rep: int, n: int) -> dict:
         raise NotImplementedError
@@ -322,11 +319,13 @@ class ACRepsLearner(KilobotLearner):
 
     def save_state(self, config: dict, rep: int, n: int) -> None:
         # save policy
+        logger.info('Pickling policy...')
         policy_file_name = os.path.join(self._log_path_rep, 'policy_{:02d}.pkl'.format(self._it))
         with open(policy_file_name, mode='w+b') as policy_file:
             pickle.dump(self.policy, policy_file)
 
         # save SARS data
+        logger.info('pickling SARS...')
         SARS_file_name = os.path.join(self._log_path, 'last_SARS.pkl.gz')
         self._SARS.to_pickle(SARS_file_name, compression='gzip')
 
