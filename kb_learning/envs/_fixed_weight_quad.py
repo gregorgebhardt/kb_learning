@@ -7,7 +7,7 @@ import abc
 
 
 def QuadPushingEnvWith(weight, num_kilobots):
-    class _QuadPushingEnv(QuadPushingEnv):
+    class _QuadEnv(QuadEnv):
         @property
         def _weight(self):
             return weight
@@ -16,10 +16,10 @@ def QuadPushingEnvWith(weight, num_kilobots):
         def _num_kilobots(self):
             return num_kilobots
 
-    return _QuadPushingEnv
+    return _QuadEnv
 
 
-class QuadPushingEnv(KilobotsEnv):
+class QuadEnv(KilobotsEnv):
     world_size = world_width, world_height = 1.5, .75
     screen_size = screen_width, screen_height = 1000, 500
 
@@ -136,7 +136,7 @@ class QuadPushingEnv(KilobotsEnv):
         self._step_world()
 
 
-class QuadPushingEnv_w000_kb15(QuadPushingEnv):
+class QuadEnv_w000_kb15(QuadEnv):
     @property
     def _weight(self):
         return .0
@@ -146,7 +146,7 @@ class QuadPushingEnv_w000_kb15(QuadPushingEnv):
         return 15
 
 
-class QuadPushingEnv_w025_kb15(QuadPushingEnv):
+class QuadEnv_w025_kb15(QuadEnv):
     @property
     def _weight(self):
         return .25
@@ -156,7 +156,7 @@ class QuadPushingEnv_w025_kb15(QuadPushingEnv):
         return 15
 
 
-class QuadPushingEnv_w050_kb15(QuadPushingEnv):
+class QuadPushingEnv_w050_kb15(QuadEnv):
     @property
     def _weight(self):
         return .5
@@ -166,7 +166,7 @@ class QuadPushingEnv_w050_kb15(QuadPushingEnv):
         return 15
 
 
-class QuadPushingEnv_w075_kb15(QuadPushingEnv):
+class QuadEnv_w075_kb15(QuadEnv):
     @property
     def _weight(self):
         return .75
@@ -176,7 +176,7 @@ class QuadPushingEnv_w075_kb15(QuadPushingEnv):
         return 15
 
 
-class QuadPushingEnv_w100_kb15(QuadPushingEnv):
+class QuadEnv_w100_kb15(QuadEnv):
     @property
     def _weight(self):
         return 1.

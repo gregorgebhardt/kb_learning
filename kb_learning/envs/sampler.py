@@ -57,7 +57,7 @@ class QuadPushingSampler(KilobotSampler):
         self.envs = []
 
         # create an prototype of the environment
-        self.env_id = kb_envs.get_quadpushing_environment(weight=self.w_factor, num_kilobots=self.num_kilobots)
+        self.env_id = kb_envs.get_fixed_weight_quad_env(weight=self.w_factor, num_kilobots=self.num_kilobots)
         self.env = gym.make(self.env_id)
 
     @KilobotSampler.seed.setter
@@ -67,7 +67,7 @@ class QuadPushingSampler(KilobotSampler):
             e.seed(self.seed * 100 + i)
 
     def _init_envs(self):
-        env_id = kb_envs.get_quadpushing_environment(weight=self.w_factor, num_kilobots=self.num_kilobots)
+        env_id = kb_envs.get_fixed_weight_quad_env(weight=self.w_factor, num_kilobots=self.num_kilobots)
         self.envs = [gym.make(env_id) for _ in range(self.num_episodes)]
 
         for i, e in enumerate(self.envs):

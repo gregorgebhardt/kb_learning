@@ -1,34 +1,34 @@
 from gym.envs.registration import register
 
-from .single_quad import QuadPushingEnv_w000_kb15, QuadPushingEnv_w025_kb15, QuadPushingEnv_w050_kb15, \
-    QuadPushingEnv_w075_kb15, QuadPushingEnv_w100_kb15
+from ._fixed_weight_quad import QuadEnv_w000_kb15, QuadEnv_w025_kb15, QuadEnv_w050_kb15, \
+    QuadEnv_w075_kb15, QuadEnv_w100_kb15
 
-__gym_classes = [QuadPushingEnv_w000_kb15, QuadPushingEnv_w025_kb15, QuadPushingEnv_w050_kb15,
-                 QuadPushingEnv_w075_kb15, QuadPushingEnv_w100_kb15]
+__gym_classes = [QuadEnv_w000_kb15, QuadEnv_w025_kb15, QuadEnv_w050_kb15,
+                 QuadEnv_w075_kb15, QuadEnv_w100_kb15]
 
-kb_learning_gyms = ['QuadPushingEnv_w000_kb15-v0',
-                    'QuadPushingEnv_w025_kb15-v0',
-                    'QuadPushingEnv_w050_kb15-v0',
-                    'QuadPushingEnv_w075_kb15-v0',
-                    'QuadPushingEnv_w100_kb15-v0']
+kb_learning_gyms = ['QuadEnv_w000_kb15-v0',
+                    'QuadEnv_w025_kb15-v0',
+                    'QuadEnv_w050_kb15-v0',
+                    'QuadEnv_w075_kb15-v0',
+                    'QuadEnv_w100_kb15-v0']
 
 for cl, id in zip(__gym_classes, kb_learning_gyms):
     register(id, entry_point='kb_learning.envs:' + cl.__name__)
 
 
-class QuadPushingEnvNotAvailableError(Exception):
+class QuadEnvNotAvailableError(Exception):
     def __init__(self, weight, num_kilobots):
         self.message = "No quad-pushing environment for w = {} and #kb = {} availabe.".format(weight, num_kilobots)
         self.weight = weight
         self.num_kilobots = num_kilobots
 
 
-def get_quadpushing_environment(weight: float, num_kilobots: int):
-    id = 'QuadPushingEnv_w{:03}_kb{}-v0'.format(int(weight * 100), num_kilobots)
+def get_fixed_weight_quad_env(weight: float, num_kilobots: int):
+    id = 'QuadEnv_w{:03}_kb{}-v0'.format(int(weight * 100), num_kilobots)
     if id in kb_learning_gyms:
         return id
     else:
-        raise QuadPushingEnvNotAvailableError(weight, num_kilobots)
+        raise QuadEnvNotAvailableError(weight, num_kilobots)
 
 
 # from typing import Iterable, Union, Iterator
@@ -37,30 +37,30 @@ def get_quadpushing_environment(weight: float, num_kilobots: int):
 #
 #
 # def register_quadpushing_environment(weight: float, num_kilobots: int):
-#     """Create a subclass of the QuadPushing environment of the Kilobot gym with the given weight and number of
+#     """Create a subclass of the Quad environment of the Kilobot gym with the given weight and number of
 #     Kilobots and register the subclass as a gym. Returns the id of the registered gym.
 #
-#     :param weight: the weight for the QuadPushing environment
-#     :param num_kilobots: the number of kilobots for the QuadPushing environment
+#     :param weight: the weight for the Quad environment
+#     :param num_kilobots: the number of kilobots for the Quad environment
 #     :return: the id of the registered environment
 #     """
 #     from gym.envs.registration import register
-#     from .single_quad import QuadPushingEnvWith
+#     from .single_quad import QuadEnvWith
 #
 #     assert type(weight) is float, "weight has to be of type float"
 #     assert .0 <= weight <= 1., "weight has to be in the interval [0.0, 1.0]"
 #     assert type(num_kilobots) is int, "num_kilobots has to be of type int"
 #     assert 0 < num_kilobots, "num_kilobots has to be a positive integer."
 #
-#     _name = 'QuadPushingEnv_w{:03}_kb{}'.format(int(weight * 100), num_kilobots)
-#     _id = 'QuadPushingEnv_w{:03}_kb{}-v0'.format(int(weight * 100), num_kilobots)
+#     _name = 'QuadEnv_w{:03}_kb{}'.format(int(weight * 100), num_kilobots)
+#     _id = 'QuadEnv_w{:03}_kb{}-v0'.format(int(weight * 100), num_kilobots)
 #
 #     if _id in __registered_gyms:
 #         return _id
 #     else:
 #         __registered_gyms.append(_id)
 #
-#     globals()[_name] = QuadPushingEnvWith(weight, num_kilobots)
+#     globals()[_name] = QuadEnvWith(weight, num_kilobots)
 #     register(id=_id,
 #              entry_point='kb_learning.envs:' + _name)
 #
@@ -70,7 +70,7 @@ def get_quadpushing_environment(weight: float, num_kilobots: int):
 # def register_kilobot_environments(weights: Union[Iterable[float], float] = None,
 #                                   num_kilobots: Union[Iterable[int], int] = None,
 #                                   iterator: Iterator=None) -> Union[dict, str]:
-#     """Creates subclasses of the QuadPushing environment of the Kilobot gym with the given weights and numbers of
+#     """Creates subclasses of the Quad environment of the Kilobot gym with the given weights and numbers of
 #     Kilobots and register the subclass as a gym. The ids of the created and registered environments are returned as
 #     string (if a single environment has been created) or as dictionary. If both, weights and num_kilobots are
 #     Iterables, the returned dictionary has the weights as top-level keys and the num_kilobots as low-level keys.
