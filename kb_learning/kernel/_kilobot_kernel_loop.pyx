@@ -84,7 +84,7 @@ cdef class ExponentialQuadraticKernel:
     def get_gram_diag(self, np.ndarray data):
         return np.ones(data.shape[0])
 
-cdef class KilobotKernel:
+cdef class KilobotSwarmKernel:
     def __init__(self, bandwidth_factor=1., num_processes=1):
         self._kernel_func = ExponentialQuadraticKernel()
         self.bandwidth_factor = bandwidth_factor

@@ -1,16 +1,16 @@
 ---
 # DEFAULT
 name: "DEFAULT"
-repetitions: 20 # 20
-iterations: 20
-path: "data/learn_quad_pushing_multiprocessing"
+repetitions: 5 # 20
+iterations: 30
+path: "data/fixed_weight_quad"
 plotting: true
 gui: false
 
 params:
   sampling:
-    num_episodes: 100 # 100
-    num_steps_per_episode: 125 # 125
+    num_episodes: 250 # 100
+    num_steps_per_episode: 50 # 125
     num_SARS_samples: 10000 # 10000
     num_workers: 8
     multiprocessing: true
@@ -20,14 +20,14 @@ params:
   lstd:
     num_features: 1000 # 1000
   gp:
-    num_sparse_states: 500 # 1000
+    num_sparse_states: 1000 # 1000
 ---
-name: "learn_5_w_factors_kilobot_kernel"
+name: "kilobot_kernel"
 list:
   sampling:
     w_factor: [.0, .25, .5, .75, 1.]
 ---
-name: "learn_5_w_factors_mean_kernel"
+name: "mean_kernel"
 params:
   kernel:
     type: 'mean'
@@ -35,7 +35,7 @@ list:
   sampling:
     w_factor: [.0, .25, .5, .75, 1.]
 ---
-name: "learn_5_w_factors_meancov_kernel"
+name: "mean_cov_kernel"
 params:
   kernel:
     type: 'mean-cov'

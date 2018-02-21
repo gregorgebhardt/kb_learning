@@ -100,8 +100,8 @@ class ActorCriticReps:
         return np.nansum(p * np.log(p * self.num_samples))
 
     def _optimize_dual_function(self, Q, phi, phi_hat, theta, eta):
-        lower_bound = np.r_[-1e10 * np.ones(phi.shape[1]), 1e-15]
-        upper_bound = np.r_[+1e10 * np.ones(phi.shape[1]), 1e+10]
+        lower_bound = np.r_[-1e5 * np.ones(phi.shape[1]), 1e-10]
+        upper_bound = np.r_[+1e5 * np.ones(phi.shape[1]), 1e5]
         bounds = list(map(tuple, np.c_[lower_bound, upper_bound]))
 
         start_params = np.r_[theta, eta]

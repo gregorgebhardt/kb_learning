@@ -13,16 +13,12 @@ logger = logging.getLogger('kb_learning.sampler')
 
 
 class KilobotSampler:
-    _VERBOSE = False
-
-    def __init__(self, num_episodes: int, num_steps_per_episode: int, num_kilobots: int,
+    def __init__(self, num_episodes: int, num_steps_per_episode: int,
                  column_index: pd.Index, seed: int=0, *args, **kwargs):
         self._seed = seed
 
         self.num_episodes = num_episodes
         self.num_steps_per_episode = num_steps_per_episode
-
-        self.num_kilobots = num_kilobots
 
         self.column_index = column_index
 
@@ -46,39 +42,46 @@ class KilobotSampler:
         return it_sars, info
 
 
-class QuadPushingSampler(KilobotSampler):
+class QuadEnvSampler(KilobotSampler):
+    def __init__(self, w_factor, num_kilobots, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.w_factor = w_factor
+        self.num_kilobots = num_kilobots
+
+        self.env_id = self._get_env_id()
+        # create an prototype of the environment
+        self.env = gym.make(self.env_id)
+        self.envs = []
+
+    def _init_envs(self):
+        self.envs = [gym.make(self.env_id) for _ in range(self.num_episodes)]
+
+        for i, e in enumerate(self.envs):
+            e.seed(self.seed * 100 + i)
+
+    @abc.abstractmethod
+    def _get_env_id(self):
+        raise NotImplementedError
+
+
+class SARSSampler(QuadEnvSampler):
     def __init__(self, num_episodes: int, num_steps_per_episode: int, num_kilobots: int,
-                 column_index: pd.Index, w_factor: float, policy=None, seed: int=0, *args, **kwargs):
+                 column_index: pd.Index, policy=None, seed: int=0, *args, **kwargs):
         super().__init__(num_episodes=num_episodes, num_steps_per_episode=num_steps_per_episode,
                          num_kilobots=num_kilobots, column_index=column_index, seed=seed, *args, **kwargs)
 
-        self.w_factor = w_factor
         self.policy = policy
-        self.envs = []
 
-        # create an prototype of the environment
-        self.env_id = kb_envs.get_fixed_weight_quad_env(weight=self.w_factor, num_kilobots=self.num_kilobots)
-        self.env = gym.make(self.env_id)
-
-    @KilobotSampler.seed.setter
-    def seed(self, seed):
-        self._seed = seed
-        for i, e in enumerate(self.envs):
-            e.seed(self.seed * 100 + i)
-
-    def _init_envs(self):
-        env_id = kb_envs.get_fixed_weight_quad_env(weight=self.w_factor, num_kilobots=self.num_kilobots)
-        self.envs = [gym.make(env_id) for _ in range(self.num_episodes)]
-
-        for i, e in enumerate(self.envs):
-            e.seed(self.seed * 100 + i)
-
-    def set_policy(self, policy):
-        self.policy = policy
+    @abc.abstractmethod
+    def _get_env_id(self):
+        raise NotImplementedError
 
     def _sample_sars(self):
         if len(self.envs) is 0:
             self._init_envs()
+
+        for i, e in enumerate(self.envs):
+            e.seed(self.seed * 100 + i)
 
         # reset environments and obtain initial states
         states = np.array([e.reset() for e in self.envs])
@@ -86,7 +89,7 @@ class QuadPushingSampler(KilobotSampler):
         info = list()
 
         state_dims = states.shape[1]
-        action_dims = sum(self.envs[0].action_space.shape)
+        action_dims = sum(self.env.action_space.shape)
 
         it_sars_data = np.empty((self.num_episodes * self.num_steps_per_episode, 2 * state_dims + action_dims + 1))
 
@@ -107,6 +110,16 @@ class QuadPushingSampler(KilobotSampler):
         return it_sars_data, info
 
 
+class FixedWeightQuadEnvSampler(SARSSampler):
+    def _get_env_id(self):
+        return kb_envs.get_fixed_weight_quad_env(weight=self.w_factor, num_kilobots=self.num_kilobots)
+
+
+class SampleWeightQuadEnvSampler(SARSSampler):
+    def _get_env_id(self):
+        return kb_envs.get_sample_weight_quad_env(num_kilobots=self.num_kilobots)
+
+
 envs = []
 worker_seed = None
 
@@ -121,12 +134,13 @@ def _init_worker(env_id, num_environments):
 def _set_worker_seed(seed):
     global envs, worker_seed
     for i, e in enumerate(envs):
-        e.seed(worker_seed * 10000 + seed * 100 + i)
-    np.random.seed(worker_seed * 10000 + seed * 100 + 123)
+        e.seed(worker_seed * 10000 + seed * 500 + i)
+    np.random.seed(worker_seed * 10000 + seed * 400 + 12346)
 
 
-def _do_work(policy, num_episodes, num_steps):
+def _do_work(policy, num_episodes, num_steps, seed):
     global envs
+    _set_worker_seed(seed)
     # reset environments and obtain initial states
     states = np.array([e.reset() for e in envs[:num_episodes]])
     reward = np.empty((num_episodes, 1))
@@ -153,7 +167,7 @@ def _do_work(policy, num_episodes, num_steps):
     return it_sars_data, info
 
 
-class ParallelQuadPushingSampler(QuadPushingSampler):
+class ParallelSARSSampler(SARSSampler):
     def __init__(self, num_episodes: int, num_steps_per_episode: int, num_kilobots: int, w_factor: float,
                  column_index: pd.Index, policy=None, seed: int=0, num_workers=None):
         super().__init__(num_episodes=num_episodes, num_steps_per_episode=num_steps_per_episode,
@@ -169,17 +183,22 @@ class ParallelQuadPushingSampler(QuadPushingSampler):
         ctx = multiprocessing.get_context('forkserver')
         self.pool = ctx.Pool(processes=self.num_workers, initializer=_init_worker,
                              initargs=[self.env_id, self.episodes_per_worker])
-        self.pool.map(_set_worker_seed, [self._seed] * self.num_workers)
+        # self.pool.map(_set_worker_seed, [self._seed] * self.num_workers)
 
     def __del__(self):
-        self.pool.terminate()
-        self.pool.join()
-        self.pool.close()
+        if hasattr(self, 'pool') and self.pool is not None:
+            self.pool.terminate()
+            self.pool.join()
+            self.pool.close()
 
-    @QuadPushingSampler.seed.setter
-    def seed(self, seed):
-        self._seed = seed
-        self.pool.map(_set_worker_seed, [self._seed] * self.num_workers)
+    # @SARSSampler.seed.setter
+    # def seed(self, seed):
+    #     self._seed = seed
+    #     self.pool.map(_set_worker_seed, [self._seed] * self.num_workers)
+
+    @abc.abstractmethod
+    def _get_env_id(self):
+        raise NotImplementedError
 
     def _sample_sars(self):
         episodes_per_work = [self.num_episodes // self.num_workers] * self.num_workers
@@ -187,7 +206,7 @@ class ParallelQuadPushingSampler(QuadPushingSampler):
             episodes_per_work[i] += 1
         episodes_per_work = filter(lambda a: a != 0, episodes_per_work)
 
-        work = [(self.policy, episodes, self.num_steps_per_episode) for episodes in episodes_per_work]
+        work = [(self.policy, episodes, self.num_steps_per_episode, self._seed) for episodes in episodes_per_work]
 
         # self._do_work(*work[0])
         results = self.pool.starmap_async(_do_work, work).get(1200)
@@ -201,3 +220,13 @@ class ParallelQuadPushingSampler(QuadPushingSampler):
             it_info += info_i
 
         return it_sars_data, it_info
+
+
+class ParallelFixedWeightQuadEnvSampler(ParallelSARSSampler):
+    def _get_env_id(self):
+        return kb_envs.get_fixed_weight_quad_env(weight=self.w_factor, num_kilobots=self.num_kilobots)
+
+
+class ParallelSampleWeightQuadEnvSampler(ParallelSARSSampler):
+    def _get_env_id(self):
+        return kb_envs.get_sample_weight_quad_env(num_kilobots=self.num_kilobots)

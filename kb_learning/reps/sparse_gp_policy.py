@@ -10,7 +10,7 @@ logger = logging.getLogger('kb_learning.gp')
 
 
 class SparseGPPolicy:
-    def __init__(self, kernel: Kernel, action_bounds: Tuple[np.ndarray, np.ndarray]):
+    def __init__(self, kernel: Kernel, action_bounds: Tuple[np.ndarray, np.ndarray]=None):
         # TODO add documentation
         """
 
@@ -33,7 +33,8 @@ class SparseGPPolicy:
 
     @property
     def action_dim(self):
-        return self.action_bounds[0].shape[0]
+        if self.action_bounds:
+            return self.action_bounds[0].shape[0]
 
     def _get_random_actions(self, num_samples=1):
         # sample random numbers in [0.0, 1.0)

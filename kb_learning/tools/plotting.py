@@ -36,7 +36,7 @@ def plot_light_trajectory(axes: Axes, light_states: pd.DataFrame):
 
 
 def plot_value_function(axes: Axes, V, x_range, y_range, **kwargs):
-    im = axes.imshow(V, extent=x_range+y_range, **kwargs)
+    im = axes.imshow(V, extent=x_range+y_range, **kwargs, norm=Normalize(-0.2, 0.2))
     return im
 
 

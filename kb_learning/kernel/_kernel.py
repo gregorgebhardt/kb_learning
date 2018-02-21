@@ -2,7 +2,7 @@ import numpy as np
 
 from sklearn.metrics.pairwise import pairwise_distances
 
-from . import KilobotKernel
+from . import KilobotSwarmKernel, ExponentialQuadraticKernel
 
 # from ._kilobot_kernel_numba import KilobotKernel
 
@@ -188,11 +188,14 @@ from . import KilobotKernel
 
 
 class MahaKernel:
-    def __init__(self, bandwidth=1.0, num_processes=1):
-        if type(bandwidth) in [float, int]:
-            self.bandwidth = 1 / bandwidth
+    def __init__(self, bandwidth_factor=1.0, num_processes=1):
+        self.bandwidth = 1.
+        if type(bandwidth_factor) in [float, int]:
+            self.bandwidth_factor = bandwidth_factor
+        elif type(bandwidth_factor) in [list, tuple]:
+            self.bandwidth_factor = np.array(bandwidth_factor)
         else:
-            self.bandwidth = np.diag(1 / bandwidth)
+            self.bandwidth_factor = bandwidth_factor
         self.num_processes = num_processes
 
         self._preprocessor = None
@@ -213,24 +216,22 @@ class MahaKernel:
     def set_params(self, **params):
         if 'bandwidth' in params:
             if type(params['bandwidth']) in [float, int]:
-                self.bandwidth = 1 / params['bandwidth']
+                self.bandwidth = 1 / (self.bandwidth_factor * params['bandwidth'])
             else:
-                self.bandwidth = np.diag(1 / params['bandwidth'])
+                self.bandwidth = np.diag(1 / (self.bandwidth_factor * params['bandwidth']))
         if 'num_processes' in params:
             self.num_processes = params['num_processes']
 
 
-class MeanKernel(MahaKernel):
-    def __init__(self, bandwidth_factor=1.0, *args, **kwargs):
+class MeanSwarmKernel(MahaKernel):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.bandwidth_factor = bandwidth_factor
-        self.bandwidth = self.bandwidth_factor * self.bandwidth
 
         from ._preprocessors import compute_mean_position
         self._preprocessor = compute_mean_position
 
 
-class MeanCovKernel(MeanKernel):
+class MeanCovSwarmKernel(MeanSwarmKernel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -238,23 +239,18 @@ class MeanCovKernel(MeanKernel):
         self._preprocessor = compute_mean_and_cov_position
 
 
-class KilobotStateKernel:
-    _extra_dims = 2
-    KBKernel = KilobotKernel
+class KilobotEnvKernel:
+    KBKernel = KilobotSwarmKernel
 
-    def __init__(self, bandwidth_light=1.0, bandwidth_factor_kb=1.0, weight=.5, num_processes=1):
+    def __init__(self, bandwidth_factor_ed=1.0, bandwidth_factor_kb=1.0, extra_dims=2, weight=.5, num_processes=1):
         self._kb_kernel = self.KBKernel(bandwidth_factor=bandwidth_factor_kb)
-        self._l_kernel = MahaKernel(bandwidth_light, num_processes=num_processes)
+        self._extra_dims = extra_dims
+        self._l_kernel = MahaKernel(bandwidth_factor=bandwidth_factor_ed, num_processes=num_processes)
         self._weight = weight
 
     @property
     def num_processes(self):
         return self._l_kernel.num_processes
-
-    @num_processes.setter
-    def num_processes(self, num_processes):
-        self._kb_kernel.num_processes = num_processes
-        self._l_kernel.num_processes = num_processes
 
     def __call__(self, X, Y=None, eval_gradient=False):
         k1 = X[:, :-self._extra_dims]
@@ -289,22 +285,59 @@ class KilobotStateKernel:
             self._kb_kernel.set_params(bandwidth=bandwidth_kb)
             self._l_kernel.set_params(bandwidth=bandwidth_l)
 
-
-class KilobotStateActionKernel(KilobotStateKernel):
-    _extra_dims = 4
-
-
-class MeanStateKernel(KilobotStateKernel):
-    KBKernel = MeanKernel
+        if 'num_processes' in params:
+            self._l_kernel.num_processes = params['num_processes']
 
 
-class MeanStateActionKernel(MeanStateKernel):
-    _extra_dims = 4
+class MeanEnvKernel(KilobotEnvKernel):
+    KBKernel = MeanSwarmKernel
 
 
-class MeanCovStateKernel(KilobotStateKernel):
-    KBKernel = MeanCovKernel
+class MeanCovEnvKernel(KilobotEnvKernel):
+    KBKernel = MeanCovSwarmKernel
 
 
-class MeanCovStateActionKernel(MeanCovStateKernel):
-    _extra_dims = 4
+class KilobotEnvKernelWithWeight(KilobotEnvKernel):
+    def __init__(self, weight_dim, bandwidth_factor_weigth=1.0, num_processes=1, *args, **kwargs):
+        super().__init__(*args, num_processes=num_processes, **kwargs)
+        self._weight_dim = weight_dim
+
+        self._weight_kernel = MahaKernel(bandwidth_factor=bandwidth_factor_weigth, num_processes=num_processes)
+
+    def __call__(self, X, Y=None, *args, **kwargs):
+        weights_X = X[:, self._weight_dim]
+        other_X = np.c_[X[:, :self._weight_dim], X[:, self._weight_dim+1:]]
+
+        if Y is not None:
+            weights_Y = Y[:, self._weight_dim]
+            other_Y = np.c_[Y[:, :self._weight_dim], Y[:, self._weight_dim + 1:]]
+        else:
+            weights_Y = None
+            other_Y = None
+
+        K_other = super().__call__(other_X, other_Y)
+        K_weights = np.exp(self._weight_kernel(weights_X, weights_Y))
+
+        return K_weights * K_other
+
+    def set_params(self, **params):
+        if 'bandwidth' in params:
+            bandwidth = params['bandwidth']
+            bandwidth_weight = bandwidth[self._weight_dim]
+            bandwidth_other = np.c_[bandwidth[:self._weight_dim], bandwidth[self._weight_dim+1:]]
+
+            self._weight_kernel.set_params(bandwidth=bandwidth_weight)
+            params['bandwidth'] = bandwidth_other
+
+        if 'num_processes' in params:
+            self._weight_kernel.num_processes = params['num_processes']
+
+        super(KilobotEnvKernelWithWeight, self).set_params(**params)
+
+
+class MeanEnvKernelWithWeight(KilobotEnvKernelWithWeight):
+    KBKernel = MeanSwarmKernel
+
+
+class MeanCovEnvKernelWithWeight(KilobotEnvKernelWithWeight):
+    KBKernel = MeanCovSwarmKernel

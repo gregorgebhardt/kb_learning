@@ -1,0 +1,37 @@
+---
+# DEFAULT
+name: "DEFAULT"
+repetitions: 5 # 20
+iterations: 30
+path: "data/sample_weight_quad"
+plotting: true
+gui: false
+
+params:
+  sampling:
+    num_episodes: 800 # 100
+    num_steps_per_episode: 30 # 125
+    num_SARS_samples: 20000 # 10000
+    num_workers: 8
+    multiprocessing: true
+    num_kilobots: 15
+  kernel:
+    num_processes: 1
+    bandwidth_factor_extra_dims: [1.0, 1.0, 0.1]
+    bandwidth_factor_extra_dims_action: [1.0, 1.0, 0.1, 1.0, 1.0]
+  lstd:
+    num_features: 1000 # 1000
+  gp:
+    num_sparse_states: 1000 # 1000
+---
+name: "kilobot_kernel"
+---
+name: "mean_kernel"
+params:
+  kernel:
+    type: 'mean'
+---
+name: "mean_cov_kernel"
+params:
+  kernel:
+    type: 'mean-cov'

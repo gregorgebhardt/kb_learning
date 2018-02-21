@@ -3,20 +3,18 @@ import os
 import gc
 
 import logging
+from typing import Generator
 
 from cluster_work import ClusterWork
 
-from kb_learning.kernel import KilobotStateKernel, KilobotStateActionKernel
-from kb_learning.kernel import MeanStateKernel, MeanStateActionKernel
-from kb_learning.kernel import MeanCovStateKernel, MeanCovStateActionKernel
-from kb_learning.kernel import compute_median_bandwidth
+from kb_learning.kernel import KilobotEnvKernel, MeanEnvKernel, MeanCovEnvKernel, compute_median_bandwidth
+from kb_learning.kernel import KilobotEnvKernelWithWeight, MeanEnvKernelWithWeight, MeanCovEnvKernelWithWeight
 from kb_learning.reps.lstd import LeastSquaresTemporalDifference
 from kb_learning.reps.ac_reps import ActorCriticReps
 from kb_learning.reps.sparse_gp_policy import SparseGPPolicy
 
-from gym_kilobots.lib import CircularGradientLight
-
-from kb_learning.envs.sampler import QuadPushingSampler, ParallelQuadPushingSampler
+from kb_learning.envs.sampler import FixedWeightQuadEnvSampler, SampleWeightQuadEnvSampler, \
+    ParallelFixedWeightQuadEnvSampler, ParallelSampleWeightQuadEnvSampler
 
 import matplotlib.pyplot as plt
 from matplotlib import cm, gridspec
@@ -55,10 +53,11 @@ class ACRepsLearner(KilobotLearner):
         },
         'kernel': {
             'type': 'kilobot',
-            'bandwidth_factor_kb': 1.,
-            'bandwidth_factor_la': 1.,
+            'bandwidth_factor_kb': .8,
+            'bandwidth_factor_extra_dims': .8,
+            'bandwidth_factor_extra_dims_action': .8,
             'weight': .5,
-            'num_processes': 2
+            'num_processes': 4
         },
         'learn_iterations': 1,
         'lstd': {
@@ -70,16 +69,13 @@ class ACRepsLearner(KilobotLearner):
             'epsilon': .3
         },
         'gp': {
-            'prior_variance': .006 ** 2,
-            'noise_variance': 1e-6,
+            'prior_variance': .01 ** 2,
+            'noise_variance': 1e-5,
             'min_variance': 1e-8,
             'chol_regularizer': 1e-9,
             'num_sparse_states': 1000,
         }
     }
-
-    StateKernel = KilobotStateKernel
-    StateActionKernel = KilobotStateActionKernel
 
     def __init__(self):
         super().__init__()
@@ -88,22 +84,13 @@ class ACRepsLearner(KilobotLearner):
         self._state_kernel = None
         self._state_action_kernel = None
 
-        self.lstd = None
-        self.ac_reps = None
-        self.policy = None
-
-        self._kilobots_columns = None
-        self._light_columns = None
-        self._state_columns = None
-        self._action_columns = None
-        self._SARS_columns = None
+        self._lstd = None
+        self._ac_reps = None
+        self._policy = None
 
         self._SARS = None
 
         self._sampler = None
-
-        self._state_features = None
-        self._state_action_features = None
 
         self.kilobots_columns = None
         self.light_columns = None
@@ -111,11 +98,17 @@ class ACRepsLearner(KilobotLearner):
         self.action_columns = None
         self.reward_columns = None
         self.next_state_columns = None
+        self._SARS_columns = None
+        self.extra_dim_columns = None
+
+        self._extra_kernel_dimensions = 2
+        self._action_dimensions = 2
 
     def iterate(self, config: dict, rep: int, n: int) -> dict:
         sampling_params = self._params['sampling']
 
         logger.info('sampling environment')
+        self._sampler.seed = rep * 100 + n
         it_sars, it_info = self._sampler()
         # fig, ax = plt.subplots(1)
         # plot_light_trajectory(it_sars['S'], ax)
@@ -143,11 +136,11 @@ class ACRepsLearner(KilobotLearner):
         logger.debug('computing kernel bandwidths')
         bandwidth_kb = compute_median_bandwidth(self._SARS[self.kilobots_columns], sample_size=500,
                                                 preprocessor=self._state_preprocessor)
-        bandwidth_l = compute_median_bandwidth(self._SARS[self.light_columns], sample_size=500)
+        bandwidth_ed = compute_median_bandwidth(self._SARS[self.extra_dim_columns], sample_size=500)
         bandwidth_a = compute_median_bandwidth(self._SARS['A'], sample_size=500)
 
-        self._state_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_l])
-        self._state_action_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_l, bandwidth_a])
+        self._state_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_ed])
+        self._state_action_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_ed, bandwidth_a])
 
         # compute feature matrices
         logger.debug('selecting lstd samples')
@@ -169,33 +162,15 @@ class ACRepsLearner(KilobotLearner):
             # compute features
             logger.info('compute state-action features')
             phi_SA = state_action_features(self._SARS['S'].values, self._SARS['A'].values)
-            phi_SA_next = state_action_features(self._SARS['S_'].values, self.policy(self._SARS['S_'].values))
+            phi_SA_next = state_action_features(self._SARS['S_'].values,
+                                                self._policy.get_mean_action(self._SARS['S_'].values))
 
             # learn theta (parameters of Q-function) using lstd
             logger.info('learning theta [LSTD]')
-            theta = self.lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._SARS[['R']].values)
+            theta = self._lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._SARS[['R']].values)
 
             # plotting
-            fig = plt.figure(figsize=(10, 20))
-            gs = gridspec.GridSpec(nrows=4, ncols=2, width_ratios=[20, 1], height_ratios=[1, 3, 3, 3])
-            ax_R = fig.add_subplot(gs[0, :])
-            plot_trajectory_reward_distribution(ax_R, it_sars['R'])
-            ax_bef_V = fig.add_subplot(gs[1, 0])
-            ax_bef_V_cb = fig.add_subplot(gs[1, 1])
-            cmap_plasma = cm.get_cmap('plasma')
-            cmap_gray = cm.get_cmap('gray')
-            V = self._compute_value_function_grid(state_action_features, theta)
-            im = plot_value_function(ax_bef_V, *V, cmap=cmap_plasma)
-            plot_objects(ax_bef_V, env=self._sampler.env, fill=False)
-            ax_bef_V.set_title('value function, before reps, iteration {}'.format(self._it))
-            fig.colorbar(im, cax=ax_bef_V_cb)
-            ax_bef_T = fig.add_subplot(gs[2, 0])
-            ax_bef_T_cb = fig.add_subplot(gs[2, 1])
-            ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
-            plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
-            plot_objects(ax_bef_T, env=self._sampler.env)
-            tr = plot_light_trajectory(ax_bef_T, it_sars['S']['light'])
-            fig.colorbar(tr[0], cax=ax_bef_T_cb)
+
 
             # compute q-function
             logger.debug('compute q-function')
@@ -207,7 +182,7 @@ class ACRepsLearner(KilobotLearner):
 
             # compute sample weights using AC-REPS
             logger.info('learning weights [AC-REPS]')
-            weights = self.ac_reps.compute_weights(q_fct, phi_S)
+            weights = self._ac_reps.compute_weights(q_fct, phi_S)
 
             # get subset for sparse GP
             logger.debug('select samples for GP')
@@ -215,24 +190,10 @@ class ACRepsLearner(KilobotLearner):
 
             # fit weighted GP to samples
             logger.info('fitting GP to policy')
-            self.policy.train(self._SARS['S'].values, self._SARS['A'].values, weights, gp_samples)
+            self._policy.train(self._SARS['S'].values, self._SARS['A'].values, weights, gp_samples)
 
             # plotting
-            ax_aft_P = fig.add_subplot(gs[3, 0])
-            ax_aft_P_cb = fig.add_subplot(gs[3, 1])
-            plot_value_function(ax_aft_P, *self._compute_value_function_grid(state_action_features, theta),
-                                cmap=cmap_gray)
-            plot_objects(ax_aft_P, env=self._sampler.env)
-            qv = plot_policy(ax_aft_P, *self._compute_policy_quivers(), cmap=cmap_plasma)
-            fig.colorbar(qv, cax=ax_aft_P_cb)
-            ax_aft_P.set_title('value function and policy, after reps, iteration {}'.format(self._it))
-
-            # finalize plotting
-            # fig.show()
-            # save_plot_as_html(fig, path=self._log_path_rep, filename='plot_{:02d}.html'.format(self._it))
-            show_plot_in_browser(fig, path=self._log_path_rep, filename='plot_{:02d}.html'.format(self._it),
-                                 overwrite=True, save_only=self._no_gui)
-            plt.close(fig)
+            self._plot_iteration_results(it_sars, state_action_features, theta)
 
         return_dict = dict(mean_sum_R=mean_sum_R, median_sum_R=median_sum_R, std_sum_R=std_sum_R,
                            max_sum_R=max_sum_R, min_sum_R=min_sum_R)
@@ -242,42 +203,57 @@ class ACRepsLearner(KilobotLearner):
         return return_dict
 
     def reset(self, config: dict, rep: int) -> None:
+        self._init_kernels()
+
+        self._lstd = LeastSquaresTemporalDifference()
+        # self.lstd = LeastSquaresTemporalDifference()
+        self._lstd.discount_factor = self._params['lstd']['discount_factor']
+
+        self._ac_reps = ActorCriticReps()
+        self._ac_reps.epsilon_action = self._params['reps']['epsilon']
+
+        self._init_policy()
+
+        self._init_SARS()
+
+        self._init_sampler()
+
+        action_bounds = self._sampler.env.action_space.low, self._sampler.env.action_space.high
+        self._policy.action_bounds = action_bounds
+        self._sampler.policy = self._policy
+
+    def _init_kernels(self):
         kernel_params = self._params['kernel']
         if kernel_params['type'] == 'mean':
             from kb_learning.kernel import compute_mean_position
             self._state_preprocessor = compute_mean_position
-            self.StateKernel = MeanStateKernel
-            self.StateActionKernel = MeanStateActionKernel
+            EnvKernel = MeanEnvKernel
         elif kernel_params['type'] == 'mean-cov':
             from kb_learning.kernel import compute_mean_and_cov_position
             self._state_preprocessor = compute_mean_and_cov_position
-            self.StateKernel = MeanCovStateKernel
-            self.StateActionKernel = MeanCovStateActionKernel
+            EnvKernel = MeanCovEnvKernel
+        else:
+            EnvKernel = KilobotEnvKernel
 
-        self._state_kernel = self.StateKernel(weight=kernel_params['weight'],
+        self._state_kernel = EnvKernel(weight=kernel_params['weight'],
+                                       bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
+                                       bandwidth_factor_ed=kernel_params['bandwidth_factor_extra_dims'],
+                                       extra_dims=self._extra_kernel_dimensions,
+                                       num_processes=kernel_params['num_processes'])
+        self._state_action_kernel = EnvKernel(weight=kernel_params['weight'],
                                               bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                              bandwidth_light=kernel_params['bandwidth_factor_la'],
+                                              bandwidth_factor_ed=kernel_params['bandwidth_factor_extra_dims_action'],
+                                              extra_dims=self._extra_kernel_dimensions + self._action_dimensions,
                                               num_processes=kernel_params['num_processes'])
 
-        self._state_action_kernel = self.StateActionKernel(weight=kernel_params['weight'],
-                                                           bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                                           bandwidth_light=kernel_params['bandwidth_factor_la'],
-                                                           num_processes=kernel_params['num_processes'])
+    def _init_policy(self):
+        self._policy = SparseGPPolicy(kernel=self._state_kernel)
+        self._policy.gp_prior_variance = self._params['gp']['prior_variance']
+        self._policy.gp_noise_variance = self._params['gp']['noise_variance']
+        self._policy.gp_min_variance = self._params['gp']['min_variance']
+        self._policy.gp_chol_regularizer = self._params['gp']['chol_regularizer']
 
-        self.lstd = LeastSquaresTemporalDifference()
-        # self.lstd = LeastSquaresTemporalDifference()
-        self.lstd.discount_factor = self._params['lstd']['discount_factor']
-
-        self.ac_reps = ActorCriticReps()
-        self.ac_reps.epsilon_action = self._params['reps']['epsilon']
-
-        action_bounds = CircularGradientLight.action_space.low, CircularGradientLight.action_space.high
-        self.policy = SparseGPPolicy(kernel=self._state_kernel, action_bounds=action_bounds)
-        self.policy.gp_prior_variance = self._params['gp']['prior_variance']
-        self.policy.gp_noise_variance = self._params['gp']['noise_variance']
-        self.policy.gp_min_variance = self._params['gp']['min_variance']
-        self.policy.gp_chol_regularizer = self._params['gp']['chol_regularizer']
-
+    def _init_SARS(self):
         kb_columns_level = ['kb_{}'.format(i) for i in range(self._params['sampling']['num_kilobots'])]
         self.kilobots_columns = pd.MultiIndex.from_product([['S'], kb_columns_level, ['x', 'y']])
         self.light_columns = pd.MultiIndex.from_product([['S'], ['light'], ['x', 'y']])
@@ -286,31 +262,25 @@ class ACRepsLearner(KilobotLearner):
         self.reward_columns = pd.MultiIndex.from_arrays([['R'], [''], ['']])
         self.next_state_columns = self.state_columns.copy()
         self.next_state_columns.set_levels(['S_'], 0, inplace=True)
-
-        # self._SARS_columns = pd.MultiIndex.from_arrays([['S'] * len(state_columns) +
-        #                                                 ['A'] * len(action_columns) + ['R'] +
-        #                                                 ['S_'] * len(state_columns),
-        #                                                 [*range(len(state_columns))] +
-        #                                                 [*range(len(action_columns))] + [0] +
-        #                                                 [*range(len(state_columns))]])
+        self.extra_dim_columns = self.light_columns
 
         self._SARS_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
             self.next_state_columns)
 
         self._SARS = pd.DataFrame(columns=self._SARS_columns)
 
+    def _init_sampler(self):
         sampling_params = self._params['sampling']
         if sampling_params['multiprocessing']:
-            sampler_class = ParallelQuadPushingSampler
+            sampler_class = ParallelFixedWeightQuadEnvSampler
         else:
-            sampler_class = QuadPushingSampler
+            sampler_class = FixedWeightQuadEnvSampler
 
         self._sampler = sampler_class(num_episodes=sampling_params['num_episodes'],
                                       num_steps_per_episode=sampling_params['num_steps_per_episode'],
                                       num_kilobots=sampling_params['num_kilobots'],
                                       column_index=self._SARS_columns,
                                       w_factor=sampling_params['w_factor'],
-                                      policy=self.policy,
                                       num_workers=sampling_params['num_workers'],
                                       seed=self._seed)
 
@@ -322,28 +292,90 @@ class ACRepsLearner(KilobotLearner):
         logger.info('Pickling policy...')
         policy_file_name = os.path.join(self._log_path_rep, 'policy_{:02d}.pkl'.format(self._it))
         with open(policy_file_name, mode='w+b') as policy_file:
-            pickle.dump(self.policy, policy_file)
+            pickle.dump(self._policy, policy_file)
 
         # save SARS data
         logger.info('pickling SARS...')
-        SARS_file_name = os.path.join(self._log_path, 'last_SARS.pkl.gz')
+        SARS_file_name = os.path.join(self._log_path_rep, 'last_SARS.pkl.gz')
         self._SARS.to_pickle(SARS_file_name, compression='gzip')
 
     def restore_state(self, config: dict, rep: int, n: int) -> bool:
         # restore policy
         policy_file_name = os.path.join(self._log_path_rep, 'policy_{:02d}.pkl'.format(n-1))
         with open(policy_file_name, mode='r+b') as policy_file:
-            self.policy = pickle.load(policy_file)
-        self._sampler.policy = self.policy
+            self._policy = pickle.load(policy_file)
+        self._sampler.policy = self._policy
 
         # restore SARS data
-        SARS_file_name = os.path.join(self._log_path, 'last_SARS.pkl.gz')
+        SARS_file_name = os.path.join(self._log_path_rep, 'last_SARS.pkl.gz')
         if not os.path.exists(SARS_file_name):
             return False
         self._SARS = pd.read_pickle(SARS_file_name, compression='gzip')
         return True
 
-    def _compute_value_function_grid(self, state_action_features, theta, steps_x=50, steps_y=25):
+    @classmethod
+    def plot_results(cls, results_config: Generator):
+        fig = plt.figure()
+        axes = fig.add_subplot(111)
+
+        for config, results in results_config:
+            mean_sum_R = results['mean_sum_R']
+
+            mean = mean_sum_R.groupby(level=1).mean()
+            std = mean_sum_R.groupby(level=1).std()
+
+            axes.fill_between(mean.index, mean - 2*std, mean + 2*std, alpha=.5)
+            axes.plot(mean.index, mean, label=config['name'])
+
+        axes.legend()
+        plt.show(block=True)
+        # fig.show()
+
+    def _plot_iteration_results(self, it_sars, state_action_features, theta):
+        # setup figure
+        fig = plt.figure(figsize=(10, 20))
+        gs = gridspec.GridSpec(nrows=4, ncols=2, width_ratios=[20, 1], height_ratios=[1, 3, 3, 3])
+
+        # reward plot
+        ax_R = fig.add_subplot(gs[0, :])
+        plot_trajectory_reward_distribution(ax_R, it_sars['R'])
+
+        # value function plot
+        ax_bef_V = fig.add_subplot(gs[1, 0])
+        ax_bef_V_cb = fig.add_subplot(gs[1, 1])
+        cmap_plasma = cm.get_cmap('plasma')
+        cmap_gray = cm.get_cmap('gray')
+        V = self._compute_value_function_grid(state_action_features, theta)
+        im = plot_value_function(ax_bef_V, *V, cmap=cmap_plasma)
+        plot_objects(ax_bef_V, env=self._sampler.env, fill=False)
+        ax_bef_V.set_title('value function, before reps, iteration {}'.format(self._it))
+        fig.colorbar(im, cax=ax_bef_V_cb)
+
+        # trajectories plot
+        ax_bef_T = fig.add_subplot(gs[2, 0])
+        ax_bef_T_cb = fig.add_subplot(gs[2, 1])
+        ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
+        plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
+        plot_objects(ax_bef_T, env=self._sampler.env)
+        tr = plot_light_trajectory(ax_bef_T, it_sars[('S', 'light')])
+        fig.colorbar(tr[0], cax=ax_bef_T_cb)
+
+        # new policy plot
+        ax_aft_P = fig.add_subplot(gs[3, 0])
+        ax_aft_P_cb = fig.add_subplot(gs[3, 1])
+        plot_value_function(ax_aft_P, *self._compute_value_function_grid(state_action_features, theta),
+                            cmap=cmap_gray)
+        plot_objects(ax_aft_P, env=self._sampler.env)
+        qv = plot_policy(ax_aft_P, *self._compute_policy_quivers(), cmap=cmap_plasma)
+        fig.colorbar(qv, cax=ax_aft_P_cb)
+        ax_aft_P.set_title('policy, after reps, iteration {}'.format(self._it))
+
+        # save and show plot
+        show_plot_in_browser(fig, path=self._log_path_rep, filename='plot_{:02d}.html'.format(self._it),
+                             overwrite=True, save_only=self._no_gui)
+        plt.close(fig)
+
+    def _compute_value_function_grid(self, state_action_features, theta, steps_x=40, steps_y=40):
         x_range = self._sampler.env.world_x_range
         y_range = self._sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
@@ -354,13 +386,13 @@ class ACRepsLearner(KilobotLearner):
         states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots+1])
 
         # get mean actions
-        actions = self.policy.get_mean_action(states)
+        actions = self._policy.get_mean_action(states)
 
         value_function = state_action_features(states, actions).dot(theta).reshape((steps_y, steps_x))
 
         return value_function, x_range, y_range
 
-    def _compute_policy_quivers(self, steps_x=50, steps_y=25):
+    def _compute_policy_quivers(self, steps_x=40, steps_y=40):
         x_range = self._sampler.env.world_x_range
         y_range = self._sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
@@ -371,7 +403,197 @@ class ACRepsLearner(KilobotLearner):
         states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])
 
         # get mean actions
-        mean_actions, sigma_actions = self.policy.get_mean_action(states, return_sigma=True)
+        mean_actions, sigma_actions = self._policy.get_mean_action(states, return_sigma=True)
+        # mean_actions /= np.linalg.norm(mean_actions, axis=1, keepdims=True)
+        mean_actions = mean_actions.reshape((steps_y, steps_x, 2))
+        sigma_actions = sigma_actions.reshape((steps_y, steps_x))
+
+        actions = mean_actions, sigma_actions
+
+        return actions, x_range, y_range
+
+
+class SampleWeightACRepsLearner(ACRepsLearner):
+    _default_params = ACRepsLearner._default_params
+    _default_params['kernel']['bandwidth_factor_weight'] = 1.
+
+    # def __new__(cls, *args, **kwargs):
+    #     cls._default_params['kernel']['bandwidth_factor_weight'] = 1.
+    #
+    #     return super(SampleWeightACRepsLearner, cls).__new__(cls, *args, **kwargs)
+
+    def __init__(self):
+        super().__init__()
+
+        self._extra_kernel_dimensions = 2
+
+    def _init_kernels(self):
+        kernel_params = self._params['kernel']
+        if kernel_params['type'] == 'mean':
+            from kb_learning.kernel import compute_mean_position
+            self._state_preprocessor = compute_mean_position
+            EnvKernel = MeanEnvKernelWithWeight
+        elif kernel_params['type'] == 'mean-cov':
+            from kb_learning.kernel import compute_mean_and_cov_position
+            self._state_preprocessor = compute_mean_and_cov_position
+            EnvKernel = MeanCovEnvKernelWithWeight
+        else:
+            EnvKernel = KilobotEnvKernelWithWeight
+
+        self._state_kernel = EnvKernel(weight=kernel_params['weight'],
+                                       bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
+                                       bandwidth_factor_ed=kernel_params['bandwidth_factor_extra_dims'],
+                                       bandwidth_factor_weigth=kernel_params['bandwidth_factor_weight'],
+                                       weight_dim=-1,
+                                       extra_dims=self._extra_kernel_dimensions,
+                                       num_processes=kernel_params['num_processes'])
+        self._state_action_kernel = EnvKernel(weight=kernel_params['weight'],
+                                              bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
+                                              bandwidth_factor_ed=kernel_params['bandwidth_factor_extra_dims_action'],
+                                              bandwidth_factor_weigth=kernel_params['bandwidth_factor_weight'],
+                                              weight_dim=-3,
+                                              extra_dims=self._extra_kernel_dimensions + self._action_dimensions,
+                                              num_processes=kernel_params['num_processes'])
+
+    def _init_SARS(self):
+        super()._init_SARS()
+
+        self.weight_columns = pd.MultiIndex.from_product([['S'], ['weight'], ['']])
+        self.state_columns = self.kilobots_columns.append(self.light_columns).append(self.weight_columns)
+        self.next_state_columns = self.state_columns.copy()
+        self.next_state_columns.set_levels(['S_'], 0, inplace=True)
+        self.extra_dim_columns = self.light_columns.append(self.weight_columns)
+
+        self._SARS_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
+            self.next_state_columns)
+
+        self._SARS = pd.DataFrame(columns=self._SARS_columns)
+
+    def _init_sampler(self):
+        sampling_params = self._params['sampling']
+        if sampling_params['multiprocessing']:
+            sampler_class = ParallelSampleWeightQuadEnvSampler
+        else:
+            sampler_class = SampleWeightQuadEnvSampler
+
+        self._sampler = sampler_class(num_episodes=sampling_params['num_episodes'],
+                                      num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                      num_kilobots=sampling_params['num_kilobots'],
+                                      column_index=self._SARS_columns,
+                                      w_factor=sampling_params['w_factor'],
+                                      num_workers=sampling_params['num_workers'],
+                                      seed=self._seed)
+
+    def _plot_iteration_results(self, it_sars, state_action_features, theta):
+        # setup figure
+        fig = plt.figure(figsize=(11, 20))
+        gs = gridspec.GridSpec(nrows=4, ncols=4, width_ratios=[7, 7, 7, 1], height_ratios=[1, 3, 3, 3])
+        w0 = .166
+        w1 = .5
+        w2 = .833
+
+        # reward plot
+        ax_R = fig.add_subplot(gs[0, :])
+        plot_trajectory_reward_distribution(ax_R, it_sars['R'])
+
+        # value function plot
+        cmap_plasma = cm.get_cmap('plasma')
+        ax_V_w0 = fig.add_subplot(gs[1, 0])
+        ax_V_w1 = fig.add_subplot(gs[1, 1])
+        ax_V_w2 = fig.add_subplot(gs[1, 2])
+        ax_V_cb = fig.add_subplot(gs[1, 3])
+        ax_V_w0.set_title('value function, w = {}'.format(w0))
+        ax_V_w1.set_title('w = {}'.format(w1))
+        ax_V_w2.set_title('w = {}, iteration {}'.format(w2, self._it))
+        V_w0 = self._compute_value_function_grid(state_action_features, theta, weight=w0)
+        plot_value_function(ax_V_w0, *V_w0, cmap=cmap_plasma)
+        plot_objects(ax_V_w0, env=self._sampler.env, fill=False)
+        V_w1 = self._compute_value_function_grid(state_action_features, theta, weight=w1)
+        plot_value_function(ax_V_w1, *V_w1, cmap=cmap_plasma)
+        plot_objects(ax_V_w1, env=self._sampler.env, fill=False)
+        V_w2 = self._compute_value_function_grid(state_action_features, theta, weight=w2)
+        im = plot_value_function(ax_V_w2, *V_w2, cmap=cmap_plasma)
+        plot_objects(ax_V_w2, env=self._sampler.env, fill=False)
+        fig.colorbar(im, cax=ax_V_cb)
+
+        # trajectories plot
+        cmap_gray = cm.get_cmap('gray')
+        ax_T_w0 = fig.add_subplot(gs[2, 0])
+        ax_T_w1 = fig.add_subplot(gs[2, 1])
+        ax_T_w2 = fig.add_subplot(gs[2, 2])
+        ax_T_cb = fig.add_subplot(gs[2, 3])
+        ax_T_w0.set_title('trajectories, w <= 0.33')
+        ax_T_w1.set_title('0.33 < w <= 0.66')
+        ax_T_w2.set_title('0.66 < w, iteration {}'.format(self._it))
+        plot_value_function(ax_T_w0, *V_w0, cmap=cmap_gray)
+        plot_objects(ax_T_w0, env=self._sampler.env)
+        small_w_index = it_sars[('S', 'weight')] <= .33
+        medium_w_index = (it_sars[('S', 'weight')] <= .66) & ~small_w_index
+        large_w_index = ~(small_w_index | medium_w_index)
+        plot_light_trajectory(ax_T_w0, it_sars[('S', 'light')].loc[small_w_index])
+        plot_value_function(ax_T_w1, *V_w1, cmap=cmap_gray)
+        plot_objects(ax_T_w1, env=self._sampler.env)
+        plot_light_trajectory(ax_T_w1, it_sars[('S', 'light')].loc[medium_w_index])
+        plot_value_function(ax_T_w2, *V_w2, cmap=cmap_gray)
+        plot_objects(ax_T_w2, env=self._sampler.env)
+        tr = plot_light_trajectory(ax_T_w2, it_sars[('S', 'light')].loc[large_w_index])
+        fig.colorbar(tr[0], cax=ax_T_cb)
+
+        # new policy plot
+        ax_P_w0 = fig.add_subplot(gs[3, 0])
+        ax_P_w1 = fig.add_subplot(gs[3, 1])
+        ax_P_w2 = fig.add_subplot(gs[3, 2])
+        ax_P_cb = fig.add_subplot(gs[3, 3])
+        ax_P_w0.set_title('learned policies, w = {}'.format(w0))
+        ax_P_w1.set_title('w = {}'.format(w1))
+        ax_P_w2.set_title('w = {}, iteration {}'.format(w2, self._it))
+        plot_value_function(ax_P_w0, *V_w0, cmap=cmap_gray)
+        plot_objects(ax_P_w0, env=self._sampler.env)
+        plot_policy(ax_P_w0, *self._compute_policy_quivers(weight=w0), cmap=cmap_plasma)
+        plot_value_function(ax_P_w1, *V_w1, cmap=cmap_gray)
+        plot_objects(ax_P_w1, env=self._sampler.env)
+        plot_policy(ax_P_w1, *self._compute_policy_quivers(weight=w1), cmap=cmap_plasma)
+        plot_value_function(ax_P_w2, *V_w2, cmap=cmap_gray)
+        plot_objects(ax_P_w2, env=self._sampler.env)
+        qv = plot_policy(ax_P_w2, *self._compute_policy_quivers(weight=w2), cmap=cmap_plasma)
+        fig.colorbar(qv, cax=ax_P_cb)
+
+        # save and show plot
+        show_plot_in_browser(fig, path=self._log_path_rep, filename='plot_{:02d}.html'.format(self._it),
+                             overwrite=True, save_only=self._no_gui)
+        plt.close(fig)
+
+    def _compute_value_function_grid(self, state_action_features, theta, weight, steps_x=40, steps_y=40):
+        x_range = self._sampler.env.world_x_range
+        y_range = self._sampler.env.world_y_range
+        [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
+        X = X.flatten()
+        Y = -Y.flatten()
+
+        # kilobots at light position
+        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])
+        states = np.c_[states, np.ones((states.shape[0], 1)) * weight]
+
+        # get mean actions
+        actions = self._policy.get_mean_action(states)
+
+        value_function = state_action_features(states, actions).dot(theta).reshape((steps_y, steps_x))
+
+        return value_function, x_range, y_range
+
+    def _compute_policy_quivers(self, weight, steps_x=20, steps_y=20):
+        x_range = self._sampler.env.world_x_range
+        y_range = self._sampler.env.world_y_range
+        [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
+        X = X.flatten()
+        Y = -Y.flatten()
+
+        # kilobots at light position
+        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])
+        states = np.c_[states, np.ones((states.shape[0], 1)) * weight]
+
+        # get mean actions
+        mean_actions, sigma_actions = self._policy.get_mean_action(states, return_sigma=True)
         # mean_actions /= np.linalg.norm(mean_actions, axis=1, keepdims=True)
         mean_actions = mean_actions.reshape((steps_y, steps_x, 2))
         sigma_actions = sigma_actions.reshape((steps_y, steps_x))
