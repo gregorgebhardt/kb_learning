@@ -215,7 +215,7 @@ class MahaKernel:
 
     def set_params(self, **params):
         if 'bandwidth' in params:
-            if type(params['bandwidth']) in [float, int]:
+            if np.isscalar(params['bandwidth']):
                 self.bandwidth = 1 / (self.bandwidth_factor * params['bandwidth'])
             else:
                 self.bandwidth = np.diag(1 / (self.bandwidth_factor * params['bandwidth']))
@@ -306,17 +306,23 @@ class KilobotEnvKernelWithWeight(KilobotEnvKernel):
 
     def __call__(self, X, Y=None, *args, **kwargs):
         weights_X = X[:, self._weight_dim]
-        other_X = np.c_[X[:, :self._weight_dim], X[:, self._weight_dim+1:]]
+        if self._weight_dim == -1 or self._weight_dim == X.shape[-1] - 1:
+            other_X = X[:, :self._weight_dim]
+        else:
+            other_X = np.c_[X[:, :self._weight_dim], X[:, self._weight_dim+1:]]
 
         if Y is not None:
             weights_Y = Y[:, self._weight_dim]
-            other_Y = np.c_[Y[:, :self._weight_dim], Y[:, self._weight_dim + 1:]]
+            if self._weight_dim == -1 or self._weight_dim == Y.shape[-1] - 1:
+                other_Y = Y[:, :self._weight_dim]
+            else:
+                other_Y = np.c_[Y[:, :self._weight_dim], Y[:, self._weight_dim + 1:]]
+            K_weights = np.exp(self._weight_kernel(weights_X[:, None], weights_Y[:, None]))
         else:
-            weights_Y = None
+            K_weights = np.exp(self._weight_kernel(weights_X[:, None]))
             other_Y = None
 
         K_other = super().__call__(other_X, other_Y)
-        K_weights = np.exp(self._weight_kernel(weights_X, weights_Y))
 
         return K_weights * K_other
 
@@ -324,7 +330,10 @@ class KilobotEnvKernelWithWeight(KilobotEnvKernel):
         if 'bandwidth' in params:
             bandwidth = params['bandwidth']
             bandwidth_weight = bandwidth[self._weight_dim]
-            bandwidth_other = np.c_[bandwidth[:self._weight_dim], bandwidth[self._weight_dim+1:]]
+            if self._weight_dim == -1 or self._weight_dim == bandwidth.shape[-1] - 1:
+                bandwidth_other = bandwidth[:self._weight_dim]
+            else:
+                bandwidth_other = np.r_[bandwidth[:self._weight_dim], bandwidth[self._weight_dim+1:]]
 
             self._weight_kernel.set_params(bandwidth=bandwidth_weight)
             params['bandwidth'] = bandwidth_other

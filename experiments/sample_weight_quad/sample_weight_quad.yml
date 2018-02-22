@@ -17,8 +17,7 @@ params:
     num_kilobots: 15
   kernel:
     num_processes: 1
-    bandwidth_factor_extra_dims: [1.0, 1.0, 0.1]
-    bandwidth_factor_extra_dims_action: [1.0, 1.0, 0.1, 1.0, 1.0]
+    bandwidth_factor_weight: 2.
   lstd:
     num_features: 1000 # 1000
   gp:
