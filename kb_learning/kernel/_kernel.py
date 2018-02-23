@@ -317,9 +317,9 @@ class KilobotEnvKernelWithWeight(KilobotEnvKernel):
                 other_Y = Y[:, :self._weight_dim]
             else:
                 other_Y = np.c_[Y[:, :self._weight_dim], Y[:, self._weight_dim + 1:]]
-            K_weights = np.exp(self._weight_kernel(weights_X[:, None], weights_Y[:, None]))
+            K_weights = np.exp(-.5 * self._weight_kernel(weights_X[:, None], weights_Y[:, None]))
         else:
-            K_weights = np.exp(self._weight_kernel(weights_X[:, None]))
+            K_weights = np.exp(-.5 * self._weight_kernel(weights_X[:, None]))
             other_Y = None
 
         K_other = super().__call__(other_X, other_Y)
