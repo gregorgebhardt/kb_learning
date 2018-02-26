@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -A project00672 # 672
+#SBATCH -A project00664 # 672
 #SBATCH -J fixed_weight_quad
 #SBATCH -D /home/yy05vipo/git/kb_learning/experiments
 #SBATCH --mail-type=END
