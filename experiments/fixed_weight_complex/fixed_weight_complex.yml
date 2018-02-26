@@ -29,7 +29,8 @@ params:
     object_height: .15
 grid:
   sampling:
-    w_factor: [.0, .25, .5, .75, 1.]
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
   kernel:
     type: ['kilobot', 'mean', 'mean-cov']
 ---
@@ -41,7 +42,8 @@ params:
     object_height: .5
 grid:
   sampling:
-    w_factor: [.0, .25, .5, .75, 1.]
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
   kernel:
     type: ['kilobot', 'mean', 'mean-cov']
 ---
@@ -53,7 +55,8 @@ params:
     object_height: .15
 grid:
   sampling:
-    w_factor: [.0, .25, .5, .75, 1.]
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
   kernel:
     type: ['kilobot', 'mean', 'mean-cov']
 ---
@@ -64,7 +67,8 @@ params:
     object_width: .1
 grid:
   sampling:
-    w_factor: [.0, .25, .5, .75, 1.]
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
   kernel:
     type: ['kilobot', 'mean', 'mean-cov']
 ---
@@ -76,7 +80,8 @@ params:
     object_height: .3
 grid:
   sampling:
-    w_factor: [.0, .25, .5, .75, 1.]
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
   kernel:
     type: ['kilobot', 'mean', 'mean-cov']
 ---
@@ -88,7 +93,8 @@ params:
     object_height: .2
 grid:
   sampling:
-    w_factor: [.0, .25, .5, .75, 1.]
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
   kernel:
     type: ['kilobot', 'mean', 'mean-cov']
 ---
@@ -100,7 +106,8 @@ params:
     object_height: .2
 grid:
   sampling:
-    w_factor: [.0, .25, .5, .75, 1.]
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
   kernel:
     type: ['kilobot', 'mean', 'mean-cov']
 

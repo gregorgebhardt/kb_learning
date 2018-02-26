@@ -17,9 +17,9 @@ params:
   kernel:
     num_processes: 1
   lstd:
-    num_features: 1000 # 1000
+    num_features: 500 # 1000
   gp:
-    num_sparse_states: 1000 # 1000
+    num_sparse_states: 500 # 1000
 ---
 name: "kilobot_kernel"
 list:
