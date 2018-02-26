@@ -110,16 +110,6 @@ class SARSSampler(QuadEnvSampler):
         return it_sars_data, info
 
 
-class FixedWeightQuadEnvSampler(SARSSampler):
-    def _get_env_id(self):
-        return kb_envs.get_fixed_weight_quad_env(weight=self.w_factor, num_kilobots=self.num_kilobots)
-
-
-class SampleWeightQuadEnvSampler(SARSSampler):
-    def _get_env_id(self):
-        return kb_envs.get_sample_weight_quad_env(num_kilobots=self.num_kilobots)
-
-
 envs = []
 worker_seed = None
 
@@ -169,64 +159,79 @@ def _do_work(policy, num_episodes, num_steps, seed):
 
 class ParallelSARSSampler(SARSSampler):
     def __init__(self, num_episodes: int, num_steps_per_episode: int, num_kilobots: int, w_factor: float,
-                 column_index: pd.Index, policy=None, seed: int=0, num_workers=None):
+                 column_index: pd.Index, policy=None, seed: int=0, num_workers: int=None):
         super().__init__(num_episodes=num_episodes, num_steps_per_episode=num_steps_per_episode,
                          num_kilobots=num_kilobots, column_index=column_index, w_factor=w_factor,
                          policy=policy, seed=seed)
 
         # self._init_worker(w_factor, num_kilobots, 2)
-        self.num_workers = num_workers
-        self.episodes_per_worker = (num_episodes // self.num_workers) + 1
+        self.__num_workers = num_workers
+        if self.__num_workers is None or self.__num_workers <= 0:
+            self.__num_workers = multiprocessing.cpu_count()
 
-        # for the cluster it is necessary to use the context forkserver here, using a forkserver prevents the forked
-        # processes from taking over handles to files and similar stuff
-        ctx = multiprocessing.get_context('forkserver')
-        self.pool = ctx.Pool(processes=self.num_workers, initializer=_init_worker,
-                             initargs=[self.env_id, self.episodes_per_worker])
-        # self.pool.map(_set_worker_seed, [self._seed] * self.num_workers)
+        if self.__num_workers > 1:
+            self.__episodes_per_worker = (num_episodes // self.__num_workers) + 1
+
+            # for the cluster it is necessary to use the context forkserver here, using a forkserver prevents the forked
+            # processes from taking over handles to files and similar stuff
+            ctx = multiprocessing.get_context('fork')
+            self.__pool = ctx.Pool(processes=self.__num_workers, initializer=_init_worker,
+                                   initargs=[self.env_id, self.__episodes_per_worker])
 
     def __del__(self):
-        if hasattr(self, 'pool') and self.pool is not None:
-            self.pool.terminate()
-            self.pool.join()
-            self.pool.close()
-
-    # @SARSSampler.seed.setter
-    # def seed(self, seed):
-    #     self._seed = seed
-    #     self.pool.map(_set_worker_seed, [self._seed] * self.num_workers)
+        if hasattr(self, 'pool') and self.__pool is not None:
+            self.__pool.terminate()
+            self.__pool.join()
+            self.__pool.close()
 
     @abc.abstractmethod
     def _get_env_id(self):
         raise NotImplementedError
 
     def _sample_sars(self):
-        episodes_per_work = [self.num_episodes // self.num_workers] * self.num_workers
-        for i in range(self.num_episodes % self.num_workers):
-            episodes_per_work[i] += 1
-        episodes_per_work = filter(lambda a: a != 0, episodes_per_work)
+        if self.__num_workers == 1:
+            return super(ParallelSARSSampler, self)._sample_sars()
+        else:
+            episodes_per_work = [self.num_episodes // self.__num_workers] * self.__num_workers
+            for i in range(self.num_episodes % self.__num_workers):
+                episodes_per_work[i] += 1
+            episodes_per_work = filter(lambda a: a != 0, episodes_per_work)
 
-        work = [(self.policy, episodes, self.num_steps_per_episode, self._seed) for episodes in episodes_per_work]
+            work = [(self.policy, episodes, self.num_steps_per_episode, self._seed) for episodes in episodes_per_work]
 
-        # self._do_work(*work[0])
-        results = self.pool.starmap_async(_do_work, work).get(1200)
+            # self._do_work(*work[0])
+            results = self.__pool.starmap_async(_do_work, work).get(1200)
 
-        # combine results
-        it_sars_data = results[0][0]
-        it_info = results[0][1]
+            # combine results
+            it_sars_data = results[0][0]
+            it_info = results[0][1]
 
-        for sars_i, info_i in results[1:]:
-            it_sars_data = np.concatenate((it_sars_data, sars_i))
-            it_info += info_i
+            for sars_i, info_i in results[1:]:
+                it_sars_data = np.concatenate((it_sars_data, sars_i))
+                it_info += info_i
 
-        return it_sars_data, it_info
+            return it_sars_data, it_info
 
 
-class ParallelFixedWeightQuadEnvSampler(ParallelSARSSampler):
+class FixedWeightQuadEnvSampler(ParallelSARSSampler):
     def _get_env_id(self):
         return kb_envs.get_fixed_weight_quad_env(weight=self.w_factor, num_kilobots=self.num_kilobots)
 
 
-class ParallelSampleWeightQuadEnvSampler(ParallelSARSSampler):
+class SampleWeightQuadEnvSampler(ParallelSARSSampler):
     def _get_env_id(self):
         return kb_envs.get_sample_weight_quad_env(num_kilobots=self.num_kilobots)
+
+
+class ComplexObjectEnvSampler(SARSSampler):
+    def __init__(self, object_shape, object_width, object_height, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.object_shape = object_shape
+        self.object_width = object_width
+        self.object_height = object_height
+
+    def _get_env_id(self):
+        return kb_envs.register_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
+                                                   object_shape=self.object_shape, object_width=self.object_width,
+                                                   object_height=self.object_height)

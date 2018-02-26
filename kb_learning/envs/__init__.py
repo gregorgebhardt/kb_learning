@@ -5,6 +5,8 @@ from ._fixed_weight_quad_env import FixedWeightQuadEnv_w000_kb15, FixedWeightQua
 
 from ._sample_weight_quad_env import SampleWeightQuadEnv_kb15
 
+from ._complex_env import ComplexObjectEnvWith
+
 
 class QuadEnvNotAvailableError(Exception):
     def __init__(self, weight, num_kilobots):
@@ -27,9 +29,9 @@ for _cl, _id in zip(__fixed_weight_gym_classes, __fixed_weight_gym_names):
 
 
 def get_fixed_weight_quad_env(weight: float, num_kilobots: int):
-    id = 'FixedWeightQuadEnv_w{:03}_kb{}-v0'.format(int(weight * 100), num_kilobots)
-    if id in __fixed_weight_gym_names:
-        return id
+    _id = 'FixedWeightQuadEnv_w{:03}_kb{}-v0'.format(int(weight * 100), num_kilobots)
+    if _id in __fixed_weight_gym_names:
+        return _id
     else:
         raise QuadEnvNotAvailableError(weight, num_kilobots)
 
@@ -55,12 +57,14 @@ from typing import Iterable, Union, Iterator
 __registered_gyms = list()
 
 
-def register_quadpushing_environment(weight: float, num_kilobots: int):
+def register_complex_object_env(weight: float, num_kilobots: int, object_shape: str,
+                                object_width: float, object_height: float):
     """Create a subclass of the Quad environment of the Kilobot gym with the given weight and number of
     Kilobots and register the subclass as a gym. Returns the id of the registered gym.
 
     :param weight: the weight for the Quad environment
     :param num_kilobots: the number of kilobots for the Quad environment
+    :param object_shape: the shape of the object in the environment
     :return: the id of the registered environment
     """
     from gym.envs.registration import register
@@ -71,17 +75,18 @@ def register_quadpushing_environment(weight: float, num_kilobots: int):
     assert type(num_kilobots) is int, "num_kilobots has to be of type int"
     assert 0 < num_kilobots, "num_kilobots has to be a positive integer."
 
-    _name = 'QuadEnv_w{:03}_kb{}'.format(int(weight * 100), num_kilobots)
-    _id = 'QuadEnv_w{:03}_kb{}-v0'.format(int(weight * 100), num_kilobots)
+    _name = 'QuadEnv_w{:03}_kb{}_{}_{:03}x{:03}'.format(int(weight * 100), num_kilobots, object_shape,
+                                                        int(object_width * 100), int(object_height * 100))
+    _id = 'QuadEnv_w{:03}_kb{}_{}_{:03}x{:03}-v0'.format(int(weight * 100), num_kilobots, object_shape,
+                                                         int(object_width * 100), int(object_height * 100))
 
     if _id in __registered_gyms:
         return _id
     else:
         __registered_gyms.append(_id)
 
-    globals()[_name] = QuadEnvWith(weight, num_kilobots)
-    register(id=_id,
-             entry_point='kb_learning.envs:' + _name)
+    globals()[_name] = ComplexObjectEnv(weight, num_kilobots, object_shape, object_width, object_height)
+    register(id=_id, entry_point='kb_learning.envs:' + _name)
 
     return _id
 #

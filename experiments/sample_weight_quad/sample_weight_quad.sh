@@ -10,7 +10,7 @@
 #SBATCH -n 15               # Number of tasks
 #SBATCH -c 8                # Number of cores per task
 #SBATCH --mem-per-cpu=500   # Main memory in MByte per MPI task
-#SBATCH -t 6:00:00          # Hours, minutes and seconds, or '#SBATCH -t 10' - only minutes
+#SBATCH -t 8:00:00          # Hours, minutes and seconds, or '#SBATCH -t 10' - only minutes
 ### SBATCH --hint=multithread
 
 # -------------------------------

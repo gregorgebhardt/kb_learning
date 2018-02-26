@@ -9,12 +9,12 @@ from cluster_work import ClusterWork
 
 from kb_learning.kernel import KilobotEnvKernel, MeanEnvKernel, MeanCovEnvKernel, compute_median_bandwidth
 from kb_learning.kernel import KilobotEnvKernelWithWeight, MeanEnvKernelWithWeight, MeanCovEnvKernelWithWeight
+from kb_learning.kernel import select_reference_set_by_kernel_activation
 from kb_learning.reps.lstd import LeastSquaresTemporalDifference
 from kb_learning.reps.ac_reps import ActorCriticReps
 from kb_learning.reps.sparse_gp_policy import SparseGPPolicy
 
-from kb_learning.envs.sampler import FixedWeightQuadEnvSampler, SampleWeightQuadEnvSampler, \
-    ParallelFixedWeightQuadEnvSampler, ParallelSampleWeightQuadEnvSampler
+from kb_learning.envs.sampler import FixedWeightQuadEnvSampler, SampleWeightQuadEnvSampler, ComplexObjectEnvSampler
 
 import matplotlib.pyplot as plt
 from matplotlib import cm, gridspec
@@ -48,8 +48,7 @@ class ACRepsLearner(KilobotLearner):
             'num_episodes': 100,
             'num_steps_per_episode': 125,
             'num_SARS_samples': 10000,
-            'num_workers': 4,
-            'multiprocessing': False
+            'num_workers': None
         },
         'kernel': {
             'type': 'kilobot',
@@ -127,24 +126,32 @@ class ACRepsLearner(KilobotLearner):
 
         # add samples to data set and select subset
         _extended_SARS = self._SARS.append(it_sars, ignore_index=True)
-        if _extended_SARS.shape[0] <= sampling_params['num_SARS_samples']:
-            self._SARS = _extended_SARS
-        else:
-            self._SARS = _extended_SARS.sample(sampling_params['num_SARS_samples'])
+        # _extended_SARS.reset_index(drop=True)
 
         # compute kernel parameters
-        logger.debug('computing kernel bandwidths')
-        bandwidth_kb = compute_median_bandwidth(self._SARS[self.kilobots_columns], sample_size=500,
+        logger.debug('computing kernel bandwidths.')
+        bandwidth_kb = compute_median_bandwidth(_extended_SARS[self.kilobots_columns], sample_size=500,
                                                 preprocessor=self._state_preprocessor)
-        bandwidth_ed = compute_median_bandwidth(self._SARS[self.extra_dim_columns], sample_size=500)
-        bandwidth_a = compute_median_bandwidth(self._SARS['A'], sample_size=500)
+        bandwidth_ed = compute_median_bandwidth(_extended_SARS[self.extra_dim_columns], sample_size=500)
+        bandwidth_a = compute_median_bandwidth(_extended_SARS['A'], sample_size=500)
 
         self._state_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_ed])
         self._state_action_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_ed, bandwidth_a])
 
+        logger.debug('selecting kernel reference set.')
+        if _extended_SARS.shape[0] <= sampling_params['num_SARS_samples']:
+            self._SARS = _extended_SARS
+        else:
+            self._SARS = _extended_SARS.sample(sampling_params['num_SARS_samples'])
+        self._SARS.reset_index(drop=True, inplace=True)
+
         # compute feature matrices
-        logger.debug('selecting lstd samples')
-        lstd_samples = self._SARS[['S', 'A']].sample(self._params['lstd']['num_features'])
+        logger.debug('selecting lstd samples.')
+        lstd_reference = select_reference_set_by_kernel_activation(data=self._SARS[['S', 'A']],
+                                                                   size=self._params['lstd']['num_features'],
+                                                                   kernel_function=self._state_action_kernel)
+        lstd_samples = self._SARS.loc[lstd_reference]
+        # lstd_samples = self._SARS[['S', 'A']].sample(self._params['lstd']['num_features'])
 
         def state_features(state):
             if state.ndim == 1:
@@ -186,7 +193,11 @@ class ACRepsLearner(KilobotLearner):
 
             # get subset for sparse GP
             logger.debug('select samples for GP')
-            gp_samples = self._SARS['S'].sample(self._params['gp']['num_sparse_states']).values
+            gp_reference = select_reference_set_by_kernel_activation(data=self._SARS[['S']],
+                                                                     size=self._params['lstd']['num_features'],
+                                                                     kernel_function=self._state_kernel)
+            gp_samples = self._SARS.loc[gp_reference].values
+            # gp_samples = self._SARS['S'].sample(self._params['gp']['num_sparse_states']).values
 
             # fit weighted GP to samples
             logger.info('fitting GP to policy')
@@ -471,18 +482,13 @@ class SampleWeightACRepsLearner(ACRepsLearner):
 
     def _init_sampler(self):
         sampling_params = self._params['sampling']
-        if sampling_params['multiprocessing']:
-            sampler_class = ParallelSampleWeightQuadEnvSampler
-        else:
-            sampler_class = SampleWeightQuadEnvSampler
-
-        self._sampler = sampler_class(num_episodes=sampling_params['num_episodes'],
-                                      num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                      num_kilobots=sampling_params['num_kilobots'],
-                                      column_index=self._SARS_columns,
-                                      w_factor=sampling_params['w_factor'],
-                                      num_workers=sampling_params['num_workers'],
-                                      seed=self._seed)
+        self._sampler = SampleWeightQuadEnvSampler(num_episodes=sampling_params['num_episodes'],
+                                                   num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                                   num_kilobots=sampling_params['num_kilobots'],
+                                                   column_index=self._SARS_columns,
+                                                   w_factor=sampling_params['w_factor'],
+                                                   num_workers=sampling_params['num_workers'],
+                                                   seed=self._seed)
 
     def _plot_iteration_results(self, it_sars, state_action_features, theta):
         # setup figure
@@ -601,3 +607,23 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         actions = mean_actions, sigma_actions
 
         return actions, x_range, y_range
+
+
+class ComplexObjectACRepsLearner(SampleWeightACRepsLearner):
+    _default_params = ACRepsLearner._default_params
+    _default_params['sampling']['object_shape'] = 'quad'
+    _default_params['sampling']['object_width'] = .15
+    _default_params['sampling']['object_height'] = .15
+
+    def _init_sampler(self):
+        sampling_params = self._params['sampling']
+        self._sampler = ComplexObjectEnvSampler(object_shape=sampling_params['object_shape'],
+                                                object_width=sampling_params['object_width'],
+                                                object_height=sampling_params['object_height'],
+                                                num_episodes=sampling_params['num_episodes'],
+                                                num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                                num_kilobots=sampling_params['num_kilobots'],
+                                                column_index=self._SARS_columns,
+                                                w_factor=sampling_params['w_factor'],
+                                                num_workers=sampling_params['num_workers'],
+                                                seed=self._seed)

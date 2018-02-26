@@ -1,1 +1,1 @@
-from ._learner import ACRepsLearner, SampleWeightACRepsLearner
+from ._learner import ACRepsLearner, SampleWeightACRepsLearner, ComplexObjectEnvSampler

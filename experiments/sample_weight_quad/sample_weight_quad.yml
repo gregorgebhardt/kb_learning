@@ -5,28 +5,27 @@ repetitions: 5 # 20
 iterations: 30
 path: "data/sample_weight_quad"
 plotting: true
-gui: false
+gui: true
 
 params:
   sampling:
-    num_episodes: 800 # 100
+    num_episodes: 400 # 100
     num_steps_per_episode: 30 # 125
-    num_SARS_samples: 20000 # 10000
-    num_workers: 8
-    multiprocessing: true
+    num_SARS_samples: 10000 # 10000
+#    num_workers: -1
     num_kilobots: 15
   kernel:
     num_processes: 1
-    bandwidth_factor_weight: 2.
+    bandwidth_factor_weight: 3
   lstd:
-    num_features: 1000 # 1000
+    num_features: 300 # 1000
   gp:
-    num_sparse_states: 1000 # 1000
+    num_sparse_states: 300 # 1000
 ---
 name: "kilobot_kernel"
 list:
   kernel:
-    bandwidth_factor_weight: [.1, .5, 1., 1.5, 2.]
+    bandwidth_factor_weight: [.1, .7, 1.5, 3., 6.]
 #---
 #name: "mean_kernel"
 #params:
