@@ -53,9 +53,9 @@ def plot_policy(axes: Axes, actions, x_range, y_range, **kwargs):
     return axes.quiver(X, Y, A[..., 0], A[..., 1], color, angles='xy', **kwargs)
 
 
-def plot_objects(axes: Axes, env: KilobotsEnv, **kwargs):
+def plot_objects(axes: Axes, env: KilobotsEnv, alpha=.5, **kwargs):
     for o in env.get_objects():
-        o.plot(axes, alpha=.5, **kwargs)
+        o.plot(axes, alpha=alpha, **kwargs)
 
 
 def plot_trajectory_reward_distribution(axes: Axes, reward: pd.DataFrame):

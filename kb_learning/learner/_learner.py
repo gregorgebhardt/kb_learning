@@ -138,7 +138,7 @@ class ACRepsLearner(KilobotLearner):
         self._state_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_ed])
         self._state_action_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_ed, bandwidth_a])
 
-        logger.debug('selecting kernel reference set.')
+        logger.debug('selecting SARS samples.')
         if _extended_SARS.shape[0] <= sampling_params['num_SARS_samples']:
             self._SARS = _extended_SARS
         else:
@@ -196,7 +196,7 @@ class ACRepsLearner(KilobotLearner):
             gp_reference = select_reference_set_by_kernel_activation(data=self._SARS[['S']],
                                                                      size=self._params['lstd']['num_features'],
                                                                      kernel_function=self._state_kernel)
-            gp_samples = self._SARS.loc[gp_reference].values
+            gp_samples = self._SARS['S'].loc[gp_reference].values
             # gp_samples = self._SARS['S'].sample(self._params['gp']['num_sparse_states']).values
 
             # fit weighted GP to samples
@@ -358,7 +358,7 @@ class ACRepsLearner(KilobotLearner):
         cmap_gray = cm.get_cmap('gray')
         V = self._compute_value_function_grid(state_action_features, theta)
         im = plot_value_function(ax_bef_V, *V, cmap=cmap_plasma)
-        plot_objects(ax_bef_V, env=self._sampler.env, fill=False)
+        plot_objects(ax_bef_V, env=self._sampler.env, alpha=.3, fill=True)
         ax_bef_V.set_title('value function, before reps, iteration {}'.format(self._it))
         fig.colorbar(im, cax=ax_bef_V_cb)
 
@@ -609,7 +609,7 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         return actions, x_range, y_range
 
 
-class ComplexObjectACRepsLearner(SampleWeightACRepsLearner):
+class ComplexObjectACRepsLearner(ACRepsLearner):
     _default_params = ACRepsLearner._default_params
     _default_params['sampling']['object_shape'] = 'quad'
     _default_params['sampling']['object_width'] = .15

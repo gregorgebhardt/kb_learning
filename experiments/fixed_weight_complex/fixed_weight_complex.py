@@ -1,4 +1,4 @@
-from kb_learning.learner import ComplexObjectEnvSampler
+from kb_learning.learner import ComplexObjectACRepsLearner
 
 if __name__ == '__main__':
-    ComplexObjectEnvSampler.run()
+    ComplexObjectACRepsLearner.run()

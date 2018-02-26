@@ -223,13 +223,13 @@ class SampleWeightQuadEnvSampler(ParallelSARSSampler):
         return kb_envs.get_sample_weight_quad_env(num_kilobots=self.num_kilobots)
 
 
-class ComplexObjectEnvSampler(SARSSampler):
+class ComplexObjectEnvSampler(ParallelSARSSampler):
     def __init__(self, object_shape, object_width, object_height, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
         self.object_shape = object_shape
         self.object_width = object_width
         self.object_height = object_height
+
+        super().__init__(*args, **kwargs)
 
     def _get_env_id(self):
         return kb_envs.register_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,

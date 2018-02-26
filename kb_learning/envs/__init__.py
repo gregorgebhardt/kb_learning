@@ -85,7 +85,7 @@ def register_complex_object_env(weight: float, num_kilobots: int, object_shape: 
     else:
         __registered_gyms.append(_id)
 
-    globals()[_name] = ComplexObjectEnv(weight, num_kilobots, object_shape, object_width, object_height)
+    globals()[_name] = ComplexObjectEnvWith(weight, num_kilobots, object_shape, object_width, object_height)
     register(id=_id, entry_point='kb_learning.envs:' + _name)
 
     return _id

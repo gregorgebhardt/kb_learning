@@ -12,8 +12,7 @@ params:
     num_episodes: 250 # 100
     num_steps_per_episode: 50 # 125
     num_SARS_samples: 10000 # 10000
-    num_workers: 8
-    multiprocessing: true
+#    num_workers: 8
     num_kilobots: 15
   kernel:
     num_processes: 1
