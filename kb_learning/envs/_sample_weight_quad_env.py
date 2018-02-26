@@ -4,9 +4,10 @@ import abc
 
 
 class SampleWeightQuadEnv(QuadEnv):
-    def get_state(self):
-        return np.concatenate((super().get_state(), [self._weight]))
+    # def get_state(self):
+    #     return np.concatenate((super().get_state()))
 
+    # we return the weight only in the observation, since we use the get_state method for computing the reward
     def get_observation(self):
         return np.concatenate((super().get_observation(), [self._weight]))
 
