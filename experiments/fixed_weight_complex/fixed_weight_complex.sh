@@ -4,8 +4,8 @@
 #SBATCH -D /home/yy05vipo/git/kb_learning/experiments
 #SBATCH --mail-type=END
 # Please use the complete path details :
-#SBATCH -e /home/yy05vipo/git/kb_learning/experiments/fixed_weight_quad/l_%j.stderr
-#SBATCH -o /home/yy05vipo/git/kb_learning/experiments/fixed_weight_quad/l_%j.stdout
+#SBATCH -e /home/yy05vipo/git/kb_learning/experiments/fixed_weight_complex/l_%j.stderr
+#SBATCH -o /home/yy05vipo/git/kb_learning/experiments/fixed_weight_complex/l_%j.stdout
 #
 #SBATCH -n 30               # Number of tasks
 #SBATCH -c 8                # Number of cores per task
