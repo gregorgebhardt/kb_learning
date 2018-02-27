@@ -176,11 +176,11 @@ def compute_mean_and_cov_position(data):
     # number of samples in data
     q = data.shape[0]
     # number of kilobots in data
-    num_kb_1 = data.shape[1] // 2
+    num_kb = data.shape[1] // 2
 
-    data_reshaped = data.reshape(q, num_kb_1, 2)
+    data_reshaped = data.reshape(q, num_kb, 2)
     data_mean = np.mean(data_reshaped, axis=1, keepdims=True)
     data_norm = data_reshaped - data_mean
     data_cov = np.einsum('qni,qnk->qik', data_norm, data_norm)
     data_cov = data_cov[:, [0, 0, 1], [0, 1, 1]]
-    return np.c_[data_mean.squeeze(), data_cov]
+    return np.c_[data_mean.squeeze(axis=1), data_cov]
