@@ -159,7 +159,7 @@ def _do_work(policy, num_episodes, num_steps, seed):
 
 class ParallelSARSSampler(SARSSampler):
     def __init__(self, num_episodes: int, num_steps_per_episode: int, num_kilobots: int, w_factor: float,
-                 column_index: pd.Index, policy=None, seed: int=0, num_workers: int=None):
+                 column_index: pd.Index, policy=None, seed: int=0, num_workers: int=None, mp_context: str='forkserver'):
         super().__init__(num_episodes=num_episodes, num_steps_per_episode=num_steps_per_episode,
                          num_kilobots=num_kilobots, column_index=column_index, w_factor=w_factor,
                          policy=policy, seed=seed)
@@ -174,7 +174,7 @@ class ParallelSARSSampler(SARSSampler):
 
             # for the cluster it is necessary to use the context forkserver here, using a forkserver prevents the forked
             # processes from taking over handles to files and similar stuff
-            ctx = multiprocessing.get_context('fork')
+            ctx = multiprocessing.get_context(mp_context)
             self.__pool = ctx.Pool(processes=self.__num_workers, initializer=_init_worker,
                                    initargs=[self.env_id, self.__episodes_per_worker])
 

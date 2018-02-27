@@ -151,6 +151,7 @@ class ACRepsLearner(KilobotLearner):
                                                                    size=self._params['lstd']['num_features'],
                                                                    kernel_function=self._state_action_kernel)
         lstd_samples = self._SARS.loc[lstd_reference]
+
         # lstd_samples = self._SARS[['S', 'A']].sample(self._params['lstd']['num_features'])
 
         def state_features(state):
@@ -177,7 +178,6 @@ class ACRepsLearner(KilobotLearner):
             theta = self._lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._SARS[['R']].values)
 
             # plotting
-
 
             # compute q-function
             logger.debug('compute q-function')
@@ -282,18 +282,13 @@ class ACRepsLearner(KilobotLearner):
 
     def _init_sampler(self):
         sampling_params = self._params['sampling']
-        if sampling_params['multiprocessing']:
-            sampler_class = ParallelFixedWeightQuadEnvSampler
-        else:
-            sampler_class = FixedWeightQuadEnvSampler
-
-        self._sampler = sampler_class(num_episodes=sampling_params['num_episodes'],
-                                      num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                      num_kilobots=sampling_params['num_kilobots'],
-                                      column_index=self._SARS_columns,
-                                      w_factor=sampling_params['w_factor'],
-                                      num_workers=sampling_params['num_workers'],
-                                      seed=self._seed)
+        self._sampler = FixedWeightQuadEnvSampler(num_episodes=sampling_params['num_episodes'],
+                                                  num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                                  num_kilobots=sampling_params['num_kilobots'],
+                                                  column_index=self._SARS_columns,
+                                                  w_factor=sampling_params['w_factor'],
+                                                  num_workers=sampling_params['num_workers'],
+                                                  seed=self._seed, mp_context=self._MP_CONTEXT)
 
     def finalize(self):
         pass
@@ -312,7 +307,7 @@ class ACRepsLearner(KilobotLearner):
 
     def restore_state(self, config: dict, rep: int, n: int) -> bool:
         # restore policy
-        policy_file_name = os.path.join(self._log_path_rep, 'policy_{:02d}.pkl'.format(n-1))
+        policy_file_name = os.path.join(self._log_path_rep, 'policy_{:02d}.pkl'.format(n - 1))
         with open(policy_file_name, mode='r+b') as policy_file:
             self._policy = pickle.load(policy_file)
         self._sampler.policy = self._policy
@@ -335,7 +330,7 @@ class ACRepsLearner(KilobotLearner):
             mean = mean_sum_R.groupby(level=1).mean()
             std = mean_sum_R.groupby(level=1).std()
 
-            axes.fill_between(mean.index, mean - 2*std, mean + 2*std, alpha=.5)
+            axes.fill_between(mean.index, mean - 2 * std, mean + 2 * std, alpha=.5)
             axes.plot(mean.index, mean, label=config['name'])
 
         axes.legend()
@@ -394,7 +389,7 @@ class ACRepsLearner(KilobotLearner):
         Y = -Y.flatten()
 
         # kilobots at light position
-        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots+1])
+        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])
 
         # get mean actions
         actions = self._policy.get_mean_action(states)
@@ -488,7 +483,7 @@ class SampleWeightACRepsLearner(ACRepsLearner):
                                                    column_index=self._SARS_columns,
                                                    w_factor=sampling_params['w_factor'],
                                                    num_workers=sampling_params['num_workers'],
-                                                   seed=self._seed)
+                                                   seed=self._seed, mp_context=self._MP_CONTEXT)
 
     def _plot_iteration_results(self, it_sars, state_action_features, theta):
         # setup figure
@@ -626,4 +621,4 @@ class ComplexObjectACRepsLearner(ACRepsLearner):
                                                 column_index=self._SARS_columns,
                                                 w_factor=sampling_params['w_factor'],
                                                 num_workers=sampling_params['num_workers'],
-                                                seed=self._seed)
+                                                seed=self._seed, mp_context=self._MP_CONTEXT)
