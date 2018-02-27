@@ -5,7 +5,7 @@ repetitions: 3 # 20
 iterations: 15
 path: "data/fixed_weight_complex"
 plotting: true
-gui: true
+gui: false
 
 params:
   sampling:
