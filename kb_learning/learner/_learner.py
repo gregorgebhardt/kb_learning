@@ -56,7 +56,7 @@ class ACRepsLearner(KilobotLearner):
             'bandwidth_factor_extra_dims': .8,
             'bandwidth_factor_extra_dims_action': .8,
             'weight': .5,
-            'num_processes': 4
+            'num_processes': 1
         },
         'learn_iterations': 1,
         'lstd': {
