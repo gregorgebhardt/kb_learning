@@ -141,6 +141,12 @@ def _do_work(policy, num_episodes, num_steps, seed):
 
     it_sars_data = np.empty((num_episodes * num_steps, 2 * state_dims + action_dims + 1))
 
+    # do one additional step before
+    actions = policy(states)
+    srdi = [e.step(a) for e, a in zip(envs[:num_episodes], actions)]
+    for i in range(num_episodes):
+        states[i, :] = srdi[i][0]
+
     for step in range(num_steps):
         it_sars_data[step::num_steps, :state_dims] = states
 
