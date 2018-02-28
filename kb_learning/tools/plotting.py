@@ -11,6 +11,7 @@ import pandas as pd
 import numpy as np
 
 import os
+import sys
 
 matplotlib.rc('font', family='Oswald')
 
@@ -53,7 +54,7 @@ def plot_policy(axes: Axes, actions, x_range, y_range, **kwargs):
     return axes.quiver(X, Y, A[..., 0], A[..., 1], color, angles='xy', **kwargs)
 
 
-def plot_objects(axes: Axes, env: KilobotsEnv, alpha=.5, **kwargs):
+def plot_objects(axes: Axes, env: KilobotsEnv, alpha=.7, **kwargs):
     for o in env.get_objects():
         o.plot(axes, alpha=alpha, **kwargs)
 
@@ -64,7 +65,7 @@ def plot_trajectory_reward_distribution(axes: Axes, reward: pd.DataFrame):
 
     x = np.arange(mean_reward.shape[0])
 
-    axes.plot(x, reward.unstack(level=0), 'k-', alpha=.3)
+    axes.plot(x, reward.unstack(level=0), 'k-', alpha=.2)
     axes.fill_between(x, mean_reward-2*std_reward, mean_reward+2*std_reward, alpha=.5)
     axes.plot(x, mean_reward)
 
@@ -112,3 +113,49 @@ def show_plot_in_browser(figure, filename=None, path=None, overwrite=True, brows
         browser_controller = webbrowser.get(browser)
 
     browser_controller.open(html_full_path)
+
+
+def save_plot_as_pdf(figure, filename=None, path=None, overwrite=True):
+    if path is None:
+        import tempfile
+        path = tempfile.gettempdir()
+    if filename is None:
+        filename = 'plot.pdf'
+
+    pdf_full_path = os.path.join(path, filename)
+
+    if overwrite and os.path.exists(pdf_full_path):
+        os.remove(pdf_full_path)
+    elif os.path.exists(pdf_full_path):
+        root, ext = os.path.splitext(pdf_full_path)
+        root_i = root + '_{}'
+        i = 1
+        while os.path.exists(pdf_full_path):
+            pdf_full_path = root_i.format(i) + ext
+            i = i + 1
+
+    figure.savefig(pdf_full_path, bbox_inches='tight')
+
+    return pdf_full_path
+
+
+def show_plot_as_pdf(figure, filename=None, path=None, overwrite=True, save_only=False, browser='google-chrome'):
+    pdf_full_path = save_plot_as_pdf(figure, filename, path, overwrite)
+
+    if save_only:
+        return
+
+    # if sys.platform.startswith('darwin'):
+    #     import subprocess
+    #     subprocess.call(('open', pdf_full_path))
+    # elif os.name == 'nt':
+    #     os.startfile(pdf_full_path)
+    # elif os.name == 'posix':
+    #     import subprocess
+    #     subprocess.call(('xdg-open', pdf_full_path))
+    global browser_controller
+    if browser_controller is None:
+        import webbrowser
+        browser_controller = webbrowser.get(browser)
+
+    browser_controller.open(pdf_full_path)

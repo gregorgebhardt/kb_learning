@@ -74,7 +74,7 @@ class SparseGPPolicy:
             try:
                 # K_m_c = scipy.linalg.cholesky(K_m, lower=True), True
                 K_m_c = np.linalg.cholesky(K_m), True
-                logger.info('regularization for chol: {}'.format(reg_I[0, 0]))
+                logger.debug('regularization for chol: {}'.format(reg_I[0, 0]))
                 break
             except np.linalg.LinAlgError:
                 K_m += reg_I

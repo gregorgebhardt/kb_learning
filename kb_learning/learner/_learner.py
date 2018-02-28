@@ -18,8 +18,8 @@ from kb_learning.envs.sampler import FixedWeightQuadEnvSampler, SampleWeightQuad
 
 import matplotlib.pyplot as plt
 from matplotlib import cm, gridspec
-from kb_learning.tools.plotting import plot_light_trajectory, plot_value_function, plot_policy, show_plot_in_browser, \
-    plot_objects, plot_trajectory_reward_distribution
+from kb_learning.tools.plotting import plot_light_trajectory, plot_value_function, plot_policy, plot_objects,\
+    plot_trajectory_reward_distribution, show_plot_as_pdf
 
 import numpy as np
 import pandas as pd
@@ -69,7 +69,7 @@ class ACRepsLearner(KilobotLearner):
         },
         'gp': {
             'prior_variance': .01 ** 2,
-            'noise_variance': 1e-5,
+            'noise_variance': 2e-5,
             'min_variance': 1e-8,
             'chol_regularizer': 1e-9,
             'num_sparse_states': 1000,
@@ -362,8 +362,8 @@ class ACRepsLearner(KilobotLearner):
         ax_bef_T_cb = fig.add_subplot(gs[2, 1])
         ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
         plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
-        plot_objects(ax_bef_T, env=self._sampler.env)
         tr = plot_light_trajectory(ax_bef_T, it_sars[('S', 'light')])
+        plot_objects(ax_bef_T, env=self._sampler.env)
         fig.colorbar(tr[0], cax=ax_bef_T_cb)
 
         # new policy plot
@@ -371,14 +371,14 @@ class ACRepsLearner(KilobotLearner):
         ax_aft_P_cb = fig.add_subplot(gs[3, 1])
         plot_value_function(ax_aft_P, *self._compute_value_function_grid(state_action_features, theta),
                             cmap=cmap_gray)
-        plot_objects(ax_aft_P, env=self._sampler.env)
         qv = plot_policy(ax_aft_P, *self._compute_policy_quivers(), cmap=cmap_plasma)
+        plot_objects(ax_aft_P, env=self._sampler.env)
         fig.colorbar(qv, cax=ax_aft_P_cb)
         ax_aft_P.set_title('policy, after reps, iteration {}'.format(self._it))
 
         # save and show plot
-        show_plot_in_browser(fig, path=self._log_path_rep, filename='plot_{:02d}.html'.format(self._it),
-                             overwrite=True, save_only=self._no_gui)
+        show_plot_as_pdf(fig, path=self._log_path_rep, filename='plot_{:02d}.pdf'.format(self._it),
+                         overwrite=True, save_only=self._no_gui)
         plt.close(fig)
 
     def _compute_value_function_grid(self, state_action_features, theta, steps_x=40, steps_y=40):
@@ -403,7 +403,7 @@ class ACRepsLearner(KilobotLearner):
         y_range = self._sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
         X = X.flatten()
-        Y = -Y.flatten()
+        Y = Y.flatten()
 
         # kilobots at light position
         states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])
@@ -560,8 +560,8 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         fig.colorbar(qv, cax=ax_P_cb)
 
         # save and show plot
-        show_plot_in_browser(fig, path=self._log_path_rep, filename='plot_{:02d}.html'.format(self._it),
-                             overwrite=True, save_only=self._no_gui)
+        show_plot_as_pdf(fig, path=self._log_path_rep, filename='plot_{:02d}.pdf'.format(self._it),
+                         overwrite=True, save_only=self._no_gui)
         plt.close(fig)
 
     def _compute_value_function_grid(self, state_action_features, theta, weight, steps_x=40, steps_y=40):
@@ -587,7 +587,7 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         y_range = self._sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
         X = X.flatten()
-        Y = -Y.flatten()
+        Y =     Y.flatten()
 
         # kilobots at light position
         states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])

@@ -26,15 +26,15 @@ class ComplexObjectEnv(ObjectEnv):
         elif object_shape == 'circle':
             return Circle(radius=self._object_width, position=self._object_init[:2],
                           orientation=self._object_init[2], world=self.world)
-        elif object_shape == 'lform':
+        elif object_shape == 'l_shape':
             return LForm(width=self._object_width, height=self._object_height,
                          position=self._object_init[:2], orientation=self._object_init[2],
                          world=self.world)
-        elif object_shape == 'tform':
+        elif object_shape == 't_shape':
             return TForm(width=self._object_width, height=self._object_height,
                          position=self._object_init[:2], orientation=self._object_init[2],
                          world=self.world)
-        elif object_shape == 'cform':
+        elif object_shape == 'c_shape':
             return CForm(width=self._object_width, height=self._object_height,
                          position=self._object_init[:2], orientation=self._object_init[2],
                          world=self.world)
@@ -43,7 +43,7 @@ class ComplexObjectEnv(ObjectEnv):
 
 
 def ComplexObjectEnvWith(weight, num_kilobots, object_shape, object_width, object_height):
-    if object_shape not in ['quad', 'rect', 'triangle', 'circle', 'lform', 'tform', 'cform']:
+    if object_shape not in ['quad', 'rect', 'triangle', 'circle', 'l_shape', 't_shape', 'c_shape']:
         raise UnknownObjectException('Shape of form {} not known.'.format(object_shape))
 
     class _ComplexObjectEnv(ComplexObjectEnv):
