@@ -1,6 +1,7 @@
 experiments/data
 *.stdout
 *.stderr
+*.hostfile*
 
 # Created by .ignore support plugin (hsz.mobi)
 ### Python template

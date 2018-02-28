@@ -12,7 +12,7 @@ params:
     num_episodes: 500 # 100
     num_steps_per_episode: 20 # 125
     num_SARS_samples: 10000 # 10000
-#    num_workers: -1
+    num_workers: 8
     num_kilobots: 15
   kernel:
     bandwidth_factor_weight: .5
