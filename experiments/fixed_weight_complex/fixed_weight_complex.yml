@@ -2,20 +2,19 @@
 # DEFAULT
 name: "DEFAULT"
 repetitions: 3 # 20
-iterations: 15
+iterations: 20
 path: "data/fixed_weight_complex"
 plotting: true
-gui: true
+gui: false
 
 params:
   sampling:
     num_episodes: 100 # 100
     num_steps_per_episode: 40 # 125
     num_SARS_samples: 10000 # 10000
-#    num_workers: 8
+    num_workers: 8
     num_kilobots: 15
   kernel:
-    num_processes: 1
     bandwidth_factor_kb: .8
     bandwidth_factor_extra_dims: .9
     bandwidth_factor_extra_dims_action: .5
@@ -55,7 +54,7 @@ name: 'circle'
 params:
   sampling:
     object_shape: 'circle'
-    object_width: .1
+    object_width: .15
 grid:
   sampling:
     # w_factor: [.0, .25, .5, .75, 1.]
@@ -114,5 +113,3 @@ grid:
     w_factor: [.0, .5, 1.]
   kernel:
     type: ['kilobot', 'mean', 'mean-cov']
-
-

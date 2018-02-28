@@ -11,7 +11,7 @@
 #SBATCH -c 8                # Number of cores per task
 #SBATCH --mem-per-cpu=500   # Main memory in MByte per MPI task
 #SBATCH -t 4:00:00         # Hours, minutes and seconds, or '#SBATCH -t 10' - only minutes
-### SBATCH --hint=multithread
+#SBATCH --hint=multithread
 
 # -------------------------------
 # Afterwards you write your own commands, e.g.
@@ -24,4 +24,4 @@ cd /home/yy05vipo/git/kb_learning/experiments
 
 srun hostname > $SLURM_JOB_ID.hostfile
 hostfileconv $SLURM_JOB_ID.hostfile -1
-job_stream --hostfile $SLURM_JOB_ID.hostfile.converted -- python fixed_weight_complex/fixed_weight_complex.py -c fixed_weight_complex/fixed_weight_complex.yml --log_level INFO
+job_stream --hostfile $SLURM_JOB_ID.hostfile.converted -- python fixed_weight_complex/fixed_weight_complex.py -c -o fixed_weight_complex/fixed_weight_complex.yml --log_level INFO
