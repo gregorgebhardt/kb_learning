@@ -191,7 +191,7 @@ class ParallelSARSSampler(SARSSampler):
 
     def _create_pool(self, ctx):
         return ctx.Pool(processes=self._num_workers, initializer=_init_worker,
-                        initargs=[self.env_id, self._episodes_per_worker])
+                        initargs=[self.env_id, self._episodes_per_worker], maxtasksperchild=1)
 
     @abc.abstractmethod
     def _get_env_id(self):
@@ -250,7 +250,8 @@ class ComplexObjectEnvSampler(ParallelSARSSampler):
     def _create_pool(self, ctx):
         return multiprocessing.Pool(processes=self._num_workers, initializer=_init_worker_complex,
                                     initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
-                                              self.object_height, self._episodes_per_worker])
+                                              self.object_height, self._episodes_per_worker],
+                                    maxtasksperchild=1)
 
     def _get_env_id(self):
         return kb_envs.register_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
