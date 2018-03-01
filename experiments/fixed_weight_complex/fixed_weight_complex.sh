@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH -A project00664 # 672
+#SBATCH -A project00672 # 672, 664
 #SBATCH -J complex_objects_fixed
 #SBATCH -D /home/yy05vipo/git/kb_learning/experiments
 #SBATCH --mail-type=END
@@ -10,7 +10,7 @@
 #SBATCH -n 45               # Number of tasks
 #SBATCH -c 8                # Number of cores per task
 #SBATCH --mem-per-cpu=500   # Main memory in MByte per MPI task
-#SBATCH -t 4:00:00         # Hours, minutes and seconds, or '#SBATCH -t 10' - only minutes
+#SBATCH -t 2:00:00         # Hours, minutes and seconds, or '#SBATCH -t 10' - only minutes
 #SBATCH --hint=multithread
 
 # -------------------------------
@@ -24,4 +24,4 @@ cd /home/yy05vipo/git/kb_learning/experiments
 
 srun hostname > $SLURM_JOB_ID.hostfile
 hostfileconv $SLURM_JOB_ID.hostfile -1
-job_stream --hostfile $SLURM_JOB_ID.hostfile.converted -- python fixed_weight_complex/fixed_weight_complex.py -c -o fixed_weight_complex/fixed_weight_complex.yml --log_level INFO
+job_stream --hostfile $SLURM_JOB_ID.hostfile.converted -- python fixed_weight_complex/fixed_weight_complex.py -c fixed_weight_complex/fixed_weight_complex.yml --log_level INFO
