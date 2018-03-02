@@ -1,5 +1,6 @@
 cimport numpy as np
 
+
 cdef class ExponentialQuadraticKernel:
     cdef public np.ndarray bandwidth
     cdef int normalized

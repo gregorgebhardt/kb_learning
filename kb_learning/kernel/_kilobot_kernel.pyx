@@ -120,7 +120,7 @@ cdef class ExponentialQuadraticKernel:
 
         return gram_matrix.T[None, ...] * scaleddist
 
-cdef class KilobotKernel:
+cdef class KilobotSwarmKernel:
     def __init__(self, bandwidth_factor=1., num_processes=1):
         self._kernel_func = ExponentialQuadraticKernel()
         self.bandwidth_factor = bandwidth_factor

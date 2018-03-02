@@ -8,7 +8,7 @@ cdef class ExponentialQuadraticKernel:
     cpdef get_derivation_param(self, np.ndarray data)
     cpdef get_derivation_data(self, np.ndarray ref_data, np.ndarray cur_data)
 
-cdef class KilobotKernel:
+cdef class KilobotSwarmKernel:
     cdef public double bandwidth_factor
     cdef ExponentialQuadraticKernel _kernel_func
     cdef np.ndarray _compute_kb_distance(self, np.ndarray k1, np.ndarray k2)

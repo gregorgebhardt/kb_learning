@@ -9,8 +9,6 @@ cimport numpy as np
 from math import exp
 from libc.math cimport exp
 
-from kb_learning.tools import np_chunks
-
 DTYPE = np.float64
 ctypedef np.float64_t DTYPE_t
 
@@ -18,6 +16,7 @@ ctypedef np.float64_t DTYPE_t
 cdef class ExponentialQuadraticKernel:
     def __init__(self, normalized=0):
         self.normalized = normalized
+        # self.bandwidth = np.ndarray([1, 1])
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -56,7 +55,7 @@ cdef class ExponentialQuadraticKernel:
         cdef DTYPE_t kb_sum_1 = .0, kb_sum_2 = .0
         with nogil, parallel():  # num_threads=8
             if b is None:
-                for i in prange(q):
+                for i in prange(q, schedule='guided'):
                     sq_dist[i, 0] = .0
                     for j in range(n):
                         for k in range(n):
@@ -79,6 +78,7 @@ cdef class ExponentialQuadraticKernel:
                                 sq_dist[i, j] += exp(kb_sum_2)
                         sq_dist[i, j] /= n * m
                         sq_dist[i, j] *= 2
+
         return sq_dist
 
     def get_gram_diag(self, np.ndarray data):
@@ -100,7 +100,7 @@ cdef class KilobotSwarmKernel:
         cdef int N, m
         cdef int num_kb_1, num_kb_2
         cdef int q, r
-        cdef int i
+        cdef int i, j
 
         # number of samples in k1
         q = k1.shape[0]
@@ -133,7 +133,9 @@ cdef class KilobotSwarmKernel:
             for j in range(r):
                 k_nm[i, j] = -k_nm[i, j] + k_n[i, 0] + k_m[j, 0]
 
-        K = np.asarray(k_nm)
+        cdef np.ndarray K = np.asarray(k_nm)
+
+        del k_n, k_m, k_nm, k1_reshaped, k2_reshaped
 
         return K
 
