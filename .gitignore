@@ -2,6 +2,7 @@ experiments/data
 *.stdout
 *.stderr
 *.hostfile*
+experiments/core.*
 
 # Created by .ignore support plugin (hsz.mobi)
 ### Python template
