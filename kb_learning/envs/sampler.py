@@ -12,7 +12,7 @@ import logging
 logger = logging.getLogger('kb_learning.sampler')
 
 
-class KilobotSampler:
+class KilobotSampler(object):
     def __init__(self, num_episodes: int, num_steps_per_episode: int,
                  column_index: pd.Index, seed: int=0, *args, **kwargs):
         self._seed = seed
@@ -31,11 +31,11 @@ class KilobotSampler:
         self._seed = seed
 
     @abc.abstractmethod
-    def _sample_sars(self) -> Tuple[np.ndarray, List[str]]:
+    def _sample_sars(self, policy) -> Tuple[np.ndarray, List[str]]:
         raise NotImplementedError
 
-    def __call__(self):
-        sars_samples, info = self._sample_sars()
+    def __call__(self, policy):
+        sars_samples, info = self._sample_sars(policy)
 
         index = pd.MultiIndex.from_product([range(self.num_episodes), range(self.num_steps_per_episode)])
         it_sars = pd.DataFrame(data=sars_samples, index=index, columns=self.column_index)
@@ -66,17 +66,15 @@ class QuadEnvSampler(KilobotSampler):
 
 class SARSSampler(QuadEnvSampler):
     def __init__(self, num_episodes: int, num_steps_per_episode: int, num_kilobots: int,
-                 column_index: pd.Index, policy=None, seed: int=0, *args, **kwargs):
+                 column_index: pd.Index, seed: int=0, *args, **kwargs):
         super().__init__(num_episodes=num_episodes, num_steps_per_episode=num_steps_per_episode,
                          num_kilobots=num_kilobots, column_index=column_index, seed=seed, *args, **kwargs)
-
-        self.policy = policy
 
     @abc.abstractmethod
     def _get_env_id(self):
         raise NotImplementedError
 
-    def _sample_sars(self):
+    def _sample_sars(self, policy):
         if len(self.envs) is 0:
             self._init_envs()
 
@@ -96,7 +94,7 @@ class SARSSampler(QuadEnvSampler):
         for step in range(self.num_steps_per_episode):
             it_sars_data[step::self.num_steps_per_episode, :state_dims] = states
 
-            actions = self.policy(states)
+            actions = policy(states)
             srdi = [e.step(a) for e, a in zip(self.envs, actions)]
 
             for i in range(self.num_episodes):
@@ -165,10 +163,9 @@ def _do_work(policy, num_episodes, num_steps, seed):
 
 class ParallelSARSSampler(SARSSampler):
     def __init__(self, num_episodes: int, num_steps_per_episode: int, num_kilobots: int, w_factor: float,
-                 column_index: pd.Index, policy=None, seed: int=0, num_workers: int=None, mp_context: str='forkserver'):
+                 column_index: pd.Index, seed: int=0, num_workers: int=None, mp_context: str='forkserver'):
         super().__init__(num_episodes=num_episodes, num_steps_per_episode=num_steps_per_episode,
-                         num_kilobots=num_kilobots, column_index=column_index, w_factor=w_factor,
-                         policy=policy, seed=seed)
+                         num_kilobots=num_kilobots, column_index=column_index, w_factor=w_factor, seed=seed)
 
         # self._init_worker(w_factor, num_kilobots, 2)
         self._num_workers = num_workers
@@ -184,10 +181,14 @@ class ParallelSARSSampler(SARSSampler):
             self.__pool = self._create_pool(ctx)
 
     def __del__(self):
+        del self._num_workers
         if hasattr(self, 'pool') and self.__pool is not None:
             self.__pool.terminate()
             self.__pool.join()
             self.__pool.close()
+
+            del self.__pool
+            del self._episodes_per_worker
 
     def _create_pool(self, ctx):
         return ctx.Pool(processes=self._num_workers, initializer=_init_worker,
@@ -197,16 +198,16 @@ class ParallelSARSSampler(SARSSampler):
     def _get_env_id(self):
         raise NotImplementedError
 
-    def _sample_sars(self):
+    def _sample_sars(self, policy):
         if self._num_workers == 1:
-            return super(ParallelSARSSampler, self)._sample_sars()
+            return super(ParallelSARSSampler, self)._sample_sars(policy)
         else:
             episodes_per_work = [self.num_episodes // self._num_workers] * self._num_workers
             for i in range(self.num_episodes % self._num_workers):
                 episodes_per_work[i] += 1
             episodes_per_work = filter(lambda a: a != 0, episodes_per_work)
 
-            work = [(self.policy, episodes, self.num_steps_per_episode, self._seed) for episodes in episodes_per_work]
+            work = [(policy, episodes, self.num_steps_per_episode, self._seed) for episodes in episodes_per_work]
 
             # self._do_work(*work[0])
             results = self.__pool.starmap_async(_do_work, work).get(1200)

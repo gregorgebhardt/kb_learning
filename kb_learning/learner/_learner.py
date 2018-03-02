@@ -26,6 +26,8 @@ import pandas as pd
 
 import pickle
 
+from memory_profiler import profile
+
 logger = logging.getLogger('kb_learning')
 
 
@@ -103,12 +105,13 @@ class ACRepsLearner(KilobotLearner):
         self._extra_kernel_dimensions = 2
         self._action_dimensions = 2
 
+    @profile
     def iterate(self, config: dict, rep: int, n: int) -> dict:
         sampling_params = self._params['sampling']
 
         logger.info('sampling environment')
         self._sampler.seed = rep * 100 + n
-        it_sars, it_info = self._sampler()
+        it_sars, it_info = self._sampler(self._policy)
         # fig, ax = plt.subplots(1)
         # plot_light_trajectory(it_sars['S'], ax)
         # fig.show()
@@ -144,34 +147,38 @@ class ACRepsLearner(KilobotLearner):
         else:
             self._SARS = _extended_SARS.sample(sampling_params['num_SARS_samples'])
         self._SARS.reset_index(drop=True, inplace=True)
+        del _extended_SARS
 
         # compute feature matrices
         logger.debug('selecting lstd samples.')
         lstd_reference = select_reference_set_by_kernel_activation(data=self._SARS[['S', 'A']],
                                                                    size=self._params['lstd']['num_features'],
                                                                    kernel_function=self._state_action_kernel)
-        lstd_samples = self._SARS.loc[lstd_reference]
+        # lstd_samples = self._SARS.loc[lstd_reference]
+        lstd_state_samples = self._SARS.loc[lstd_reference]['S'].values
+        lstd_state_action_samples = self._SARS.loc[lstd_reference][['S', 'A']].values
 
         # lstd_samples = self._SARS[['S', 'A']].sample(self._params['lstd']['num_features'])
 
-        def state_features(state):
-            if state.ndim == 1:
-                state = state.reshape((1, -1))
-            return self._state_kernel(state, lstd_samples['S'].values)
-
-        def state_action_features(state, action):
-            if state.ndim == 1:
-                state = state.reshape((1, -1))
-            if action.ndim == 1:
-                action = action.reshape((1, -1))
-            return self._state_action_kernel(np.c_[state, action], lstd_samples[['S', 'A']].values)
+        # def state_features(state):
+        #     if state.ndim == 1:
+        #         state = state.reshape((1, -1))
+        #     return self._state_kernel(state, lstd_state_samples)
+        #
+        # def state_action_features(state, action):
+        #     if state.ndim == 1:
+        #         state = state.reshape((1, -1))
+        #     if action.ndim == 1:
+        #         action = action.reshape((1, -1))
+        #     return self._state_action_kernel(np.c_[state, action], lstd_state_action_samples)
 
         for i in range(self._params['learn_iterations']):
             # compute features
             logger.info('compute state-action features')
-            phi_SA = state_action_features(self._SARS['S'].values, self._SARS['A'].values)
-            phi_SA_next = state_action_features(self._SARS['S_'].values,
-                                                self._policy.get_mean_action(self._SARS['S_'].values))
+            phi_SA = self._state_action_kernel(self._SARS[['S', 'A']].values, lstd_state_action_samples)
+            phi_SA_next = self._state_action_kernel(
+                np.c_[self._SARS['S_'].values, self._policy.get_mean_action(self._SARS['S_'].values)],
+                lstd_state_action_samples)
 
             # learn theta (parameters of Q-function) using lstd
             logger.info('learning theta [LSTD]')
@@ -185,7 +192,7 @@ class ACRepsLearner(KilobotLearner):
 
             # compute state features
             logger.info('compute state features')
-            phi_S = state_features(self._SARS['S'].values)
+            phi_S = self._state_kernel(self._SARS['S'].values, lstd_state_samples)
 
             # compute sample weights using AC-REPS
             logger.info('learning weights [AC-REPS]')
@@ -204,11 +211,17 @@ class ACRepsLearner(KilobotLearner):
             self._policy.train(self._SARS['S'].values, self._SARS['A'].values, weights, gp_samples)
 
             # plotting
-            self._plot_iteration_results(it_sars, state_action_features, theta)
+            self._plot_iteration_results(it_sars,
+                                         lambda s, a: self._state_action_kernel(np.c_[s, a], lstd_state_action_samples),
+                                         theta)
+
+            del phi_SA, phi_SA_next
 
         return_dict = dict(mean_sum_R=mean_sum_R, median_sum_R=median_sum_R, std_sum_R=std_sum_R,
                            max_sum_R=max_sum_R, min_sum_R=min_sum_R)
 
+        del lstd_state_samples, lstd_state_action_samples
+        del it_sars
         gc.collect()
 
         return return_dict
@@ -231,7 +244,6 @@ class ACRepsLearner(KilobotLearner):
 
         action_bounds = self._sampler.env.action_space.low, self._sampler.env.action_space.high
         self._policy.action_bounds = action_bounds
-        self._sampler.policy = self._policy
 
     def _init_kernels(self):
         kernel_params = self._params['kernel']
