@@ -20,10 +20,7 @@ class ActorCriticReps:
         self.tolerance_g = 1e-8
         self.tolerance_f = 1e-12
 
-        self.num_samples = None
-        self.num_features = None
-
-    def _dual_function(self, Q, phi, phi_hat, theta, eta):
+    def _dual_function(self, Q, phi, phi_hat, theta, eta, num_features):
         epsilon = self.epsilon_action
 
         v = phi.dot(theta)
@@ -62,7 +59,7 @@ class ActorCriticReps:
         g_dot[-1] = g_dot_eta
 
         g_dot_theta = phi_hat - (phi * z[:, None]).sum(0) / sum_z + 2 * self.alpha * theta
-        g_dot[0:self.num_features] = g_dot_theta
+        g_dot[0:num_features] = g_dot_theta
 
         return g, 0.5 * g_dot  # 0.5 * g_dot
 
@@ -70,34 +67,38 @@ class ActorCriticReps:
         params = np.r_[theta, eta]
         g_dot_numeric = np.zeros(params.size)
 
-        g, g_dot = self._dual_function(Q, phi, phi_hat, theta, eta)
+        num_features = phi.shape[1]
+
+        g, g_dot = self._dual_function(Q, phi, phi_hat, theta, eta, num_features)
 
         step_size = np.maximum(np.minimum(abs(params) * 1e-4, 1e-6), 1e-6)
         for i in range(params.size):
             params_temp = params
             params_temp[i] = params[i] - step_size[i]
 
-            g1, tmp = self._dual_function(Q, phi, phi_hat, params_temp[:-1], params_temp[-1])
+            g1, tmp = self._dual_function(Q, phi, phi_hat, params_temp[:-1], params_temp[-1], num_features)
 
             params_temp = params
             params_temp[i] = params[i] + step_size[i]
 
-            g2, tmp = self._dual_function(Q, phi, phi_hat, params_temp[:-1], params_temp[-1])
+            g2, tmp = self._dual_function(Q, phi, phi_hat, params_temp[:-1], params_temp[-1], num_features)
             g_dot_numeric[i] = (g2 - g1) / (step_size[i] * 2)
 
         return g_dot, g_dot_numeric
 
-    def _compute_weights_from_theta_and_eta(self, Q, phi, theta, eta):
+    @staticmethod
+    def _compute_weights_from_theta_and_eta(Q, phi, theta, eta):
         advantage = Q - phi.dot(theta)
         max_advantage = advantage.max()
 
         w = ev('exp((advantage - max_advantage) / eta)')
         return w / w.sum()
 
-    def _get_KL_divergence(self, weighting):
+    @staticmethod
+    def _get_KL_divergence(weighting, num_samples):
         p = weighting / weighting.sum()
 
-        return np.nansum(p * np.log(p * self.num_samples))
+        return np.nansum(p * np.log(p * num_samples))
 
     def _optimize_dual_function(self, Q, phi, phi_hat, theta, eta):
         lower_bound = np.r_[-1e5 * np.ones(phi.shape[1]), 1e-10]
@@ -106,6 +107,8 @@ class ActorCriticReps:
 
         start_params = np.r_[theta, eta]
 
+        num_features = phi.shape[1]
+
         # test gradient
         if False:
             g_dot, g_dot_numeric = self._numerical_dual_gradient(Q=Q, phi=phi, phi_hat=phi_hat, theta=theta, eta=eta)
@@ -113,7 +116,7 @@ class ActorCriticReps:
 
         def optim_func(params):
             return self._dual_function(Q=Q, phi=phi, phi_hat=phi_hat,
-                                       theta=params[0:self.num_features], eta=params[-1])
+                                       theta=params[0:num_features], eta=params[-1], num_features=num_features)
 
         res = minimize(optim_func, start_params, method='L-BFGS-B',
                        bounds=bounds, jac=True,
@@ -125,7 +128,7 @@ class ActorCriticReps:
         return res.x[0:phi.shape[1]], res.x[-1]
 
     def compute_weights(self, Q, phi):
-        self.num_samples, self.num_features = phi.shape
+        num_samples, num_features = phi.shape
 
         # self.Q = Q
         # self.PHI_S = phi
@@ -133,20 +136,20 @@ class ActorCriticReps:
         phi_hat = phi.mean(0)
 
         # initial params
-        theta = np.zeros(self.num_features)
+        theta = np.zeros(num_features)
         eta = max(1.0, Q.std() * 0.1)
 
         best_feature_error = np.Inf
         last_feature_error = np.Inf
         without_improvement = 0
 
-        return_weights = np.ones(self.num_samples) / self.num_samples
+        return_weights = np.ones(num_samples) / num_samples
 
         for i in range(self.max_iter_reps):
             theta, eta = self._optimize_dual_function(Q, phi, phi_hat, theta, eta)
 
             weights = self._compute_weights_from_theta_and_eta(Q, phi, theta, eta)
-            kl_divergence = self._get_KL_divergence(weights)
+            kl_divergence = self._get_KL_divergence(weights, num_samples)
 
             if kl_divergence > 3 or np.isnan(kl_divergence):
                 logger.warning('KL_divergence warning')

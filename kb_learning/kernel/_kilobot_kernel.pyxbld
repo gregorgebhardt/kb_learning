@@ -1,0 +1,8 @@
+def make_ext(modname, pyxfilename):
+    from distutils.extension import Extension
+    return Extension(name=modname,
+                     sources=[pyxfilename],
+                     # extra_compile_args=['-xHost', '-O3', '-fopenmp'])
+                     extra_compile_args=['-fopenmp', '-Ofast', '-march=corei7-avx'],
+                     libraries=['gomp']
+                     )
