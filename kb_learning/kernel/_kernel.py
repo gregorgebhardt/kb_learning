@@ -2,7 +2,7 @@ import numpy as np
 
 from sklearn.metrics.pairwise import pairwise_distances
 
-from . import KilobotSwarmKernel, ExponentialQuadraticKernel
+from . import KilobotSwarmKernel
 
 # from ._kilobot_kernel_numba import KilobotKernel
 
