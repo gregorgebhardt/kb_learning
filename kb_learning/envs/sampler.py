@@ -192,7 +192,8 @@ class ParallelSARSSampler(SARSSampler):
 
     def _create_pool(self, ctx):
         return ctx.Pool(processes=self._num_workers, initializer=_init_worker,
-                        initargs=[self.env_id, self._episodes_per_worker])
+                        initargs=[self.env_id, self._episodes_per_worker],
+                        maxtasksperchild=1)
 
     @abc.abstractmethod
     def _get_env_id(self):
@@ -210,7 +211,7 @@ class ParallelSARSSampler(SARSSampler):
             work = [(policy, episodes, self.num_steps_per_episode, self._seed) for episodes in episodes_per_work]
 
             # self._do_work(*work[0])
-            results = self.__pool.starmap_async(_do_work, work).get(1200)
+            results = self.__pool.starmap_async(_do_work, work, error_callback=self.__error_callback).get(1200)
 
             # combine results
             it_sars_data = results[0][0]
@@ -221,6 +222,10 @@ class ParallelSARSSampler(SARSSampler):
                 it_info += info_i
 
             return it_sars_data, it_info
+
+    @staticmethod
+    def __error_callback(exception: Exception):
+        logger.error(exception)
 
 
 class FixedWeightQuadEnvSampler(ParallelSARSSampler):
@@ -251,7 +256,8 @@ class ComplexObjectEnvSampler(ParallelSARSSampler):
     def _create_pool(self, ctx):
         return multiprocessing.Pool(processes=self._num_workers, initializer=_init_worker_complex,
                                     initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
-                                              self.object_height, self._episodes_per_worker])
+                                              self.object_height, self._episodes_per_worker],
+                                    maxtasksperchild=1)
 
     def _get_env_id(self):
         return kb_envs.register_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
