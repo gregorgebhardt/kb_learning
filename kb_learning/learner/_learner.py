@@ -26,8 +26,6 @@ import pandas as pd
 
 import pickle
 
-from memory_profiler import profile
-
 logger = logging.getLogger('kb_learning')
 
 
@@ -105,7 +103,6 @@ class ACRepsLearner(KilobotLearner):
         self._extra_kernel_dimensions = 2
         self._action_dimensions = 2
 
-    @profile
     def iterate(self, config: dict, rep: int, n: int) -> dict:
         sampling_params = self._params['sampling']
 

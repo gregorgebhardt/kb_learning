@@ -169,6 +169,7 @@ class ParallelSARSSampler(SARSSampler):
 
         # self._init_worker(w_factor, num_kilobots, 2)
         self._num_workers = num_workers
+        self.__pool = None
         if self._num_workers is None or self._num_workers <= 0:
             self._num_workers = multiprocessing.cpu_count()
 
@@ -182,7 +183,7 @@ class ParallelSARSSampler(SARSSampler):
 
     def __del__(self):
         del self._num_workers
-        if hasattr(self, 'pool') and self.__pool is not None:
+        if self.__pool is not None:
             self.__pool.terminate()
             self.__pool.join()
             self.__pool.close()
@@ -192,8 +193,7 @@ class ParallelSARSSampler(SARSSampler):
 
     def _create_pool(self, ctx):
         return ctx.Pool(processes=self._num_workers, initializer=_init_worker,
-                        initargs=[self.env_id, self._episodes_per_worker],
-                        maxtasksperchild=1)
+                        initargs=[self.env_id, self._episodes_per_worker])
 
     @abc.abstractmethod
     def _get_env_id(self):
@@ -256,8 +256,7 @@ class ComplexObjectEnvSampler(ParallelSARSSampler):
     def _create_pool(self, ctx):
         return multiprocessing.Pool(processes=self._num_workers, initializer=_init_worker_complex,
                                     initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
-                                              self.object_height, self._episodes_per_worker],
-                                    maxtasksperchild=1)
+                                              self.object_height, self._episodes_per_worker])
 
     def _get_env_id(self):
         return kb_envs.register_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
