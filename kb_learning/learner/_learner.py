@@ -18,13 +18,15 @@ from kb_learning.envs.sampler import FixedWeightQuadEnvSampler, SampleWeightQuad
 
 import matplotlib.pyplot as plt
 from matplotlib import cm, gridspec
-from kb_learning.tools.plotting import plot_light_trajectory, plot_value_function, plot_policy, plot_objects,\
+from kb_learning.tools.plotting import plot_light_trajectory, plot_value_function, plot_policy, plot_objects, \
     plot_trajectory_reward_distribution, show_plot_as_pdf
 
 import numpy as np
 import pandas as pd
 
 import pickle
+
+from memory_profiler import profile
 
 logger = logging.getLogger('kb_learning')
 
@@ -103,6 +105,7 @@ class ACRepsLearner(KilobotLearner):
         self._extra_kernel_dimensions = 2
         self._action_dimensions = 2
 
+    @profile
     def iterate(self, config: dict, rep: int, n: int) -> dict:
         sampling_params = self._params['sampling']
 
@@ -179,7 +182,9 @@ class ACRepsLearner(KilobotLearner):
 
             # learn theta (parameters of Q-function) using lstd
             logger.info('learning theta [LSTD]')
-            theta = self._lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._SARS[['R']].values)
+            lstd = LeastSquaresTemporalDifference()
+            lstd.discount_factor = self._params['lstd']['discount_factor']
+            theta = lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._SARS[['R']].values)
 
             # plotting
 
@@ -193,7 +198,9 @@ class ACRepsLearner(KilobotLearner):
 
             # compute sample weights using AC-REPS
             logger.info('learning weights [AC-REPS]')
-            weights = self._ac_reps.compute_weights(q_fct, phi_S)
+            ac_reps = ActorCriticReps()
+            ac_reps.epsilon_action = self._params['reps']['epsilon']
+            weights = ac_reps.compute_weights(q_fct, phi_S)
 
             # get subset for sparse GP
             logger.debug('select samples for GP')
@@ -205,6 +212,7 @@ class ACRepsLearner(KilobotLearner):
 
             # fit weighted GP to samples
             logger.info('fitting GP to policy')
+            self._policy = self._init_policy((self._sampler.env.action_space.low, self._sampler.env.action_space.high))
             self._policy.train(self._SARS['S'].values, self._SARS['A'].values, weights, gp_samples)
 
             # plotting
@@ -226,21 +234,11 @@ class ACRepsLearner(KilobotLearner):
     def reset(self, config: dict, rep: int) -> None:
         self._init_kernels()
 
-        self._lstd = LeastSquaresTemporalDifference()
-        # self.lstd = LeastSquaresTemporalDifference()
-        self._lstd.discount_factor = self._params['lstd']['discount_factor']
-
-        self._ac_reps = ActorCriticReps()
-        self._ac_reps.epsilon_action = self._params['reps']['epsilon']
-
-        self._init_policy()
-
         self._init_SARS()
 
-        self._init_sampler()
+        self._sampler = self._init_sampler()
 
-        action_bounds = self._sampler.env.action_space.low, self._sampler.env.action_space.high
-        self._policy.action_bounds = action_bounds
+        self._policy = self._init_policy((self._sampler.env.action_space.low, self._sampler.env.action_space.high))
 
     def _init_kernels(self):
         kernel_params = self._params['kernel']
@@ -266,12 +264,15 @@ class ACRepsLearner(KilobotLearner):
                                               extra_dims=self._extra_kernel_dimensions + self._action_dimensions,
                                               num_processes=kernel_params['num_processes'])
 
-    def _init_policy(self):
-        self._policy = SparseGPPolicy(kernel=self._state_kernel)
-        self._policy.gp_prior_variance = self._params['gp']['prior_variance']
-        self._policy.gp_noise_variance = self._params['gp']['noise_variance']
-        self._policy.gp_min_variance = self._params['gp']['min_variance']
-        self._policy.gp_chol_regularizer = self._params['gp']['chol_regularizer']
+    def _init_policy(self, action_bounds):
+        policy = SparseGPPolicy(kernel=self._state_kernel)
+        policy.gp_prior_variance = self._params['gp']['prior_variance']
+        policy.gp_noise_variance = self._params['gp']['noise_variance']
+        policy.gp_min_variance = self._params['gp']['min_variance']
+        policy.gp_chol_regularizer = self._params['gp']['chol_regularizer']
+        policy.action_bounds = action_bounds
+
+        return policy
 
     def _init_SARS(self):
         kb_columns_level = ['kb_{}'.format(i) for i in range(self._params['sampling']['num_kilobots'])]
@@ -291,13 +292,14 @@ class ACRepsLearner(KilobotLearner):
 
     def _init_sampler(self):
         sampling_params = self._params['sampling']
-        self._sampler = FixedWeightQuadEnvSampler(num_episodes=sampling_params['num_episodes'],
-                                                  num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                                  num_kilobots=sampling_params['num_kilobots'],
-                                                  column_index=self._SARS_columns,
-                                                  w_factor=sampling_params['w_factor'],
-                                                  num_workers=sampling_params['num_workers'],
-                                                  seed=self._seed, mp_context=self._MP_CONTEXT)
+        sampler = FixedWeightQuadEnvSampler(num_episodes=sampling_params['num_episodes'],
+                                            num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                            num_kilobots=sampling_params['num_kilobots'],
+                                            column_index=self._SARS_columns,
+                                            w_factor=sampling_params['w_factor'],
+                                            num_workers=sampling_params['num_workers'],
+                                            seed=self._seed, mp_context=self._MP_CONTEXT)
+        return sampler
 
     def finalize(self):
         pass
@@ -486,13 +488,15 @@ class SampleWeightACRepsLearner(ACRepsLearner):
 
     def _init_sampler(self):
         sampling_params = self._params['sampling']
-        self._sampler = SampleWeightQuadEnvSampler(num_episodes=sampling_params['num_episodes'],
-                                                   num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                                   num_kilobots=sampling_params['num_kilobots'],
-                                                   column_index=self._SARS_columns,
-                                                   w_factor=sampling_params['w_factor'],
-                                                   num_workers=sampling_params['num_workers'],
-                                                   seed=self._seed, mp_context=self._MP_CONTEXT)
+        sampler = SampleWeightQuadEnvSampler(num_episodes=sampling_params['num_episodes'],
+                                             num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                             num_kilobots=sampling_params['num_kilobots'],
+                                             column_index=self._SARS_columns,
+                                             w_factor=sampling_params['w_factor'],
+                                             num_workers=sampling_params['num_workers'],
+                                             seed=self._seed, mp_context=self._MP_CONTEXT)
+
+        return sampler
 
     def _plot_iteration_results(self, it_sars, state_action_features, theta):
         # setup figure
@@ -596,7 +600,7 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         y_range = self._sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
         X = X.flatten()
-        Y =     Y.flatten()
+        Y = Y.flatten()
 
         # kilobots at light position
         states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])
@@ -621,13 +625,15 @@ class ComplexObjectACRepsLearner(ACRepsLearner):
 
     def _init_sampler(self):
         sampling_params = self._params['sampling']
-        self._sampler = ComplexObjectEnvSampler(object_shape=sampling_params['object_shape'],
-                                                object_width=sampling_params['object_width'],
-                                                object_height=sampling_params['object_height'],
-                                                num_episodes=sampling_params['num_episodes'],
-                                                num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                                num_kilobots=sampling_params['num_kilobots'],
-                                                column_index=self._SARS_columns,
-                                                w_factor=sampling_params['w_factor'],
-                                                num_workers=sampling_params['num_workers'],
-                                                seed=self._seed, mp_context=self._MP_CONTEXT)
+        sampler = ComplexObjectEnvSampler(object_shape=sampling_params['object_shape'],
+                                          object_width=sampling_params['object_width'],
+                                          object_height=sampling_params['object_height'],
+                                          num_episodes=sampling_params['num_episodes'],
+                                          num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                          num_kilobots=sampling_params['num_kilobots'],
+                                          column_index=self._SARS_columns,
+                                          w_factor=sampling_params['w_factor'],
+                                          num_workers=sampling_params['num_workers'],
+                                          seed=self._seed, mp_context=self._MP_CONTEXT)
+
+        return sampler
