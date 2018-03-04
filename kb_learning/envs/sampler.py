@@ -170,6 +170,8 @@ class ParallelSARSSampler(SARSSampler):
         # self._init_worker(w_factor, num_kilobots, 2)
         self._num_workers = num_workers
         self.__pool = None
+        self._pool_timeout = 300
+        self._num_restarts = 3
         if self._num_workers is None or self._num_workers <= 0:
             self._num_workers = multiprocessing.cpu_count()
 
@@ -178,8 +180,8 @@ class ParallelSARSSampler(SARSSampler):
 
             # for the cluster it is necessary to use the context forkserver here, using a forkserver prevents the forked
             # processes from taking over handles to files and similar stuff
-            ctx = multiprocessing.get_context(mp_context)
-            self.__pool = self._create_pool(ctx)
+            self._context = multiprocessing.get_context(mp_context)
+            self.__pool = self._create_pool()
 
     def __del__(self):
         del self._num_workers
@@ -191,9 +193,9 @@ class ParallelSARSSampler(SARSSampler):
             del self.__pool
             del self._episodes_per_worker
 
-    def _create_pool(self, ctx):
-        return ctx.Pool(processes=self._num_workers, initializer=_init_worker,
-                        initargs=[self.env_id, self._episodes_per_worker])
+    def _create_pool(self) -> multiprocessing.Pool:
+        return self._context.Pool(processes=self._num_workers, initializer=_init_worker,
+                                  initargs=[self.env_id, self._episodes_per_worker])
 
     @abc.abstractmethod
     def _get_env_id(self):
@@ -211,7 +213,22 @@ class ParallelSARSSampler(SARSSampler):
             work = [(policy, episodes, self.num_steps_per_episode, self._seed) for episodes in episodes_per_work]
 
             # self._do_work(*work[0])
-            results = self.__pool.starmap_async(_do_work, work, error_callback=self.__error_callback).get(1200)
+            for i in range(self._num_restarts):
+                try:
+                    results = self.__pool.starmap_async(_do_work, work, error_callback=self.__error_callback).get(
+                        self._pool_timeout)
+                    break
+                except multiprocessing.TimeoutError:
+                    logger.warning('got TimeoutError, restarting.')
+                    # restart pool
+                    self.__pool.terminate()
+                    self.__pool.join()
+                    self.__pool.close()
+
+                    self.__pool = self._create_pool()
+            else:
+                # re-raise TimeoutError
+                raise multiprocessing.TimeoutError
 
             # combine results
             it_sars_data = results[0][0]
@@ -253,10 +270,10 @@ class ComplexObjectEnvSampler(ParallelSARSSampler):
 
         super().__init__(*args, **kwargs)
 
-    def _create_pool(self, ctx):
-        return multiprocessing.Pool(processes=self._num_workers, initializer=_init_worker_complex,
-                                    initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
-                                              self.object_height, self._episodes_per_worker])
+    def _create_pool(self):
+        return self._context.Pool(processes=self._num_workers, initializer=_init_worker_complex,
+                                  initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
+                                            self.object_height, self._episodes_per_worker])
 
     def _get_env_id(self):
         return kb_envs.register_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
