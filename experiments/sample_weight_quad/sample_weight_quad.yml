@@ -31,10 +31,11 @@ grid:
     bandwidth_factor_weight: [.2, .5, .8, 1., 1.5, 2.]
     type: ['kilobot', 'mean']
 ---
-name: "weight_bw"
+name: "discount_factor"
 grid:
-  kernel:
+  lstd:
     discount_factor: [.5, .75, .8, .95, .99, .9999]
+  kernel:
     type: ['kilobot', 'mean']
 #---
 #name: "mean_kernel"
