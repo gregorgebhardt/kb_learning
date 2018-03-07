@@ -11,20 +11,20 @@ import pandas as pd
 import numpy as np
 
 import os
-import sys
+
 
 matplotlib.rc('font', family='Oswald')
 
 
-def plot_light_trajectory(axes: Axes, light_states: pd.DataFrame):
+def plot_trajectories(axes: Axes, trajectories: pd.DataFrame):
     # light_states.index.shape
-    num_episodes, num_steps = light_states.index.levshape
+    num_episodes, num_steps = trajectories.index.levshape
 
     line_collections = []
 
-    for _, traj in light_states.groupby(level=0):
+    for _, traj in trajectories.groupby(level=0):
         segments = np.r_['2,3,0', traj[:-1], traj[1:]].swapaxes(1, 2)
-        segments[:, :, 1] *= -1
+        # segments[:, :, 1] *= -1
         lc = LineCollection(segments, cmap='viridis', norm=Normalize(0, num_steps))
         color = np.arange(num_steps)
         lc.set_array(color)
@@ -37,7 +37,7 @@ def plot_light_trajectory(axes: Axes, light_states: pd.DataFrame):
 
 
 def plot_value_function(axes: Axes, V, x_range, y_range, **kwargs):
-    im = axes.imshow(V, extent=x_range+y_range, **kwargs, norm=Normalize(-0.2, 0.2))
+    im = axes.matshow(V, extent=x_range+y_range, **kwargs, norm=Normalize(-0.2, 0.2))
     return im
 
 
@@ -51,7 +51,12 @@ def plot_policy(axes: Axes, actions, x_range, y_range, **kwargs):
         color = 1.
 
     [X, Y] = np.meshgrid(np.linspace(*x_range, A.shape[1]), np.linspace(*y_range, A.shape[0]))
-    return axes.quiver(X, Y, A[..., 0], A[..., 1], color, angles='xy', **kwargs)
+    if A.shape[2] == 2:
+        return axes.quiver(X, Y, A[..., 0], A[..., 1], color, angles='xy', **kwargs)
+    else:
+        A_cos = np.cos(A.squeeze())
+        A_sin = np.sin(A.squeeze())
+        return axes.quiver(X, Y, A_cos, A_sin, color, angles='xy', **kwargs)
 
 
 def plot_objects(axes: Axes, env: KilobotsEnv, alpha=.7, **kwargs):
@@ -145,14 +150,6 @@ def show_plot_as_pdf(figure, filename=None, path=None, overwrite=True, save_only
     if save_only:
         return
 
-    # if sys.platform.startswith('darwin'):
-    #     import subprocess
-    #     subprocess.call(('open', pdf_full_path))
-    # elif os.name == 'nt':
-    #     os.startfile(pdf_full_path)
-    # elif os.name == 'posix':
-    #     import subprocess
-    #     subprocess.call(('xdg-open', pdf_full_path))
     global browser_controller
     if browser_controller is None:
         import webbrowser

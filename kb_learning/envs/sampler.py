@@ -279,3 +279,29 @@ class ComplexObjectEnvSampler(ParallelSARSSampler):
         return kb_envs.register_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
                                                    object_shape=self.object_shape, object_width=self.object_width,
                                                    object_height=self.object_height)
+
+
+def _init_worker_complex_gradient_light(w_factor, num_kilobots, object_shape, object_width, object_height,
+                                        num_environments):
+    env_id = kb_envs.register_gradient_light_complex_object_env(weight=w_factor, num_kilobots=num_kilobots,
+                                                                object_shape=object_shape, object_width=object_width,
+                                                                object_height=object_height)
+    _init_worker(env_id, num_environments)
+
+
+class GradientLightComplexObjectEnvSampler(ParallelSARSSampler):
+    def __init__(self, object_shape, object_width, object_height, *args, **kwargs):
+        self.object_shape = object_shape
+        self.object_width = object_width
+        self.object_height = object_height
+
+        super().__init__(*args, **kwargs)
+
+    def _create_pool(self):
+        return self._context.Pool(processes=self._num_workers, initializer=_init_worker_complex_gradient_light,
+                                  initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
+                                            self.object_height, self._episodes_per_worker])
+
+    def _get_env_id(self):
+        return kb_envs.register_gradient_light_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
+            object_shape=self.object_shape, object_width=self.object_width, object_height=self.object_height)

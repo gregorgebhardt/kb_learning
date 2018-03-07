@@ -1,1 +1,2 @@
-from ._learner import ACRepsLearner, SampleWeightACRepsLearner, ComplexObjectACRepsLearner
+from ._learner import ACRepsLearner, SampleWeightACRepsLearner, ComplexObjectACRepsLearner, \
+    GradientLightComplexObjectACRepsLearner

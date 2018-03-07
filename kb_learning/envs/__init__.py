@@ -6,6 +6,7 @@ from ._fixed_weight_quad_env import FixedWeightQuadEnv_w000_kb15, FixedWeightQua
 from ._sample_weight_quad_env import SampleWeightQuadEnv_kb15
 
 from ._complex_env import ComplexObjectEnvWith
+from ._gradient_light_object_env import GradientLightComplexObjectEnvWith
 
 
 class QuadEnvNotAvailableError(Exception):
@@ -86,6 +87,43 @@ def register_complex_object_env(weight: float, num_kilobots: int, object_shape: 
         __registered_gyms.append(_id)
 
     globals()[_name] = ComplexObjectEnvWith(weight, num_kilobots, object_shape, object_width, object_height)
+    register(id=_id, entry_point='kb_learning.envs:' + _name)
+
+    return _id
+
+
+def register_gradient_light_complex_object_env(weight: float, num_kilobots: int, object_shape: str,
+                                               object_width: float, object_height: float):
+    """Create a subclass of the Quad environment of the Kilobot gym with the given weight and number of
+    Kilobots and register the subclass as a gym. Returns the id of the registered gym.
+
+    :param weight: the weight for the Quad environment
+    :param num_kilobots: the number of kilobots for the Quad environment
+    :param object_shape: the shape of the object in the environment
+    :param object_width: width of the object
+    :param object_height: height of the object
+    :return: the id of the registered environment
+    """
+    from gym.envs.registration import register
+    from ._fixed_weight_quad_env import FixedWeightQuadEnvWith
+
+    assert type(weight) is float, "weight has to be of type float"
+    assert .0 <= weight <= 1., "weight has to be in the interval [0.0, 1.0]"
+    assert type(num_kilobots) is int, "num_kilobots has to be of type int"
+    assert 0 < num_kilobots, "num_kilobots has to be a positive integer."
+
+    _name = 'QuadEnv_w{:03}_kb{}_{}_{:03}x{:03}'.format(int(weight * 100), num_kilobots, object_shape,
+                                                        int(object_width * 100), int(object_height * 100))
+    _id = 'QuadEnv_w{:03}_kb{}_{}_{:03}x{:03}-v0'.format(int(weight * 100), num_kilobots, object_shape,
+                                                         int(object_width * 100), int(object_height * 100))
+
+    if _id in __registered_gyms:
+        return _id
+    else:
+        __registered_gyms.append(_id)
+
+    globals()[_name] = GradientLightComplexObjectEnvWith(weight, num_kilobots, object_shape, object_width,
+                                                         object_height)
     register(id=_id, entry_point='kb_learning.envs:' + _name)
 
     return _id

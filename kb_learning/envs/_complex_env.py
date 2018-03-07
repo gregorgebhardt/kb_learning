@@ -1,12 +1,8 @@
 from gym_kilobots.lib import Body, Quad, Circle, Triangle, LForm, TForm, CForm
 
-from ._object_env import ObjectEnv
+from ._object_env import ObjectEnv, UnknownObjectException
 
 import numpy as np
-
-
-class UnknownObjectException(Exception):
-    pass
 
 
 class ComplexObjectEnv(ObjectEnv):

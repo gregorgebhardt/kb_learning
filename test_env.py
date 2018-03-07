@@ -1,6 +1,6 @@
 import numpy as np
 # from kb_learning.learner._learner import QuadPushingACRepsLearner
-from kb_learning.kernel import KilobotSwarmKernel
+from kb_learning.kernel import EmbeddedSwarmDistance
 
 from memory_profiler import profile
 
@@ -16,7 +16,7 @@ from memory_profiler import profile
 #
 # learner._get_samples_parallel(100, 125, .0, 15)
 
-kernel = KilobotSwarmKernel()
+kernel = EmbeddedSwarmDistance()
 kernel.set_params(bandwidth=np.array([1., 1., 1., 1.]))
 
 

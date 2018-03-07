@@ -6,7 +6,7 @@ cdef class ExponentialQuadraticKernel:
     cdef int normalized
     cdef double[:, :] get_gram_matrix_multi(self, double[:, :, :] a, double[:, :, :] b=?)
 
-cdef class KilobotSwarmKernel:
+cdef class EmbeddedSwarmDistance:
     cdef public double bandwidth_factor
     cdef ExponentialQuadraticKernel _kernel_func
     cdef np.ndarray _compute_kb_distance(self, np.ndarray k1, np.ndarray k2)

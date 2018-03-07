@@ -25,19 +25,22 @@ def compute_median_bandwidth(data, quantile=.5, sample_size=1000, preprocessor=N
     if preprocessor:
         data_points = preprocessor(data_points)
 
-    if len(data_points.shape) > 1:
+    if data_points.ndim > 1:
         num_variables = data_points.shape[1]
+
+        bandwidths = np.zeros(num_variables)
+        for i in range(num_variables):
+            distances = spatial.distance.pdist(data_points[:, i:i + 1])
+            if quantile == .5:
+                bandwidths[i] = np.median(distances)
+            else:
+                bandwidths[i] = pd.DataFrame(distances).quantile(quantile)
     else:
-        num_variables = 1
-
-    bandwidths = np.zeros(num_variables)
-
-    for i in range(num_variables):
-        distances = spatial.distance.pdist(data_points[:, i:i+1])
+        distances = spatial.distance.pdist(data_points[:, None])
         if quantile == .5:
-            bandwidths[i] = np.median(distances)
+            bandwidths = np.median(distances)
         else:
-            bandwidths[i] = pd.DataFrame(distances).quantile(quantile)
+            bandwidths = pd.DataFrame(distances).quantile(quantile)
 
     return bandwidths
 
@@ -92,7 +95,7 @@ def select_reference_set_randomly(data, size, consecutive_sets=1, group_by=None)
 
 
 def select_reference_set_by_kernel_activation(data: pd.DataFrame, size: int, kernel_function,
-                                              consecutive_sets: int = 1, group_by: str = None) -> tuple:
+                                              batch_size: int = 1, group_by: str = None) -> tuple:
     """
     Iteratively selects a subset from the given data by applying a heuristic that is based on the kernel activations of
     the data with the already selected data points. The returned If the consecutive_sets parameter is greater than 1,
@@ -101,65 +104,41 @@ def select_reference_set_by_kernel_activation(data: pd.DataFrame, size: int, ker
     :param data: a pandas.DataFrame with the data from which the subset should be selected
     :param size: the size of the subset (if data has less data points, all data points are selected into the subset.)
     :param kernel_function: the kernel function for computing the kernel activations
-    :param consecutive_sets: number of consecutive sets, i.e. subsets that contain the consecutive points of the
-    previous subset
+    :param batch_size: number of reference samples to choose at once
     :param group_by: used to group the data before selecting the subsets to ensure that the points in the consecutive
     sets belong to the same group
     :return: a tuple of
     """
-    logical_idx = np.ones(data.shape[0], dtype=bool)
-    if group_by is not None:
-        gb = data.groupby(level=group_by)
-        last_windows_idx = [gb.indices[e][-i] for e in gb.indices for i in range(1, consecutive_sets + 1)]
-    else:
-        last_windows_idx = [data.index[-i] for i in range(1, consecutive_sets + 1)]
-
-    logical_idx[last_windows_idx] = False
-
-    # get data points that can be used for first data sets
-    reference_data = data.iloc[logical_idx]
-    num_reference_data_points = reference_data.shape[0]
+    num_reference_data_points = data.shape[0]
 
     # if we have not enough data to select a reference set, we take all data points
     if num_reference_data_points <= size:
-        reference_set1 = reference_data.index.sort_values()
+        reference_set = data.index.sort_values()
     else:
-        reference_set1 = [reference_data.sample(1).index[0]]
+        reference_set = data.sample(batch_size).index.tolist()
 
         kernel_matrix = np.zeros((size + 1, num_reference_data_points))
 
-        for i in range(size - 1):
+        for i in range(size//batch_size - 1):
             # compute kernel activations for last chosen kernel sample
-            kernel_matrix[i, :] = kernel_function(reference_data.values,
-                                                  reference_data.loc[[reference_set1[-1]]].values).T
-            kernel_matrix[-1, reference_data.index.get_loc(reference_set1[-1])] = 1000
+            kernel_matrix[i:i+batch_size, :] = kernel_function(data.loc[reference_set[-batch_size:]].values,
+                                                               data.values)
+            kernel_matrix[-1, reference_set[-batch_size:]] = 1000
 
             max_kernel_activations = kernel_matrix.max(0)
-            next_reference_point = np.argmin(max_kernel_activations)
+            for j in range(batch_size):
+                next_reference_point = np.argmin(max_kernel_activations)
+                max_kernel_activations[next_reference_point] += 1000
 
-            reference_set1.append(reference_data.index.values[next_reference_point])
+                reference_set.append(next_reference_point)
 
-        if type(reference_set1[0]) is tuple:
-            reference_set1 = pd.MultiIndex.from_tuples(reference_set1).sort_values()
-            reference_set1.set_names(reference_data.index.names, inplace=True)
+        if type(reference_set[0]) is tuple:
+            reference_set = pd.MultiIndex.from_tuples(reference_set).sort_values()
+            reference_set.set_names(data.index.names, inplace=True)
         else:
-            reference_set1 = pd.Index(data=reference_set1, name=reference_data.index.names)
+            reference_set = pd.Index(data=reference_set, name=data.index.names)
 
-    if consecutive_sets > 1:
-        reference_set = [reference_set1]
-        for i in range(1, consecutive_sets):
-            if type(reference_set1) is pd.MultiIndex:
-                reference_set_i = pd.MultiIndex.from_tuples([*map(lambda t: (*t[:-1], t[-1] + i),
-                                                                  reference_set1.values)])
-                reference_set_i.set_names(reference_set1.names, inplace=True)
-                reference_set.append(reference_set_i)
-            else:
-                reference_set_i = pd.Index(data=reference_set1 + i, name=reference_set1.name)
-                reference_set.append(reference_set_i)
-
-        return tuple(reference_set)
-    else:
-        return reference_set1
+    return reference_set
 
 
 def compute_mean_position(data):
@@ -170,6 +149,15 @@ def compute_mean_position(data):
 
     data_reshaped = data.reshape(q, num_kb, 2)
     return np.mean(data_reshaped, axis=1)
+
+
+def compute_mean_position_pandas(data):
+    mean_df = pd.DataFrame(index=data.index, columns=['x', 'y'])
+
+    for d in mean_df.columns:
+        mean_df[d] = data.loc[:, (slice(None), d)].mean(axis=1)
+
+    return mean_df
 
 
 def compute_mean_and_cov_position(data):
@@ -184,3 +172,9 @@ def compute_mean_and_cov_position(data):
     data_cov = np.einsum('qni,qnk->qik', data_norm, data_norm)
     data_cov = data_cov[:, [0, 0, 1], [0, 1, 1]]
     return np.c_[data_mean.squeeze(axis=1), data_cov]
+
+
+def angle_from_swarm_mean(data):
+    mean_data = -compute_mean_position(data)
+    return np.arctan2(mean_data[:, 1], mean_data[:, 0]).reshape((-1, 1))
+

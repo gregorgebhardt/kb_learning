@@ -18,6 +18,7 @@ class SparseGPPolicy:
         :param action_bounds:
         """
         self.gp_prior_variance = 0.01
+        self.gp_prior_mean = None
         self.gp_noise_variance = 1e-6
         self.gp_min_variance = 0.0005
         self.gp_chol_regularizer = 1e-9
@@ -30,6 +31,7 @@ class SparseGPPolicy:
         self.k_cholesky = None
         self.kernel = kernel
         self.action_bounds = action_bounds
+        self.action_bounds_enforce = False
 
     @property
     def action_dim(self):
@@ -59,6 +61,8 @@ class SparseGPPolicy:
         :param sparse_states: M x d_states
         :return:
         """
+        if actions.ndim == 1:
+            actions = actions.reshape((-1, 1))
 
         self.sparse_states = sparse_states
 
@@ -72,7 +76,6 @@ class SparseGPPolicy:
         reg_I = self.gp_chol_regularizer * np.eye(K_m.shape[0])
         while True:
             try:
-                # K_m_c = scipy.linalg.cholesky(K_m, lower=True), True
                 K_m_c = np.linalg.cholesky(K_m), True
                 logger.debug('regularization for chol: {}'.format(reg_I[0, 0]))
                 break
@@ -84,10 +87,13 @@ class SparseGPPolicy:
 
         L = self.gp_prior_variance * self.kernel.diag(states) \
             - np.sum(K_mn * scipy.linalg.cho_solve(K_m_c, K_mn), axis=0).squeeze() \
-            + self.gp_noise_variance
-        L = np.diag((1 / L) * weights)
+            + self.gp_noise_variance * (1 / weights)
+        L = np.diag(1 / L)
 
         Q = K_m + K_mn.dot(L).dot(K_mn.T)
+        if self.gp_prior_mean:
+            actions -= self.gp_prior_mean(states)
+
         self.alpha = np.linalg.solve(Q, K_mn).dot(L).dot(actions)
 
         self.Q_Km = np.linalg.pinv(K_m) - np.linalg.pinv(Q)
@@ -97,47 +103,57 @@ class SparseGPPolicy:
     def get_random_action(self):
         return self._get_random_actions()
 
-    def get_mean_action(self, states, return_sigma=False):
-        if not self.trained:
-            if len(states.shape) == 1:
-                return self.get_random_action()
-            else:
-                return self._get_random_actions(states.shape[0])
+    def get_mean_action(self, states, return_k=False):
+        if self.trained:
+            k = self.gp_prior_variance * self.kernel(states, self.sparse_states)
+            mean_action = k.dot(self.alpha)
+        else:
+            k = None
+            mean_action = np.zeros((states.shape[0], self.action_dim))
 
-        k = self.gp_prior_variance * self.kernel(states, self.sparse_states)
-        mean_action = k.dot(self.alpha)
+        if self.gp_prior_mean:
+            mean_action += self.gp_prior_mean(states)
 
-        if return_sigma:
-            sigma_sqr = self.gp_prior_variance * self.kernel.diag(states) \
-                           - np.sum(k.T * self.Q_Km.dot(k.T), axis=0) + self.gp_noise_variance
-
-            if sigma_sqr.shape == ():  # single number
-                sigma_sqr = np.array([sigma_sqr])
-
-            sigma_sqr[sigma_sqr < self.gp_min_variance] = self.gp_min_variance
-
-            sigma_action = np.sqrt(sigma_sqr)
-
-            return mean_action, sigma_action
+        if return_k:
+            return mean_action, k
 
         return mean_action
 
+    def get_mean_sigma_action(self, states):
+        mean_action, k = self.get_mean_action(states, True)
+
+        if self.trained:
+            sigma_sqr = self.gp_prior_variance * self.kernel.diag(states) - np.sum(k.T * self.Q_Km.dot(k.T), axis=0) \
+                        + self.gp_noise_variance
+        else:
+            sigma_sqr = self.gp_prior_variance + self.gp_noise_variance
+
+        if np.isscalar(sigma_sqr):  # single number
+            sigma_sqr = np.array([sigma_sqr])
+
+        sigma_sqr[sigma_sqr < self.gp_min_variance] = self.gp_min_variance
+
+        sigma_action = np.sqrt(sigma_sqr)
+
+        return mean_action, sigma_action
+
     def sample_actions(self, states):
-        if not self.trained:
-            if states.ndim > 1:
-                return self._get_random_actions(states.shape[0])
-            else:
-                return self._get_random_actions(1)
+        if states.ndim == 1:
+            states = np.array([states])
 
-        gp_mean, gp_sigma = self.get_mean_action(states, return_sigma=True)
+        gp_mean, gp_sigma = self.get_mean_sigma_action(states)
 
-        action_samples = np.random.normal(gp_mean, gp_sigma[:, None])
+        if gp_mean.ndim > 1:
+            action_samples = np.random.normal(gp_mean, gp_sigma[:, None])
+        else:
+            action_samples = np.random.normal(gp_mean, gp_sigma)
 
-        # check samples against bounds from action space
-        action_samples = np.minimum(action_samples, self.action_bounds[1])
-        action_samples = np.maximum(action_samples, self.action_bounds[0])
+        if self.action_bounds_enforce:
+            # check samples against bounds from action space
+            action_samples = np.minimum(action_samples, self.action_bounds[1])
+            action_samples = np.maximum(action_samples, self.action_bounds[0])
 
-        return action_samples
+        return np.reshape(action_samples, (-1, self.action_dim))
 
     def __call__(self, states):
         return self.sample_actions(states)

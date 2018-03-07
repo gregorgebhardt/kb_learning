@@ -3,6 +3,8 @@ def make_ext(modname, pyxfilename):
     return Extension(name=modname,
                      sources=[pyxfilename],
                      # extra_compile_args=['-xHost', '-O3', '-fopenmp'])
+                     # TODO check which compiler we use and which settings are recommended on cluster
+                     # TODO check if no-cache argument exists
                      extra_compile_args=['-fopenmp', '-Ofast', '-march=corei7-avx'],
                      libraries=['gomp']
                      )

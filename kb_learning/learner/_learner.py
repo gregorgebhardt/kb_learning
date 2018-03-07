@@ -5,20 +5,23 @@ import gc
 import logging
 from typing import Generator
 
-from cluster_work import ClusterWork
+from cluster_work import ClusterWork, InvalidParameterArgument
 
-from kb_learning.kernel import KilobotEnvKernel, MeanEnvKernel, MeanCovEnvKernel, compute_median_bandwidth
+from kb_learning.kernel import KilobotEnvKernel
 from kb_learning.kernel import KilobotEnvKernelWithWeight, MeanEnvKernelWithWeight, MeanCovEnvKernelWithWeight
-from kb_learning.kernel import select_reference_set_by_kernel_activation
+from kb_learning.kernel import EmbeddedSwarmDistance, MahaDist, MeanSwarmDist, MeanCovSwarmDist, PeriodicDist
+from kb_learning.kernel import compute_median_bandwidth, select_reference_set_by_kernel_activation, \
+    compute_mean_position_pandas, angle_from_swarm_mean
 from kb_learning.reps.lstd import LeastSquaresTemporalDifference
 from kb_learning.reps.ac_reps import ActorCriticReps
 from kb_learning.reps.sparse_gp_policy import SparseGPPolicy
 
-from kb_learning.envs.sampler import FixedWeightQuadEnvSampler, SampleWeightQuadEnvSampler, ComplexObjectEnvSampler
+from kb_learning.envs.sampler import FixedWeightQuadEnvSampler, SampleWeightQuadEnvSampler, ComplexObjectEnvSampler, \
+    GradientLightComplexObjectEnvSampler
 
 import matplotlib.pyplot as plt
 from matplotlib import cm, gridspec
-from kb_learning.tools.plotting import plot_light_trajectory, plot_value_function, plot_policy, plot_objects, \
+from kb_learning.tools.plotting import plot_trajectories, plot_value_function, plot_policy, plot_objects, \
     plot_trajectory_reward_distribution, show_plot_as_pdf
 
 import numpy as np
@@ -48,15 +51,20 @@ class ACRepsLearner(KilobotLearner):
             'num_episodes': 100,
             'num_steps_per_episode': 125,
             'num_SARS_samples': 10000,
-            'num_workers': None
+            'num_workers': None,
+            'object_shape': 'quad',
+            'object_width': .15,
+            'object_height': .15,
         },
         'kernel': {
-            'type': 'kilobot',
+            'kb_dist': 'embedded',
+            'v_dist': 'maha',
+            'w_dist': 'maha',
             'bandwidth_factor_kb': .8,
-            'bandwidth_factor_extra_dims': .8,
-            'bandwidth_factor_extra_dims_action': .8,
+            'bandwidth_factor_light': .8,
+            'bandwidth_factor_light_action': .8,
+            'bandwidth_factor_weight': 1.,
             'weight': .5,
-            'num_processes': 1
         },
         'learn_iterations': 1,
         'lstd': {
@@ -100,7 +108,7 @@ class ACRepsLearner(KilobotLearner):
         self._SARS_columns = None
         self.extra_dim_columns = None
 
-        self._extra_kernel_dimensions = 2
+        self._light_dimensions = 2
         self._action_dimensions = 2
 
     def iterate(self, config: dict, rep: int, n: int) -> dict:
@@ -132,7 +140,10 @@ class ACRepsLearner(KilobotLearner):
         logger.debug('computing kernel bandwidths.')
         bandwidth_kb = compute_median_bandwidth(_extended_SARS[self.kilobots_columns], sample_size=500,
                                                 preprocessor=self._state_preprocessor)
-        bandwidth_ed = compute_median_bandwidth(_extended_SARS[self.extra_dim_columns], sample_size=500)
+        if self.extra_dim_columns is not None:
+            bandwidth_ed = compute_median_bandwidth(_extended_SARS[self.extra_dim_columns], sample_size=500)
+        else:
+            bandwidth_ed = []
         bandwidth_a = compute_median_bandwidth(_extended_SARS['A'], sample_size=500)
 
         self._state_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_ed])
@@ -150,7 +161,8 @@ class ACRepsLearner(KilobotLearner):
         logger.debug('selecting lstd samples.')
         lstd_reference = select_reference_set_by_kernel_activation(data=self._SARS[['S', 'A']],
                                                                    size=self._params['lstd']['num_features'],
-                                                                   kernel_function=self._state_action_kernel)
+                                                                   kernel_function=self._state_action_kernel,
+                                                                   batch_size=10)
         # lstd_samples = self._SARS.loc[lstd_reference]
         lstd_state_samples = self._SARS.loc[lstd_reference]['S'].values
         lstd_state_action_samples = self._SARS.loc[lstd_reference][['S', 'A']].values
@@ -203,7 +215,8 @@ class ACRepsLearner(KilobotLearner):
             logger.debug('select samples for GP')
             gp_reference = select_reference_set_by_kernel_activation(data=self._SARS[['S']],
                                                                      size=self._params['lstd']['num_features'],
-                                                                     kernel_function=self._state_kernel)
+                                                                     kernel_function=self._state_kernel,
+                                                                     batch_size=10)
             gp_samples = self._SARS['S'].loc[gp_reference].values
             # gp_samples = self._SARS['S'].sample(self._params['gp']['num_sparse_states']).values
 
@@ -239,27 +252,38 @@ class ACRepsLearner(KilobotLearner):
 
     def _init_kernels(self):
         kernel_params = self._params['kernel']
-        if kernel_params['type'] == 'mean':
+        if kernel_params['kb_dist'] in ['kilobot', 'embedded']:
+            kb_dist_class = EmbeddedSwarmDistance
+        elif kernel_params['kb_dist'] == 'mean':
             from kb_learning.kernel import compute_mean_position
             self._state_preprocessor = compute_mean_position
-            EnvKernel = MeanEnvKernel
-        elif kernel_params['type'] == 'mean-cov':
+            kb_dist_class = MeanSwarmDist
+        elif kernel_params['kb_dist'] == 'mean-cov':
             from kb_learning.kernel import compute_mean_and_cov_position
             self._state_preprocessor = compute_mean_and_cov_position
-            EnvKernel = MeanCovEnvKernel
+            kb_dist_class = MeanCovSwarmDist
         else:
-            EnvKernel = KilobotEnvKernel
+            raise InvalidParameterArgument
 
-        self._state_kernel = EnvKernel(weight=kernel_params['weight'],
-                                       bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                       bandwidth_factor_ed=kernel_params['bandwidth_factor_extra_dims'],
-                                       extra_dims=self._extra_kernel_dimensions,
-                                       num_processes=kernel_params['num_processes'])
-        self._state_action_kernel = EnvKernel(weight=kernel_params['weight'],
+        if kernel_params['v_dist'] == 'maha':
+            v_dist_class = MahaDist
+        elif kernel_params['v_dist'] == 'periodic':
+            v_dist_class = PeriodicDist
+        else:
+            raise InvalidParameterArgument
+
+        self._state_kernel = KilobotEnvKernel(weight=kernel_params['weight'],
                                               bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                              bandwidth_factor_ed=kernel_params['bandwidth_factor_extra_dims_action'],
-                                              extra_dims=self._extra_kernel_dimensions + self._action_dimensions,
-                                              num_processes=kernel_params['num_processes'])
+                                              bandwidth_factor_v=kernel_params['bandwidth_factor_light'],
+                                              v_dims=self._light_dimensions,
+                                              kb_dist_class=kb_dist_class,
+                                              v_dist_class=v_dist_class)
+        self._state_action_kernel = KilobotEnvKernel(weight=kernel_params['weight'],
+                                                     bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
+                                                     bandwidth_factor_v=kernel_params['bandwidth_factor_light_action'],
+                                                     v_dims=self._light_dimensions + self._action_dimensions,
+                                                     kb_dist_class=kb_dist_class,
+                                                     v_dist_class=v_dist_class)
 
     def _init_policy(self, action_bounds):
         policy = SparseGPPolicy(kernel=self._state_kernel)
@@ -303,7 +327,7 @@ class ACRepsLearner(KilobotLearner):
 
     def save_state(self, config: dict, rep: int, n: int) -> None:
         # save policy
-        logger.info('Pickling policy...')
+        logger.info('pickling policy...')
         policy_file_name = os.path.join(self._log_path_rep, 'policy_{:02d}.pkl'.format(self._it))
         with open(policy_file_name, mode='w+b') as policy_file:
             pickle.dump(self._policy, policy_file)
@@ -370,7 +394,7 @@ class ACRepsLearner(KilobotLearner):
         ax_bef_T_cb = fig.add_subplot(gs[2, 1])
         ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
         plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
-        tr = plot_light_trajectory(ax_bef_T, it_sars[('S', 'light')])
+        tr = plot_trajectories(ax_bef_T, it_sars['S']['light'])
         plot_objects(ax_bef_T, env=self._sampler.env)
         fig.colorbar(tr[0], cax=ax_bef_T_cb)
 
@@ -417,9 +441,8 @@ class ACRepsLearner(KilobotLearner):
         states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])
 
         # get mean actions
-        mean_actions, sigma_actions = self._policy.get_mean_action(states, return_sigma=True)
-        # mean_actions /= np.linalg.norm(mean_actions, axis=1, keepdims=True)
-        mean_actions = mean_actions.reshape((steps_y, steps_x, 2))
+        mean_actions, sigma_actions = self._policy.get_mean_sigma_action(states)
+        mean_actions = mean_actions.reshape((steps_y, steps_x, mean_actions.shape[1]))
         sigma_actions = sigma_actions.reshape((steps_y, steps_x))
 
         actions = mean_actions, sigma_actions
@@ -428,19 +451,6 @@ class ACRepsLearner(KilobotLearner):
 
 
 class SampleWeightACRepsLearner(ACRepsLearner):
-    _default_params = ACRepsLearner._default_params
-    _default_params['kernel']['bandwidth_factor_weight'] = 1.
-
-    # def __new__(cls, *args, **kwargs):
-    #     cls._default_params['kernel']['bandwidth_factor_weight'] = 1.
-    #
-    #     return super(SampleWeightACRepsLearner, cls).__new__(cls, *args, **kwargs)
-
-    def __init__(self):
-        super().__init__()
-
-        self._extra_kernel_dimensions = 2
-
     def _init_kernels(self):
         kernel_params = self._params['kernel']
         if kernel_params['type'] == 'mean':
@@ -541,13 +551,13 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         small_w_index = it_sars[('S', 'weight')] <= .33
         medium_w_index = (it_sars[('S', 'weight')] <= .66) & ~small_w_index
         large_w_index = ~(small_w_index | medium_w_index)
-        plot_light_trajectory(ax_T_w0, it_sars[('S', 'light')].loc[small_w_index])
+        plot_trajectories(ax_T_w0, it_sars[('S', 'light')].loc[small_w_index])
         plot_value_function(ax_T_w1, *V_w1, cmap=cmap_gray)
         plot_objects(ax_T_w1, env=self._sampler.env)
-        plot_light_trajectory(ax_T_w1, it_sars[('S', 'light')].loc[medium_w_index])
+        plot_trajectories(ax_T_w1, it_sars[('S', 'light')].loc[medium_w_index])
         plot_value_function(ax_T_w2, *V_w2, cmap=cmap_gray)
         plot_objects(ax_T_w2, env=self._sampler.env)
-        tr = plot_light_trajectory(ax_T_w2, it_sars[('S', 'light')].loc[large_w_index])
+        tr = plot_trajectories(ax_T_w2, it_sars[('S', 'light')].loc[large_w_index])
         fig.colorbar(tr[0], cax=ax_T_cb)
 
         # new policy plot
@@ -604,9 +614,9 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         states = np.c_[states, np.ones((states.shape[0], 1)) * weight]
 
         # get mean actions
-        mean_actions, sigma_actions = self._policy.get_mean_action(states, return_sigma=True)
+        mean_actions, sigma_actions = self._policy.get_mean_sigma_action(states)
         # mean_actions /= np.linalg.norm(mean_actions, axis=1, keepdims=True)
-        mean_actions = mean_actions.reshape((steps_y, steps_x, 2))
+        mean_actions = mean_actions.reshape((steps_y, steps_x, 1))
         sigma_actions = sigma_actions.reshape((steps_y, steps_x))
 
         actions = mean_actions, sigma_actions
@@ -615,22 +625,141 @@ class SampleWeightACRepsLearner(ACRepsLearner):
 
 
 class ComplexObjectACRepsLearner(ACRepsLearner):
-    _default_params = ACRepsLearner._default_params
-    _default_params['sampling']['object_shape'] = 'quad'
-    _default_params['sampling']['object_width'] = .15
-    _default_params['sampling']['object_height'] = .15
+    def _init_sampler(self):
+        sampling_params = self._params['sampling']
+        return ComplexObjectEnvSampler(object_shape=sampling_params['object_shape'],
+                                       object_width=sampling_params['object_width'],
+                                       object_height=sampling_params['object_height'],
+                                       num_episodes=sampling_params['num_episodes'],
+                                       num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                       num_kilobots=sampling_params['num_kilobots'],
+                                       column_index=self._SARS_columns,
+                                       w_factor=sampling_params['w_factor'],
+                                       num_workers=sampling_params['num_workers'],
+                                       seed=self._seed, mp_context=self._MP_CONTEXT)
+
+
+class GradientLightComplexObjectACRepsLearner(ACRepsLearner):
+    def __init__(self):
+        super().__init__()
+
+        self._light_dimensions = 0
+        self._action_dimensions = 1
+
+    def _init_policy(self, action_bounds):
+        policy = super()._init_policy(action_bounds)
+        policy.gp_prior_mean = angle_from_swarm_mean
+
+        return policy
+
+    def _init_SARS(self):
+        kb_columns_level = ['kb_{}'.format(i) for i in range(self._params['sampling']['num_kilobots'])]
+        self.kilobots_columns = pd.MultiIndex.from_product([['S'], kb_columns_level, ['x', 'y']])
+        self.state_columns = self.kilobots_columns
+        self.action_columns = pd.MultiIndex.from_product([['A'], [''], ['']])
+        self.reward_columns = pd.MultiIndex.from_arrays([['R'], [''], ['']])
+        self.next_state_columns = self.state_columns.copy()
+        self.next_state_columns.set_levels(['S_'], 0, inplace=True)
+
+        self._SARS_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
+            self.next_state_columns)
+
+        self._SARS = pd.DataFrame(columns=self._SARS_columns)
 
     def _init_sampler(self):
         sampling_params = self._params['sampling']
-        sampler = ComplexObjectEnvSampler(object_shape=sampling_params['object_shape'],
-                                          object_width=sampling_params['object_width'],
-                                          object_height=sampling_params['object_height'],
-                                          num_episodes=sampling_params['num_episodes'],
-                                          num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                          num_kilobots=sampling_params['num_kilobots'],
-                                          column_index=self._SARS_columns,
-                                          w_factor=sampling_params['w_factor'],
-                                          num_workers=sampling_params['num_workers'],
-                                          seed=self._seed, mp_context=self._MP_CONTEXT)
+        return GradientLightComplexObjectEnvSampler(object_shape=sampling_params['object_shape'],
+                                                    object_width=sampling_params['object_width'],
+                                                    object_height=sampling_params['object_height'],
+                                                    num_episodes=sampling_params['num_episodes'],
+                                                    num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                                    num_kilobots=sampling_params['num_kilobots'],
+                                                    column_index=self._SARS_columns,
+                                                    w_factor=sampling_params['w_factor'],
+                                                    num_workers=sampling_params['num_workers'],
+                                                    seed=self._seed, mp_context=self._MP_CONTEXT)
 
-        return sampler
+    def _plot_iteration_results(self, it_sars, state_action_features, theta):
+        # setup figure
+        fig = plt.figure(figsize=(10, 20))
+        gs = gridspec.GridSpec(nrows=4, ncols=2, width_ratios=[20, 1], height_ratios=[1, 3, 3, 3])
+
+        # reward plot
+        ax_R = fig.add_subplot(gs[0, :])
+        plot_trajectory_reward_distribution(ax_R, it_sars['R'])
+
+        # value function plot
+        ax_bef_V = fig.add_subplot(gs[1, 0])
+        ax_bef_V_cb = fig.add_subplot(gs[1, 1])
+        cmap_plasma = cm.get_cmap('plasma')
+        cmap_gray = cm.get_cmap('gray')
+        V = self._compute_value_function_grid(state_action_features, theta)
+        im = plot_value_function(ax_bef_V, *V, cmap=cmap_plasma)
+        plot_objects(ax_bef_V, env=self._sampler.env, alpha=.3, fill=True)
+        ax_bef_V.set_title('value function, before reps, iteration {}'.format(self._it))
+        fig.colorbar(im, cax=ax_bef_V_cb)
+
+        # trajectories plot
+        ax_bef_T = fig.add_subplot(gs[2, 0])
+        ax_bef_T_cb = fig.add_subplot(gs[2, 1])
+        ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
+        plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
+        tr = plot_trajectories(ax_bef_T, compute_mean_position_pandas(it_sars['S']))
+        plot_objects(ax_bef_T, env=self._sampler.env)
+        fig.colorbar(tr[0], cax=ax_bef_T_cb)
+
+        # new policy plot
+        ax_aft_P = fig.add_subplot(gs[3, 0])
+        ax_aft_P_cb = fig.add_subplot(gs[3, 1])
+        plot_value_function(ax_aft_P, *self._compute_value_function_grid(state_action_features, theta),
+                            cmap=cmap_gray)
+        qv = plot_policy(ax_aft_P, *self._compute_policy_quivers(), cmap=cmap_plasma)
+        plot_objects(ax_aft_P, env=self._sampler.env)
+        fig.colorbar(qv, cax=ax_aft_P_cb)
+        ax_aft_P.set_title('policy, after reps, iteration {}'.format(self._it))
+
+        # save and show plot
+        show_plot_as_pdf(fig, path=self._log_path_rep, filename='plot_{:02d}.pdf'.format(self._it),
+                         overwrite=True, save_only=self._no_gui)
+        # plt.show(block=True)
+
+        plt.close(fig)
+
+    def _compute_value_function_grid(self, state_action_features, theta, steps_x=40, steps_y=40):
+        x_range = self._sampler.env.world_x_range
+        y_range = self._sampler.env.world_y_range
+        [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
+        X = X.flatten()
+        Y = -Y.flatten()
+
+        # kilobots at light position
+        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots])
+
+        # get mean actions
+        actions = self._policy.get_mean_action(states)
+
+        value_function = state_action_features(states, actions).dot(theta).reshape((steps_y, steps_x))
+
+        return value_function, x_range, y_range
+
+    def _compute_policy_quivers(self, steps_x=40, steps_y=40):
+        x_range = self._sampler.env.world_x_range
+        y_range = self._sampler.env.world_y_range
+        [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
+        X = X.flatten()
+        Y = Y.flatten()
+
+        # kilobots at light position
+        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots])
+
+        # get mean actions
+        mean_actions, sigma_actions = self._policy.get_mean_sigma_action(states)
+        # mean_actions /= np.linalg.norm(mean_actions, axis=1, keepdims=True)
+        mean_actions = mean_actions.reshape((steps_y, steps_x, mean_actions.shape[1]))
+        sigma_actions = sigma_actions.reshape((steps_y, steps_x))
+
+        actions = mean_actions, sigma_actions
+
+        return actions, x_range, y_range
+
+
