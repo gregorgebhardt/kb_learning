@@ -8,7 +8,7 @@ from typing import Generator
 from cluster_work import ClusterWork, InvalidParameterArgument
 
 from kb_learning.kernel import KilobotEnvKernel
-from kb_learning.kernel import KilobotEnvKernelWithWeight, MeanEnvKernelWithWeight, MeanCovEnvKernelWithWeight
+from kb_learning.kernel import KilobotEnvKernelWithWeight
 from kb_learning.kernel import EmbeddedSwarmDistance, MahaDist, MeanSwarmDist, MeanCovSwarmDist, PeriodicDist
 from kb_learning.kernel import compute_median_bandwidth, select_reference_set_by_kernel_activation, \
     compute_mean_position_pandas, angle_from_swarm_mean
@@ -453,31 +453,55 @@ class ACRepsLearner(KilobotLearner):
 class SampleWeightACRepsLearner(ACRepsLearner):
     def _init_kernels(self):
         kernel_params = self._params['kernel']
-        if kernel_params['type'] == 'mean':
+        kernel_params = self._params['kernel']
+        if kernel_params['kb_dist'] in ['kilobot', 'embedded']:
+            kb_dist_class = EmbeddedSwarmDistance
+        elif kernel_params['kb_dist'] == 'mean':
             from kb_learning.kernel import compute_mean_position
             self._state_preprocessor = compute_mean_position
-            EnvKernel = MeanEnvKernelWithWeight
-        elif kernel_params['type'] == 'mean-cov':
+            kb_dist_class = MeanSwarmDist
+        elif kernel_params['kb_dist'] == 'mean-cov':
             from kb_learning.kernel import compute_mean_and_cov_position
             self._state_preprocessor = compute_mean_and_cov_position
-            EnvKernel = MeanCovEnvKernelWithWeight
+            kb_dist_class = MeanCovSwarmDist
         else:
-            EnvKernel = KilobotEnvKernelWithWeight
+            raise InvalidParameterArgument
 
-        self._state_kernel = EnvKernel(weight=kernel_params['weight'],
-                                       bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                       bandwidth_factor_ed=kernel_params['bandwidth_factor_extra_dims'],
-                                       bandwidth_factor_weigth=kernel_params['bandwidth_factor_weight'],
-                                       weight_dim=-1,
-                                       extra_dims=self._extra_kernel_dimensions,
-                                       num_processes=kernel_params['num_processes'])
-        self._state_action_kernel = EnvKernel(weight=kernel_params['weight'],
-                                              bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                              bandwidth_factor_ed=kernel_params['bandwidth_factor_extra_dims_action'],
-                                              bandwidth_factor_weigth=kernel_params['bandwidth_factor_weight'],
-                                              weight_dim=-3,
-                                              extra_dims=self._extra_kernel_dimensions + self._action_dimensions,
-                                              num_processes=kernel_params['num_processes'])
+        if kernel_params['v_dist'] == 'maha':
+            v_dist_class = MahaDist
+        elif kernel_params['v_dist'] == 'periodic':
+            v_dist_class = PeriodicDist
+        else:
+            raise InvalidParameterArgument
+
+        if kernel_params['w_dist'] == 'maha':
+            w_dist_class = MahaDist
+        elif kernel_params['w_dist'] == 'periodic':
+            w_dist_class = PeriodicDist
+        else:
+            raise InvalidParameterArgument
+
+        self._state_kernel = KilobotEnvKernelWithWeight(weight=kernel_params['weight'],
+                                                        bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
+                                                        bandwidth_factor_v=kernel_params['bandwidth_factor_light'],
+                                                        bandwidth_factor_weight=kernel_params[
+                                                            'bandwidth_factor_weight'],
+                                                        weight_dim=-1,
+                                                        v_dims=self._light_dimensions,
+                                                        kb_dist_class=kb_dist_class,
+                                                        v_dist_class=v_dist_class,
+                                                        weight_dist_class=w_dist_class)
+        self._state_action_kernel = KilobotEnvKernelWithWeight(weight=kernel_params['weight'],
+                                                               bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
+                                                               bandwidth_factor_v=kernel_params[
+                                                                   'bandwidth_factor_light_action'],
+                                                               bandwidth_factor_weight=kernel_params[
+                                                                   'bandwidth_factor_weight'],
+                                                               weight_dim=-3,
+                                                               v_dims=self._light_dimensions + self._action_dimensions,
+                                                               kb_dist_class=kb_dist_class,
+                                                               v_dist_class=v_dist_class,
+                                                               weight_dist_class=w_dist_class)
 
     def _init_SARS(self):
         super()._init_SARS()
@@ -548,16 +572,16 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         ax_T_w2.set_title('0.66 < w, iteration {}'.format(self._it))
         plot_value_function(ax_T_w0, *V_w0, cmap=cmap_gray)
         plot_objects(ax_T_w0, env=self._sampler.env)
-        small_w_index = it_sars[('S', 'weight')] <= .33
-        medium_w_index = (it_sars[('S', 'weight')] <= .66) & ~small_w_index
+        small_w_index = it_sars['S']['weight'] <= .33
+        medium_w_index = (it_sars['S']['weight'] <= .66) & ~small_w_index
         large_w_index = ~(small_w_index | medium_w_index)
-        plot_trajectories(ax_T_w0, it_sars[('S', 'light')].loc[small_w_index])
+        plot_trajectories(ax_T_w0, it_sars['S']['light'].loc[small_w_index])
         plot_value_function(ax_T_w1, *V_w1, cmap=cmap_gray)
         plot_objects(ax_T_w1, env=self._sampler.env)
-        plot_trajectories(ax_T_w1, it_sars[('S', 'light')].loc[medium_w_index])
+        plot_trajectories(ax_T_w1, it_sars['S']['light'].loc[medium_w_index])
         plot_value_function(ax_T_w2, *V_w2, cmap=cmap_gray)
         plot_objects(ax_T_w2, env=self._sampler.env)
-        tr = plot_trajectories(ax_T_w2, it_sars[('S', 'light')].loc[large_w_index])
+        tr = plot_trajectories(ax_T_w2, it_sars['S']['light'].loc[large_w_index])
         fig.colorbar(tr[0], cax=ax_T_cb)
 
         # new policy plot
@@ -616,7 +640,7 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         # get mean actions
         mean_actions, sigma_actions = self._policy.get_mean_sigma_action(states)
         # mean_actions /= np.linalg.norm(mean_actions, axis=1, keepdims=True)
-        mean_actions = mean_actions.reshape((steps_y, steps_x, 1))
+        mean_actions = mean_actions.reshape((steps_y, steps_x, mean_actions.shape[1]))
         sigma_actions = sigma_actions.reshape((steps_y, steps_x))
 
         actions = mean_actions, sigma_actions
@@ -761,5 +785,3 @@ class GradientLightComplexObjectACRepsLearner(ACRepsLearner):
         actions = mean_actions, sigma_actions
 
         return actions, x_range, y_range
-
-
