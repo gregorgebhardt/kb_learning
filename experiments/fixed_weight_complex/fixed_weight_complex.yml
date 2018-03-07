@@ -5,7 +5,7 @@ repetitions: 3 # 20
 iterations: 20
 path: "data/fixed_weight_complex"
 plotting: true
-gui: true
+gui: false
 
 params:
   sampling:
@@ -24,7 +24,7 @@ params:
   gp:
     num_sparse_states: 500 # 1000
 ---
-name: 'test'
+name: ''
 ---
 name: 'square'
 params:
@@ -44,7 +44,8 @@ params:
   sampling:
     object_shape: 'rect'
     object_width: .05
-    object_height: .5
+    object_height: .8
+    num_kilobots: 5
 grid:
   sampling:
     # w_factor: [.0, .25, .5, .75, 1.]

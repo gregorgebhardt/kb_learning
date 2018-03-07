@@ -1,4 +1,4 @@
-from kb_learning.learner import ACRepsLearner
+from kb_learning.learner import ComplexObjectACRepsLearner
 
 if __name__ == '__main__':
-    ACRepsLearner.run()
+    ComplexObjectACRepsLearner.run()

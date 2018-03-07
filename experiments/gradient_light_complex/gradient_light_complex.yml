@@ -1,11 +1,11 @@
 ---
 # DEFAULT
 name: "DEFAULT"
-repetitions: 3 # 20
-iterations: 20
+repetitions: 6 # 20
+iterations: 25
 path: "data/gradient_light_complex"
 plotting: true
-gui: true
+gui: false
 
 params:
   sampling:
@@ -26,8 +26,7 @@ params:
     num_sparse_states: 300 # 1000
     prior_variance: 2.
     noise_variance: .5
----
-name: 'test'
+
 ---
 name: 'square'
 params:

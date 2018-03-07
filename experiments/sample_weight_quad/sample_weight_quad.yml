@@ -34,7 +34,7 @@ grid:
 name: "discount_factor"
 grid:
   lstd:
-    discount_factor: [.5, .75, .8, .95, .99, .9999]
+    discount_factor: [.5, .75, .95, .99, .9999]
   kernel:
     type: ['kilobot', 'mean']
 #---
