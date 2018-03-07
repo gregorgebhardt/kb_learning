@@ -174,12 +174,12 @@ class ACRepsLearner(KilobotLearner):
         #         state = state.reshape((1, -1))
         #     return self._state_kernel(state, lstd_state_samples)
         #
-        # def state_action_features(state, action):
-        #     if state.ndim == 1:
-        #         state = state.reshape((1, -1))
-        #     if action.ndim == 1:
-        #         action = action.reshape((1, -1))
-        #     return self._state_action_kernel(np.c_[state, action], lstd_state_action_samples)
+        def state_action_features(state, action):
+            if state.ndim == 1:
+                state = state.reshape((1, -1))
+            if action.ndim == 1:
+                action = action.reshape((1, -1))
+            return self._state_action_kernel(np.c_[state, action], lstd_state_action_samples)
 
         for i in range(self._params['learn_iterations']):
             # compute features
@@ -226,9 +226,8 @@ class ACRepsLearner(KilobotLearner):
             self._policy.train(self._SARS['S'].values, self._SARS['A'].values, weights, gp_samples)
 
             # plotting
-            self._plot_iteration_results(it_sars,
-                                         lambda s, a: self._state_action_kernel(np.c_[s, a], lstd_state_action_samples),
-                                         theta)
+            if self._plotting:
+                self._plot_iteration_results(it_sars, state_action_features, theta)
 
             del phi_SA, phi_SA_next
 
