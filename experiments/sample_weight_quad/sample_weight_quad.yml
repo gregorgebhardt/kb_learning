@@ -5,7 +5,7 @@ repetitions: 3 # 20
 iterations: 20
 path: "data/sample_weight_quad"
 plotting: true
-gui: false
+gui: true
 
 params:
   sampling:
@@ -17,8 +17,8 @@ params:
   kernel:
     bandwidth_factor_weight: 1.
     bandwidth_factor_kb: .8
-    bandwidth_factor_extra_dims: .9
-    bandwidth_factor_extra_dims_action: .5
+    bandwidth_factor_light: .9
+    bandwidth_factor_light_action: .5
   lstd:
     num_features: 500 # 1000
     discount_factor: .95
