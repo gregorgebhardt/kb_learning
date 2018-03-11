@@ -9,7 +9,7 @@ from ._kernel import KilobotEnvKernel, MeanEnvKernel, MeanCovEnvKernel, KilobotE
     MeanEnvKernelWithWeight, MeanCovEnvKernelWithWeight
 from ._preprocessors import compute_median_bandwidth, select_reference_set_randomly, \
     select_reference_set_by_kernel_activation, compute_mean_position, compute_mean_and_cov_position, \
-    compute_mean_position_pandas, angle_from_swarm_mean
+    compute_mean_position_pandas, angle_from_swarm_mean, step_towards_center
 
 __all__ = [
     'EmbeddedSwarmDistance',
@@ -29,5 +29,6 @@ __all__ = [
     'compute_mean_position',
     'compute_mean_and_cov_position',
     'compute_mean_position_pandas',
-    'angle_from_swarm_mean'
+    'angle_from_swarm_mean',
+    'step_towards_center'
 ]

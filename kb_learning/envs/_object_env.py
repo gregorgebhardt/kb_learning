@@ -8,25 +8,27 @@ import abc
 
 
 class ObjectEnv(KilobotsEnv):
-    world_size = world_width, world_height = 1., 1.
-    screen_size = screen_width, screen_height = 1000, 500
+    world_size = world_width, world_height = .8, .8
+    screen_size = screen_width, screen_height = 500, 500
 
     _cost_vector = np.array([0.01, 0.1, 0.01])
-    _scale_vector = np.array([5., 5., .5])
+    # _scale_vector = np.array([5., 5., .5])
+    _scale_vector = np.array([1., 1., .2])
 
     _object_init = np.array([.0, .0, .0])
-    _object_width, _object_height = .2, .2
+    _object_width, _object_height = .15, .15
 
     _light_radius = .2
 
-    _spawn_type_ratio = .95
+    _spawn_type_ratio = .90
     # _sampling_max_radius = .5
     _spawn_radius_variance = .2 * _light_radius
     _light_max_dist = .4
     _spawn_angle_mean = np.pi
     _spawn_angle_variance = .5 * np.pi
 
-    action_space = Box(np.array([-.02, -.02]), np.array([.02, .02]), dtype=np.float64)
+    _action_bounds = np.array([-.02, -.02]), np.array([.02, .02])
+    action_space = Box(*_action_bounds, dtype=np.float64)
 
     def __init__(self):
         self._weight = None
@@ -89,11 +91,14 @@ class ObjectEnv(KilobotsEnv):
         if self.__spawn_randomly:
             # if we spawn the light randomly, we select random polar coordinates for the light
             # the radius is half the object width plus a uniform sample from the range [0, light_max_dist)
-            light_radius = (0.5 * self._object_width + self._light_max_dist * np.random.rand())
+            # light_radius = (0.5 * self._object_width + self._light_max_dist * np.random.rand())
             # the angle is sampled normally with spawn_angle_mean and spawn_angle_variance
-            angle = np.random.normal(self._spawn_angle_mean, self._spawn_angle_variance)
+            # angle = np.random.normal(self._spawn_angle_mean, self._spawn_angle_variance)
 
-            light_init = self._object_init[:2] + light_radius * np.array([np.cos(angle), np.sin(angle)])
+            # light_init = self._object_init[:2] + light_radius * np.array([np.cos(angle), np.sin(angle)])
+
+            light_init = np.random.rand(2) * np.array(self.world_size) * np.array((.98, .98))
+            light_init += self.world_bounds[0]
         else:
             # otherwise, the light starts above the object
             light_init = self._object_init[:2]
@@ -102,7 +107,7 @@ class ObjectEnv(KilobotsEnv):
         light_init = np.minimum(light_init, self.world_bounds[1])
 
         self._light = CircularGradientLight(position=light_init, radius=self._light_radius,
-                                            bounds=self.world_bounds)
+                                            bounds=self.world_bounds, action_bounds=self._action_bounds)
 
     def _init_kilobots(self):
         # kilobots start at the light position in a slightly random formation

@@ -11,10 +11,10 @@ from kb_learning.kernel import KilobotEnvKernel
 from kb_learning.kernel import KilobotEnvKernelWithWeight
 from kb_learning.kernel import EmbeddedSwarmDistance, MahaDist, MeanSwarmDist, MeanCovSwarmDist, PeriodicDist
 from kb_learning.kernel import compute_median_bandwidth, select_reference_set_by_kernel_activation, \
-    compute_mean_position_pandas, angle_from_swarm_mean
-from kb_learning.reps.lstd import LeastSquaresTemporalDifference
-from kb_learning.reps.ac_reps import ActorCriticReps
-from kb_learning.reps.sparse_gp_policy import SparseGPPolicy
+    compute_mean_position_pandas, angle_from_swarm_mean, step_towards_center
+from kb_learning.ac_reps.lstd import LeastSquaresTemporalDifference
+from kb_learning.ac_reps.reps import ActorCriticReps
+from kb_learning.ac_reps.sparse_gp_policy import SparseGPPolicy
 
 from kb_learning.envs.sampler import FixedWeightQuadEnvSampler, SampleWeightQuadEnvSampler, ComplexObjectEnvSampler, \
     GradientLightComplexObjectEnvSampler
@@ -72,15 +72,19 @@ class ACRepsLearner(KilobotLearner):
             'num_features': 1000,
             'num_policy_samples': 1,
         },
-        'reps': {
+        'ac_reps': {
             'epsilon': .3
         },
         'gp': {
-            'prior_variance': .01 ** 2,
+            'prior_variance': .02 ** 2,
             'noise_variance': 2e-5,
             'min_variance': 1e-8,
             'chol_regularizer': 1e-9,
             'num_sparse_states': 1000,
+        },
+        'eval': {
+            'num_episodes': 50,
+            'num_steps_per_episode': 150
         }
     }
 
@@ -169,11 +173,11 @@ class ACRepsLearner(KilobotLearner):
 
         # lstd_samples = self._SARS[['S', 'A']].sample(self._params['lstd']['num_features'])
 
-        # def state_features(state):
-        #     if state.ndim == 1:
-        #         state = state.reshape((1, -1))
-        #     return self._state_kernel(state, lstd_state_samples)
-        #
+        def state_features(state):
+            if state.ndim == 1:
+                state = state.reshape((1, -1))
+            return self._state_kernel(state, lstd_state_samples)
+
         def state_action_features(state, action):
             if state.ndim == 1:
                 state = state.reshape((1, -1))
@@ -184,10 +188,9 @@ class ACRepsLearner(KilobotLearner):
         for i in range(self._params['learn_iterations']):
             # compute features
             logger.info('compute state-action features')
-            phi_SA = self._state_action_kernel(self._SARS[['S', 'A']].values, lstd_state_action_samples)
-            phi_SA_next = self._state_action_kernel(
-                np.c_[self._SARS['S_'].values, self._policy.get_mean_action(self._SARS['S_'].values)],
-                lstd_state_action_samples)
+            phi_SA = state_action_features(self._SARS['S'].values, self._SARS[['A']].values)
+            next_actions = np.array([self._policy(self._SARS['S_'].values) for _ in range(5)]).mean(axis=0)
+            phi_SA_next = state_action_features(self._SARS['S_'].values, next_actions)
 
             # learn theta (parameters of Q-function) using lstd
             logger.info('learning theta [LSTD]')
@@ -203,20 +206,25 @@ class ACRepsLearner(KilobotLearner):
 
             # compute state features
             logger.info('compute state features')
-            phi_S = self._state_kernel(self._SARS['S'].values, lstd_state_samples)
+            phi_S = state_features(self._SARS['S'].values)
 
             # compute sample weights using AC-REPS
             logger.info('learning weights [AC-REPS]')
             ac_reps = ActorCriticReps()
-            ac_reps.epsilon_action = self._params['reps']['epsilon']
+            ac_reps.epsilon_action = self._params['ac_reps']['epsilon']
             weights = ac_reps.compute_weights(q_fct, phi_S)
 
             # get subset for sparse GP
             logger.debug('select samples for GP')
-            gp_reference = select_reference_set_by_kernel_activation(data=self._SARS[['S']],
-                                                                     size=self._params['lstd']['num_features'],
-                                                                     kernel_function=self._state_kernel,
-                                                                     batch_size=10)
+            # weights_sort_index = np.argsort(weights)
+            # gp_reference = pd.Index(weights_sort_index[-self._params['gp']['num_sparse_states']:])
+            gp_reference = pd.Index(np.random.choice(self._SARS.index.values,
+                                                     size=self._params['gp']['num_sparse_states'],
+                                                     replace=False, p=weights))
+            # gp_reference = select_reference_set_by_kernel_activation(data=self._SARS[['S']],
+            #                                                          size=self._params['gp']['num_sparse_states'],
+            #                                                          kernel_function=self._state_kernel,
+            #                                                          batch_size=10, start_from=lstd_reference)
             gp_samples = self._SARS['S'].loc[gp_reference].values
             # gp_samples = self._SARS['S'].sample(self._params['gp']['num_sparse_states']).values
 
@@ -224,6 +232,25 @@ class ACRepsLearner(KilobotLearner):
             logger.info('fitting GP to policy')
             self._policy = self._init_policy((self._sampler.env.action_space.low, self._sampler.env.action_space.high))
             self._policy.train(self._SARS['S'].values, self._SARS['A'].values, weights, gp_samples)
+
+            # evaluate policy
+            logger.info('evaluating policy')
+            it_sars, it_info = self._sampler(self._policy, num_episodes=self._params['eval']['num_episodes'],
+                                             num_steps_per_episode=self._params['eval']['num_steps_per_episode'])
+            # fig, ax = plt.subplots(1)
+            # plot_light_trajectory(it_sars['S'], ax)
+            # fig.show()
+
+            sum_R = it_sars['R'].groupby(level=0).sum()
+
+            mean_sum_R = sum_R.mean()
+            median_sum_R = sum_R.median()
+            std_sum_R = sum_R.std()
+            max_sum_R = sum_R.max()
+            min_sum_R = sum_R.min()
+
+            logger.info('statistics on sum R -- mean: {:.6f} median: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
+                mean_sum_R, median_sum_R, std_sum_R, max_sum_R, min_sum_R))
 
             # plotting
             if self._plotting:
@@ -291,6 +318,7 @@ class ACRepsLearner(KilobotLearner):
         policy.gp_min_variance = self._params['gp']['min_variance']
         policy.gp_chol_regularizer = self._params['gp']['chol_regularizer']
         policy.action_bounds = action_bounds
+        policy.gp_prior_mean = step_towards_center
 
         return policy
 
@@ -385,7 +413,7 @@ class ACRepsLearner(KilobotLearner):
         V = self._compute_value_function_grid(state_action_features, theta)
         im = plot_value_function(ax_bef_V, *V, cmap=cmap_plasma)
         plot_objects(ax_bef_V, env=self._sampler.env, alpha=.3, fill=True)
-        ax_bef_V.set_title('value function, before reps, iteration {}'.format(self._it))
+        ax_bef_V.set_title('value function, before ac_reps, iteration {}'.format(self._it))
         fig.colorbar(im, cax=ax_bef_V_cb)
 
         # trajectories plot
@@ -405,7 +433,7 @@ class ACRepsLearner(KilobotLearner):
         qv = plot_policy(ax_aft_P, *self._compute_policy_quivers(), cmap=cmap_plasma)
         plot_objects(ax_aft_P, env=self._sampler.env)
         fig.colorbar(qv, cax=ax_aft_P_cb)
-        ax_aft_P.set_title('policy, after reps, iteration {}'.format(self._it))
+        ax_aft_P.set_title('policy, after ac_reps, iteration {}'.format(self._it))
 
         # save and show plot
         show_plot_as_pdf(fig, path=self._log_path_rep, filename='plot_{:02d}.pdf'.format(self._it),
@@ -719,7 +747,7 @@ class GradientLightComplexObjectACRepsLearner(ACRepsLearner):
         V = self._compute_value_function_grid(state_action_features, theta)
         im = plot_value_function(ax_bef_V, *V, cmap=cmap_plasma)
         plot_objects(ax_bef_V, env=self._sampler.env, alpha=.3, fill=True)
-        ax_bef_V.set_title('value function, before reps, iteration {}'.format(self._it))
+        ax_bef_V.set_title('value function, before ac_reps, iteration {}'.format(self._it))
         fig.colorbar(im, cax=ax_bef_V_cb)
 
         # trajectories plot
@@ -739,7 +767,7 @@ class GradientLightComplexObjectACRepsLearner(ACRepsLearner):
         qv = plot_policy(ax_aft_P, *self._compute_policy_quivers(), cmap=cmap_plasma)
         plot_objects(ax_aft_P, env=self._sampler.env)
         fig.colorbar(qv, cax=ax_aft_P_cb)
-        ax_aft_P.set_title('policy, after reps, iteration {}'.format(self._it))
+        ax_aft_P.set_title('policy, after ac_reps, iteration {}'.format(self._it))
 
         # save and show plot
         show_plot_as_pdf(fig, path=self._log_path_rep, filename='plot_{:02d}.pdf'.format(self._it),

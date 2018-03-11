@@ -95,7 +95,7 @@ def select_reference_set_randomly(data, size, consecutive_sets=1, group_by=None)
 
 
 def select_reference_set_by_kernel_activation(data: pd.DataFrame, size: int, kernel_function,
-                                              batch_size: int = 1, group_by: str = None) -> tuple:
+                                              batch_size: int = 1, start_from: pd.Index = None) -> pd.Index:
     """
     Iteratively selects a subset from the given data by applying a heuristic that is based on the kernel activations of
     the data with the already selected data points. The returned If the consecutive_sets parameter is greater than 1,
@@ -105,8 +105,7 @@ def select_reference_set_by_kernel_activation(data: pd.DataFrame, size: int, ker
     :param size: the size of the subset (if data has less data points, all data points are selected into the subset.)
     :param kernel_function: the kernel function for computing the kernel activations
     :param batch_size: number of reference samples to choose at once
-    :param group_by: used to group the data before selecting the subsets to ensure that the points in the consecutive
-    sets belong to the same group
+    :param start_from:
     :return: a tuple of
     """
     num_reference_data_points = data.shape[0]
@@ -115,27 +114,34 @@ def select_reference_set_by_kernel_activation(data: pd.DataFrame, size: int, ker
     if num_reference_data_points <= size:
         reference_set = data.index.sort_values()
     else:
-        reference_set = data.sample(batch_size).index.tolist()
+        if start_from is not None:
+            reference_set = start_from.tolist()
+        else:
+            reference_set = data.sample(batch_size).index.tolist()
 
+        samples_to_add = size - len(reference_set)
         kernel_matrix = np.zeros((size + 1, num_reference_data_points))
 
-        for i in range(size//batch_size - 1):
-            # compute kernel activations for last chosen kernel sample
-            kernel_matrix[i:i+batch_size, :] = kernel_function(data.loc[reference_set[-batch_size:]].values,
-                                                               data.values)
-            kernel_matrix[-1, reference_set[-batch_size:]] = 1000
+        if samples_to_add < 0:
+            reference_set = reference_set[:samples_to_add]
+        elif samples_to_add > 0:
 
-            max_kernel_activations = kernel_matrix.max(0)
-            for j in range(batch_size):
-                next_reference_point = np.argmin(max_kernel_activations)
-                max_kernel_activations[next_reference_point] += 1000
+            kernel_matrix[:len(reference_set), :] = kernel_function(data.loc[reference_set].values,
+                                                                    data.values)
+            kernel_matrix[-1, reference_set] = 1000
 
-                reference_set.append(next_reference_point)
+            for i in range(samples_to_add//batch_size):
+                max_kernel_activations = kernel_matrix.max(0)
+                for j in range(batch_size):
+                    next_reference_point = np.argmin(max_kernel_activations)
+                    max_kernel_activations[next_reference_point] += 1000
 
-        if type(reference_set[0]) is tuple:
-            reference_set = pd.MultiIndex.from_tuples(reference_set).sort_values()
-            reference_set.set_names(data.index.names, inplace=True)
-        else:
+                    reference_set.append(next_reference_point)
+
+                # compute kernel activations for last chosen kernel samples
+                kernel_matrix[i:i + batch_size, :] = kernel_function(data.loc[reference_set[-batch_size:]].values,
+                                                                     data.values)
+
             reference_set = pd.Index(data=reference_set, name=data.index.names)
 
     return reference_set
@@ -177,4 +183,9 @@ def compute_mean_and_cov_position(data):
 def angle_from_swarm_mean(data):
     mean_data = -compute_mean_position(data)
     return np.arctan2(mean_data[:, 1], mean_data[:, 0]).reshape((-1, 1))
+
+
+def step_towards_center(states):
+    light_direction = -states[:, -2:]
+    return light_direction / np.linalg.norm(light_direction, axis=1, keepdims=True) * .02
 

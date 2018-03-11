@@ -17,7 +17,7 @@ class KilobotSampler(object):
                  column_index: pd.Index, seed: int=0, *args, **kwargs):
         self._seed = seed
 
-        self.num_episodes = num_episodes
+        self.max_episodes = num_episodes
         self.num_steps_per_episode = num_steps_per_episode
 
         self.column_index = column_index
@@ -31,13 +31,18 @@ class KilobotSampler(object):
         self._seed = seed
 
     @abc.abstractmethod
-    def _sample_sars(self, policy) -> Tuple[np.ndarray, List[str]]:
+    def _sample_sars(self, policy, num_episodes: int, num_steps_per_episode: int) -> Tuple[np.ndarray, List[str]]:
         raise NotImplementedError
 
-    def __call__(self, policy):
-        sars_samples, info = self._sample_sars(policy)
+    def __call__(self, policy, num_episodes: int = None, num_steps_per_episode: int = None):
+        if num_episodes is None:
+            num_episodes = self.max_episodes
+        if num_steps_per_episode is None:
+            num_steps_per_episode = self.num_steps_per_episode
 
-        index = pd.MultiIndex.from_product([range(self.num_episodes), range(self.num_steps_per_episode)])
+        sars_samples, info = self._sample_sars(policy, num_episodes, num_steps_per_episode)
+
+        index = pd.MultiIndex.from_product([range(num_episodes), range(num_steps_per_episode)])
         it_sars = pd.DataFrame(data=sars_samples, index=index, columns=self.column_index)
         return it_sars, info
 
@@ -53,8 +58,8 @@ class QuadEnvSampler(KilobotSampler):
         self.env = gym.make(self.env_id)
         self.envs = []
 
-    def _init_envs(self):
-        self.envs = [gym.make(self.env_id) for _ in range(self.num_episodes)]
+    def _init_envs(self, num_episodes):
+        self.envs = [gym.make(self.env_id) for _ in range(num_episodes)]
 
         for i, e in enumerate(self.envs):
             e.seed(self.seed * 100 + i)
@@ -74,36 +79,36 @@ class SARSSampler(QuadEnvSampler):
     def _get_env_id(self):
         raise NotImplementedError
 
-    def _sample_sars(self, policy):
-        if len(self.envs) is 0:
-            self._init_envs()
+    def _sample_sars(self, policy, num_episodes, num_steps_per_episode):
+        if len(self.envs) != num_episodes:
+            self._init_envs(num_episodes)
 
         for i, e in enumerate(self.envs):
             e.seed(self.seed * 100 + i)
 
         # reset environments and obtain initial states
         states = np.array([e.reset() for e in self.envs])
-        reward = np.empty((self.num_episodes, 1))
+        reward = np.empty((num_episodes, 1))
         info = list()
 
         state_dims = states.shape[1]
         action_dims = sum(self.env.action_space.shape)
 
-        it_sars_data = np.empty((self.num_episodes * self.num_steps_per_episode, 2 * state_dims + action_dims + 1))
+        it_sars_data = np.empty((num_episodes * num_steps_per_episode, 2 * state_dims + action_dims + 1))
 
-        for step in range(self.num_steps_per_episode):
-            it_sars_data[step::self.num_steps_per_episode, :state_dims] = states
+        for step in range(num_steps_per_episode):
+            it_sars_data[step::num_steps_per_episode, :state_dims] = states
 
             actions = policy(states)
             srdi = [e.step(a) for e, a in zip(self.envs, actions)]
 
-            for i in range(self.num_episodes):
+            for i in range(num_episodes):
                 states[i, :] = srdi[i][0]
                 reward[i] = srdi[i][1]
                 info.append(srdi[i][3])
 
             # collect samples in DataFrame
-            it_sars_data[step::self.num_steps_per_episode, state_dims:] = np.c_[actions, reward, states]
+            it_sars_data[step::num_steps_per_episode, state_dims:] = np.c_[actions, reward, states]
 
         return it_sars_data, info
 
@@ -201,16 +206,20 @@ class ParallelSARSSampler(SARSSampler):
     def _get_env_id(self):
         raise NotImplementedError
 
-    def _sample_sars(self, policy):
+    def _sample_sars(self, policy, num_episodes, num_steps_per_episode):
         if self._num_workers == 1:
-            return super(ParallelSARSSampler, self)._sample_sars(policy)
+            return super(ParallelSARSSampler, self)._sample_sars(policy, num_episodes, num_steps_per_episode)
         else:
-            episodes_per_work = [self.num_episodes // self._num_workers] * self._num_workers
-            for i in range(self.num_episodes % self._num_workers):
+            if num_episodes > self.max_episodes:
+                num_episodes = self.max_episodes
+                logger.warning('num_episodes > max_episodes! Setting num_episodes to max_episodes')
+
+            episodes_per_work = [num_episodes // self._num_workers] * self._num_workers
+            for i in range(num_episodes % self._num_workers):
                 episodes_per_work[i] += 1
             episodes_per_work = filter(lambda a: a != 0, episodes_per_work)
 
-            work = [(policy, episodes, self.num_steps_per_episode, self._seed) for episodes in episodes_per_work]
+            work = [(policy, episodes, num_steps_per_episode, self._seed) for episodes in episodes_per_work]
 
             # self._do_work(*work[0])
             for i in range(self._num_restarts):

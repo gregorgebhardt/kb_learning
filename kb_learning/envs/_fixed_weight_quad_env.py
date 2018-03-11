@@ -13,8 +13,8 @@ def FixedWeightQuadEnvWith(weight, num_kilobots):
 
 class FixedWeightQuadEnv_w000_kb15(QuadEnv):
     def _configure_environment(self):
-        self._num_kilobots = 15
         self._weight = .0
+        self._num_kilobots = 15
         super()._configure_environment()
 
 
