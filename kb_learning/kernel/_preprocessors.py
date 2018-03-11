@@ -185,7 +185,11 @@ def angle_from_swarm_mean(data):
     return np.arctan2(mean_data[:, 1], mean_data[:, 0]).reshape((-1, 1))
 
 
-def step_towards_center(states):
-    light_direction = -states[:, -2:]
-    return light_direction / np.linalg.norm(light_direction, axis=1, keepdims=True) * .02
+class step_towards_center:
+    def __init__(self, coordinates):
+        self.coordinates = coordinates
+
+    def __call__(self, states):
+        light_direction = -states[:, self.coordinates]
+        return light_direction / np.linalg.norm(light_direction, axis=1, keepdims=True) * .02
 

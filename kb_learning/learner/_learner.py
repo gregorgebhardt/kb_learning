@@ -318,7 +318,7 @@ class ACRepsLearner(KilobotLearner):
         policy.gp_min_variance = self._params['gp']['min_variance']
         policy.gp_chol_regularizer = self._params['gp']['chol_regularizer']
         policy.action_bounds = action_bounds
-        policy.gp_prior_mean = step_towards_center
+        policy.gp_prior_mean = step_towards_center([-2, -1])
 
         return policy
 
@@ -529,6 +529,12 @@ class SampleWeightACRepsLearner(ACRepsLearner):
                                                                kb_dist_class=kb_dist_class,
                                                                v_dist_class=v_dist_class,
                                                                weight_dist_class=w_dist_class)
+
+    def _init_policy(self, action_bounds):
+        policy = super()._init_policy(action_bounds)
+        policy.gp_prior_mean = step_towards_center([-3, -2])
+
+        return policy
 
     def _init_SARS(self):
         super()._init_SARS()
