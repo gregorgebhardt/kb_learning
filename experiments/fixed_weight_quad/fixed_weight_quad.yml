@@ -24,6 +24,18 @@ params:
   gp:
     num_sparse_states: 500 # 1000
 ---
+name: "embedding_kernel_bandwidth_grid"
+params:
+  kernel:
+    type: 'embedding'
+  sampling:
+    w_factor: .0
+grid:
+  kernel:
+    bandwidth_factor_kb: [1., .8, .5]
+    bandwidth_factor_light: [1., .8, .5]
+    bandwidth_factor_light_action: [1., .8, .5]
+---
 name: "embedding_kernel"
 params:
   kernel:

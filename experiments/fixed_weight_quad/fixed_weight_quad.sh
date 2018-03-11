@@ -25,4 +25,4 @@ cd /home/yy05vipo/git/kb_learning/experiments
 
 srun hostname > $SLURM_JOB_ID.hostfile
 hostfileconv $SLURM_JOB_ID.hostfile -1
-job_stream --hostfile $SLURM_JOB_ID.hostfile.converted -- python fixed_weight_quad/fixed_weight_quad.py -c fixed_weight_quad/fixed_weight_quad.yml -e embedding_discount --log_level INFO
+job_stream --hostfile $SLURM_JOB_ID.hostfile.converted -- python fixed_weight_quad/fixed_weight_quad.py -c fixed_weight_quad/fixed_weight_quad.yml -e embedding_kernel_bandwidth_grid --log_level INFO
