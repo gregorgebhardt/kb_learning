@@ -17,25 +17,18 @@ params:
   kernel:
     bandwidth_factor_weight: .7
     bandwidth_factor_kb: .8
-    bandwidth_factor_light: .8
+    bandwidth_factor_light: .5
     bandwidth_factor_light_action: .5
   lstd:
-    num_features: 500 # 1000
+    num_features: 1500 # 1000
     discount_factor: .99
   gp:
-    num_sparse_states: 500 # 1000
+    num_sparse_states: 1500 # 1000
 ---
 name: "weight_bw"
 grid:
   kernel:
     bandwidth_factor_weight: [.2, .5, .8, 1.]
-    type: ['kilobot', 'mean']
----
-name: "discount_factor"
-grid:
-  lstd:
-    discount_factor: [.95, .99]
-  kernel:
     type: ['kilobot', 'mean']
 #---
 #name: "mean_kernel"

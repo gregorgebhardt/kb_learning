@@ -15,26 +15,36 @@ params:
     num_workers: 8
     num_kilobots: 15
   kernel:
-    bandwidth_factor_kb: 1.
-    bandwidth_factor_light: 1.
-    bandwidth_factor_light_action: [.5, .5, .5, .5]
+    bandwidth_factor_kb: .8
+    bandwidth_factor_light: .5
+    bandwidth_factor_light_action: .5
   lstd:
     num_features: 500 # 1000
     discount_factor: .99
   gp:
     num_sparse_states: 500 # 1000
 ---
-name: "embedding_kernel_bandwidth_grid"
+name: "num_sparse_features"
 params:
   kernel:
     type: 'embedding'
   sampling:
     w_factor: .0
-grid:
+list:
+  lstd:
+    num_features: [300, 500, 700, 900]
+  gp:
+    num_sparse_states: [300, 500, 700, 900]
+---
+name: "discount_factor"
+params:
   kernel:
-    bandwidth_factor_kb: [1., .8, .5]
-    bandwidth_factor_light: [1., .8, .5]
-    bandwidth_factor_light_action: [1., .8, .5]
+    type: 'embedding'
+  sampling:
+    w_factor: .0
+list:
+  lstd:
+    discount_factor:
 ---
 name: "embedding_kernel"
 params:
