@@ -2,10 +2,10 @@
 # DEFAULT
 name: "DEFAULT"
 repetitions: 3 # 20
-iterations: 20
+iterations: 30
 path: "data/fixed_weight_quad"
 plotting: true
-gui: true
+gui: false
 
 params:
   sampling:

@@ -24,8 +24,6 @@ params:
   gp:
     num_sparse_states: 500 # 1000
 ---
-name: ''
----
 name: 'square'
 params:
   sampling:

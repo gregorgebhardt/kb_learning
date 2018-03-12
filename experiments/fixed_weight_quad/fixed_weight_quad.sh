@@ -7,10 +7,10 @@
 #SBATCH -e /home/yy05vipo/git/kb_learning/experiments/fixed_weight_quad/l_%j.stderr
 #SBATCH -o /home/yy05vipo/git/kb_learning/experiments/fixed_weight_quad/l_%j.stdout
 #
-#SBATCH -n 6               # Number of tasks
+#SBATCH -n 30               # Number of tasks
 #SBATCH -c 8                # Number of cores per task
 #SBATCH --mem-per-cpu=1000  # Main memory in MByte per MPI task
-#SBATCH -t 3:00:00         # Hours, minutes and seconds, or '#SBATCH -t 10' - only minutes
+#SBATCH -t 6:00:00         # Hours, minutes and seconds, or '#SBATCH -t 10' - only minutes
 #SBATCH -C avx2            # requires new nodes
 ### SBATCH --hint=multithread
 
