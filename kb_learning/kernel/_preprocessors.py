@@ -191,5 +191,7 @@ class step_towards_center:
 
     def __call__(self, states):
         light_direction = -states[:, self.coordinates]
-        return light_direction / np.linalg.norm(light_direction, axis=1, keepdims=True) * .02
+        light_norm = np.linalg.norm(light_direction, keepdims=True)
+        return np.divide(light_direction, light_norm, where=light_norm != .0) *.02
+        # return light_direction / np.linalg.norm(light_direction, axis=1, keepdims=True) * .02
 
