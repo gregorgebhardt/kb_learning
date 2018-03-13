@@ -1,0 +1,118 @@
+---
+# DEFAULT
+name: "DEFAULT"
+repetitions: 3 # 20
+iterations: 20
+path: "data/fixed_weight_complex"
+plotting: true
+gui: true
+
+params:
+  sampling:
+    num_episodes: 300 # 100
+    num_steps_per_episode: 40 # 125
+    num_SARS_samples: 10000 # 10000
+    num_workers: 8
+    num_kilobots: 15
+  kernel:
+    bandwidth_factor_kb: .8
+    bandwidth_factor_light: .8
+    bandwidth_factor_light_action: [.8, .8, .5, .5]
+  lstd:
+    num_features: 500 # 1000
+    discount_factor: .97
+  gp:
+    num_sparse_states: 500 # 1000
+---
+name: 'test'
+---
+name: 'square'
+params:
+  sampling:
+    object_shape: 'quad'
+    object_width: .15
+    object_height: .15
+grid:
+  sampling:
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
+  kernel:
+    type: ['kilobot', 'mean', 'mean-cov']
+---
+name: 'rect'
+params:
+  sampling:
+    object_shape: 'rect'
+    object_width: .05
+    object_height: .8
+    num_kilobots: 5
+grid:
+  sampling:
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
+  kernel:
+    type: ['kilobot', 'mean', 'mean-cov']
+---
+name: 'circle'
+params:
+  sampling:
+    object_shape: 'circle'
+    object_width: .15
+grid:
+  sampling:
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
+  kernel:
+    type: ['kilobot', 'mean', 'mean-cov']
+---
+name: 'triangle'
+params:
+  sampling:
+    object_shape: 'triangle'
+    object_width: .15
+    object_height: .45
+grid:
+  sampling:
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
+  kernel:
+    type: ['kilobot', 'mean', 'mean-cov']
+---
+name: 'l_shape'
+params:
+  sampling:
+    object_shape: 'l_shape'
+    object_width: .2
+    object_height: .3
+grid:
+  sampling:
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
+  kernel:
+    type: ['kilobot', 'mean', 'mean-cov']
+---
+name: 't_shape'
+params:
+  sampling:
+    object_shape: 't_shape'
+    object_width: .2
+    object_height: .3
+grid:
+  sampling:
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
+  kernel:
+    type: ['kilobot', 'mean', 'mean-cov']
+---
+name: 'c_shape'
+params:
+  sampling:
+    object_shape: 'c_shape'
+    object_width: .2
+    object_height: .3
+grid:
+  sampling:
+    # w_factor: [.0, .25, .5, .75, 1.]
+    w_factor: [.0, .5, 1.]
+  kernel:
+    type: ['kilobot', 'mean', 'mean-cov']
