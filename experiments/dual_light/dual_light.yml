@@ -11,7 +11,7 @@ params:
   sampling:
     num_episodes: 300 # 100
     num_steps_per_episode: 40 # 125
-    num_SARS_samples: 10000 # 10000
+    num_SARS_samples: 5000 # 10000
     num_workers: 8
     num_kilobots: 15
   kernel:
@@ -19,10 +19,12 @@ params:
     bandwidth_factor_light: .8
     bandwidth_factor_light_action: [.8, .8, .5, .5]
   lstd:
-    num_features: 500 # 1000
-    discount_factor: .97
+    num_features: 300 # 1000
+    discount_factor: .99
   gp:
-    num_sparse_states: 500 # 1000
+    num_sparse_states: 300 # 1000
+    prior_variance: 1.
+    noise_variance: .5
 ---
 name: 'test'
 ---

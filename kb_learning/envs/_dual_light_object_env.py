@@ -1,6 +1,6 @@
 from ._object_env import ObjectEnv, UnknownObjectException
 
-from gym_kilobots.lib import CompositionLight, GradientLight, Body, PhototaxisKilobot
+from gym_kilobots.lib import CompositeLight, GradientLight, Body, SimplePhototaxisKilobot
 from gym_kilobots.lib import Quad, Circle, Triangle, LForm, TForm, CForm
 
 import abc
@@ -29,8 +29,8 @@ class DualLightObjectEnv(ObjectEnv):
                               + (self._light.get_state(),))
 
     def _init_light(self):
-        self._light = CompositionLight([GradientLight(), GradientLight()], reducer=max)
-        # self._light = CompositionLight([CircularGradientLight(radius=.3, position=np.array([.0, .0]),
+        self._light = CompositeLight([GradientLight(), GradientLight()], reducer=np.max)
+        # self._light = CompositeLight([CircularGradientLight(radius=.3, position=np.array([.0, .0]),
         #                                                       bounds=self.world_bounds),
         #                                 CircularGradientLight(radius=.3, position=np.array([.2, .0]),
         #                                                       bounds=self.world_bounds)],
@@ -40,7 +40,8 @@ class DualLightObjectEnv(ObjectEnv):
     def _init_kilobots(self):
         spawn_mean = np.random.rand(2) * np.array(self.world_size) * np.array((.98, .98))
         spawn_mean += self.world_bounds[0]
-        spawn_variance = np.random.rand() * self.world_width / 2
+        # spawn_variance = np.random.rand() * self.world_width / 2
+        spawn_variance = np.random.rand()
 
         kilobot_positions = np.random.normal(scale=spawn_variance, size=(self._num_kilobots, 2))
         kilobot_positions += spawn_mean
@@ -48,7 +49,7 @@ class DualLightObjectEnv(ObjectEnv):
         for position in kilobot_positions:
             position = np.maximum(position, self.world_bounds[0] + 0.02)
             position = np.minimum(position, self.world_bounds[1] - 0.02)
-            self._add_kilobot(PhototaxisKilobot(self.world, position=position, light=self._light))
+            self._add_kilobot(SimplePhototaxisKilobot(self.world, position=position, light=self._light))
 
 
 class DualLightComplexObjectEnv(DualLightObjectEnv):
