@@ -44,7 +44,7 @@ params:
     w_factor: .0
 list:
   lstd:
-    discount_factor:
+    discount_factor: [.95, .97, .98, .99, .999]
 ---
 name: "embedding_kernel"
 params:
