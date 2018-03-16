@@ -5,7 +5,7 @@ repetitions: 3 # 20
 iterations: 20
 path: "data/fixed_weight_complex"
 plotting: true
-gui: false
+gui: true
 
 params:
   sampling:
@@ -15,14 +15,16 @@ params:
     num_workers: 8
     num_kilobots: 15
   kernel:
-    bandwidth_factor_kb: .8
-    bandwidth_factor_light: .8
-    bandwidth_factor_light_action: [.8, .8, .5, .5]
+    bandwidth_factor_kb: .1
+    bandwidth_factor_light: .5
+    bandwidth_factor_light_action: [.5, .5, .5, .5]
   lstd:
     num_features: 500 # 1000
-    discount_factor: .97
+    discount_factor: .98
   gp:
     num_sparse_states: 500 # 1000
+---
+name: 'test'
 ---
 name: 'square'
 params:

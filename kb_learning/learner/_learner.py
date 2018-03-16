@@ -235,20 +235,20 @@ class ACRepsLearner(KilobotLearner):
             self._policy.train(self._SARS['S'].values, self._SARS['A'].values, weights, gp_samples)
 
             # evaluate policy
-            # logger.info('evaluating policy')
-            # it_sars, it_info = self._sampler(self._policy, num_episodes=self._params['eval']['num_episodes'],
-            #                                  num_steps_per_episode=self._params['eval']['num_steps_per_episode'])
-            #
-            # sum_R = it_sars['R'].groupby(level=0).sum()
-            #
-            # mean_sum_R = sum_R.mean()
-            # median_sum_R = sum_R.median()
-            # std_sum_R = sum_R.std()
-            # max_sum_R = sum_R.max()
-            # min_sum_R = sum_R.min()
-            #
-            # logger.info('statistics on sum R -- mean: {:.6f} median: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
-            #     mean_sum_R, median_sum_R, std_sum_R, max_sum_R, min_sum_R))
+            logger.info('evaluating policy')
+            it_sars, it_info = self._sampler(self._policy, num_episodes=self._params['eval']['num_episodes'],
+                                             num_steps_per_episode=self._params['eval']['num_steps_per_episode'])
+
+            sum_R = it_sars['R'].groupby(level=0).sum()
+
+            mean_sum_R = sum_R.mean()
+            median_sum_R = sum_R.median()
+            std_sum_R = sum_R.std()
+            max_sum_R = sum_R.max()
+            min_sum_R = sum_R.min()
+
+            logger.info('statistics on sum R -- mean: {:.6f} median: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
+                mean_sum_R, median_sum_R, std_sum_R, max_sum_R, min_sum_R))
 
             # plotting
             if self._plotting:
