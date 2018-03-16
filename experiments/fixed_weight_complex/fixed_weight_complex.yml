@@ -42,7 +42,7 @@ params:
   sampling:
     object_shape: 'rect'
     object_width: .05
-    object_height: .8
+    object_height: .6
     num_kilobots: 5
 grid:
   sampling:
