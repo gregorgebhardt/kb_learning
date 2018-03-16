@@ -144,6 +144,6 @@ def register_gradient_light_complex_object_env(weight: float, num_kilobots: int,
 
     globals()[_name] = GradientLightComplexObjectEnvWith(weight, num_kilobots, object_shape, object_width,
                                                          object_height)
-    register(id=_id, entry_point='kb_learning.envs:' + _name)
+    register(id=_id, entry_point='kb_learning.envs._gradient_light_object_env:' + _name)
 
     return _id
