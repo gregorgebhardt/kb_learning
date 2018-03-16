@@ -17,7 +17,8 @@ from kb_learning.ac_reps.reps import ActorCriticReps
 from kb_learning.ac_reps.sparse_gp_policy import SparseGPPolicy
 
 from kb_learning.envs.sampler import FixedWeightQuadEnvSampler, SampleWeightQuadEnvSampler, ComplexObjectEnvSampler, \
-    GradientLightComplexObjectEnvSampler
+    GradientLightComplexObjectEnvSampler, DynamicRegistrationEnvSampler
+from kb_learning.envs import register_dual_light_complex_object_env
 
 import matplotlib.pyplot as plt
 from matplotlib import cm, gridspec
@@ -234,23 +235,20 @@ class ACRepsLearner(KilobotLearner):
             self._policy.train(self._SARS['S'].values, self._SARS['A'].values, weights, gp_samples)
 
             # evaluate policy
-            logger.info('evaluating policy')
-            it_sars, it_info = self._sampler(self._policy, num_episodes=self._params['eval']['num_episodes'],
-                                             num_steps_per_episode=self._params['eval']['num_steps_per_episode'])
-            # fig, ax = plt.subplots(1)
-            # plot_light_trajectory(it_sars['S'], ax)
-            # fig.show()
-
-            sum_R = it_sars['R'].groupby(level=0).sum()
-
-            mean_sum_R = sum_R.mean()
-            median_sum_R = sum_R.median()
-            std_sum_R = sum_R.std()
-            max_sum_R = sum_R.max()
-            min_sum_R = sum_R.min()
-
-            logger.info('statistics on sum R -- mean: {:.6f} median: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
-                mean_sum_R, median_sum_R, std_sum_R, max_sum_R, min_sum_R))
+            # logger.info('evaluating policy')
+            # it_sars, it_info = self._sampler(self._policy, num_episodes=self._params['eval']['num_episodes'],
+            #                                  num_steps_per_episode=self._params['eval']['num_steps_per_episode'])
+            #
+            # sum_R = it_sars['R'].groupby(level=0).sum()
+            #
+            # mean_sum_R = sum_R.mean()
+            # median_sum_R = sum_R.median()
+            # std_sum_R = sum_R.std()
+            # max_sum_R = sum_R.max()
+            # min_sum_R = sum_R.min()
+            #
+            # logger.info('statistics on sum R -- mean: {:.6f} median: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
+            #     mean_sum_R, median_sum_R, std_sum_R, max_sum_R, min_sum_R))
 
             # plotting
             if self._plotting:
@@ -705,7 +703,7 @@ class GradientLightComplexObjectACRepsLearner(ACRepsLearner):
 
     def _init_policy(self, action_bounds):
         policy = super()._init_policy(action_bounds)
-        policy.gp_prior_mean = angle_from_swarm_mean
+        policy.gp_prior_mean = angle_from_swarm_mean(range(self._params['sampling']['num_kilobots'] * 2))
 
         return policy
 
@@ -771,6 +769,134 @@ class GradientLightComplexObjectACRepsLearner(ACRepsLearner):
         plot_value_function(ax_aft_P, *self._compute_value_function_grid(state_action_features, theta),
                             cmap=cmap_gray)
         qv = plot_policy(ax_aft_P, *self._compute_policy_quivers(), cmap=cmap_plasma)
+        plot_objects(ax_aft_P, env=self._sampler.env)
+        fig.colorbar(qv, cax=ax_aft_P_cb)
+        ax_aft_P.set_title('policy, after ac_reps, iteration {}'.format(self._it))
+
+        # save and show plot
+        show_plot_as_pdf(fig, path=self._log_path_rep, filename='plot_{:02d}.pdf'.format(self._it),
+                         overwrite=True, save_only=self._no_gui)
+        # plt.show(block=True)
+
+        plt.close(fig)
+
+    def _compute_value_function_grid(self, state_action_features, theta, steps_x=40, steps_y=40):
+        x_range = self._sampler.env.world_x_range
+        y_range = self._sampler.env.world_y_range
+        [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
+        X = X.flatten()
+        Y = -Y.flatten()
+
+        # kilobots at light position
+        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots])
+
+        # get mean actions
+        actions = self._policy.get_mean_action(states)
+
+        value_function = state_action_features(states, actions).dot(theta).reshape((steps_y, steps_x))
+
+        return value_function, x_range, y_range
+
+    def _compute_policy_quivers(self, steps_x=40, steps_y=40):
+        x_range = self._sampler.env.world_x_range
+        y_range = self._sampler.env.world_y_range
+        [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
+        X = X.flatten()
+        Y = Y.flatten()
+
+        # kilobots at light position
+        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots])
+
+        # get mean actions
+        mean_actions, sigma_actions = self._policy.get_mean_sigma_action(states)
+        # mean_actions /= np.linalg.norm(mean_actions, axis=1, keepdims=True)
+        mean_actions = mean_actions.reshape((steps_y, steps_x, mean_actions.shape[1]))
+        sigma_actions = sigma_actions.reshape((steps_y, steps_x))
+
+        actions = mean_actions, sigma_actions
+
+        return actions, x_range, y_range
+
+
+class DualLightComplexObjectACRepsLearner(ACRepsLearner):
+    def __init__(self):
+        super().__init__()
+
+        self._light_dimensions = 2
+        self._action_dimensions = 2
+
+    def _init_policy(self, action_bounds):
+        policy = super()._init_policy(action_bounds)
+        policy.gp_prior_mean = angle_from_swarm_mean(range(self._params['sampling']['num_kilobots'] * 2), 2)
+
+        return policy
+
+    def _init_SARS(self):
+        kb_columns_level = ['kb_{}'.format(i) for i in range(self._params['sampling']['num_kilobots'])]
+        self.kilobots_columns = pd.MultiIndex.from_product([['S'], kb_columns_level, ['x', 'y']])
+        self.light_columns = pd.MultiIndex.from_product([['S'], ['light_0', 'light_1'], ['theta']])
+        self.state_columns = self.kilobots_columns.append(self.light_columns)
+        self.action_columns = pd.MultiIndex.from_product([['A'], ['light_0', 'light_1'], ['des_theta']])
+        self.reward_columns = pd.MultiIndex.from_arrays([['R'], [''], ['']])
+        self.next_state_columns = self.state_columns.copy()
+        self.next_state_columns.set_levels(['S_'], 0, inplace=True)
+
+        self._SARS_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
+            self.next_state_columns)
+
+        self._SARS = pd.DataFrame(columns=self._SARS_columns)
+
+    def _init_sampler(self):
+        sampling_params = self._params['sampling']
+        return DynamicRegistrationEnvSampler(object_shape=sampling_params['object_shape'],
+                                             object_width=sampling_params['object_width'],
+                                             object_height=sampling_params['object_height'],
+                                             registration_function=register_dual_light_complex_object_env,
+                                             num_episodes=sampling_params['num_episodes'],
+                                             num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                             num_kilobots=sampling_params['num_kilobots'],
+                                             column_index=self._SARS_columns,
+                                             w_factor=sampling_params['w_factor'],
+                                             num_workers=sampling_params['num_workers'],
+                                             seed=self._seed, mp_context=self._MP_CONTEXT)
+
+    def _plot_iteration_results(self, it_sars, state_action_features, theta):
+        # setup figure
+        fig = plt.figure(figsize=(10, 20))
+        gs = gridspec.GridSpec(nrows=4, ncols=2, width_ratios=[20, 1], height_ratios=[1, 3, 3, 3])
+
+        # reward plot
+        ax_R = fig.add_subplot(gs[0, :])
+        plot_trajectory_reward_distribution(ax_R, it_sars['R'])
+
+        # value function plot
+        ax_bef_V = fig.add_subplot(gs[1, 0])
+        ax_bef_V_cb = fig.add_subplot(gs[1, 1])
+        cmap_plasma = cm.get_cmap('plasma')
+        cmap_gray = cm.get_cmap('gray')
+        V = self._compute_value_function_grid(state_action_features, theta)
+        im = plot_value_function(ax_bef_V, *V, cmap=cmap_plasma)
+        plot_objects(ax_bef_V, env=self._sampler.env, alpha=.3, fill=True)
+        ax_bef_V.set_title('value function, before ac_reps, iteration {}'.format(self._it))
+        fig.colorbar(im, cax=ax_bef_V_cb)
+
+        # trajectories plot
+        ax_bef_T = fig.add_subplot(gs[2, 0])
+        ax_bef_T_cb = fig.add_subplot(gs[2, 1])
+        ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
+        plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
+        tr = plot_trajectories(ax_bef_T, compute_mean_position_pandas(it_sars['S']))
+        plot_objects(ax_bef_T, env=self._sampler.env)
+        fig.colorbar(tr[0], cax=ax_bef_T_cb)
+
+        # new policy plot
+        ax_aft_P = fig.add_subplot(gs[3, 0])
+        ax_aft_P_cb = fig.add_subplot(gs[3, 1])
+        plot_value_function(ax_aft_P, *self._compute_value_function_grid(state_action_features, theta),
+                            cmap=cmap_gray)
+        (mean_actions, sigma_actions), x_range, y_range = self._compute_policy_quivers()
+        qv = plot_policy(ax_aft_P, (mean_actions[..., 0, None], sigma_actions), x_range, y_range, cmap=cmap_plasma)
+        qv = plot_policy(ax_aft_P, (mean_actions[..., 1, None], sigma_actions), x_range, y_range, cmap=cmap_plasma)
         plot_objects(ax_aft_P, env=self._sampler.env)
         fig.colorbar(qv, cax=ax_aft_P_cb)
         ax_aft_P.set_title('policy, after ac_reps, iteration {}'.format(self._it))

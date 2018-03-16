@@ -314,3 +314,30 @@ class GradientLightComplexObjectEnvSampler(ParallelSARSSampler):
     def _get_env_id(self):
         return kb_envs.register_gradient_light_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
             object_shape=self.object_shape, object_width=self.object_width, object_height=self.object_height)
+
+
+def _init_worker_dynamic_registration(w_factor, num_kilobots, object_shape, object_width, object_height,
+                                      num_environments, registration_function):
+    env_id = registration_function(weight=w_factor, num_kilobots=num_kilobots, object_shape=object_shape,
+                                   object_width=object_width, object_height=object_height)
+    _init_worker(env_id, num_environments)
+
+
+class DynamicRegistrationEnvSampler(ParallelSARSSampler):
+    def __init__(self, object_shape, object_width, object_height, registration_function, *args, **kwargs):
+        self.object_shape = object_shape
+        self.object_width = object_width
+        self.object_height = object_height
+        self.registration_function = registration_function
+
+        super().__init__(*args, **kwargs)
+
+    def _create_pool(self):
+        return self._context.Pool(processes=self._num_workers, initializer=_init_worker_dynamic_registration,
+                                  initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
+                                            self.object_height, self._episodes_per_worker, self.registration_function])
+
+    def _get_env_id(self):
+        return self.registration_function(weight=self.w_factor, num_kilobots=self.num_kilobots,
+                                          object_shape=self.object_shape, object_width=self.object_width,
+                                          object_height=self.object_height)

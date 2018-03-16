@@ -180,9 +180,14 @@ def compute_mean_and_cov_position(data):
     return np.c_[data_mean.squeeze(axis=1), data_cov]
 
 
-def angle_from_swarm_mean(data):
-    mean_data = -compute_mean_position(data)
-    return np.arctan2(mean_data[:, 1], mean_data[:, 0]).reshape((-1, 1))
+class angle_from_swarm_mean:
+    def __init__(self, swarm_coordinates, output_tiling=1):
+        self.swarm_coordinates = swarm_coordinates
+        self.output_tiling = output_tiling
+
+    def __call__(self, states):
+        mean_data = -compute_mean_position(states[:, self.swarm_coordinates])
+        return np.tile(np.arctan2(mean_data[:, 1], mean_data[:, 0]).reshape((-1, 1)), (1, self.output_tiling))
 
 
 class step_towards_center:
