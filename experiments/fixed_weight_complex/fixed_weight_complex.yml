@@ -15,12 +15,12 @@ params:
     num_workers: 8
     num_kilobots: 15
   kernel:
-    bandwidth_factor_kb: .1
-    bandwidth_factor_light: .5
-    bandwidth_factor_light_action: [.5, .5, .5, .5]
+    bandwidth_factor_kb: .2
+    bandwidth_factor_light: 1.0
+    bandwidth_factor_light_action: [1.0, 1.0, .5, .5]
   lstd:
     num_features: 500 # 1000
-    discount_factor: .98
+    discount_factor: .97
   gp:
     num_sparse_states: 500 # 1000
 ---
