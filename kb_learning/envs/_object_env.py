@@ -135,10 +135,11 @@ class ObjectEnv(KilobotsEnv):
             kilobot_poses.append((position, orientation))
 
         for position, orientation in kilobot_poses:
-            position = np.maximum(position, self.world_bounds[0] + 0.02)
-            position = np.minimum(position, self.world_bounds[1] - 0.02)
-            self._add_kilobot(SimplePhototaxisKilobot(self.world, position=position + self._light.get_state(),
-                                                      orientation=orientation, light=self._light))
+            position += self._light.get_state()
+            position = np.maximum(position, self.world_bounds[0] + 1.5 * kb_radius)
+            position = np.minimum(position, self.world_bounds[1] - 1.5 * kb_radius)
+            self._add_kilobot(SimplePhototaxisKilobot(self.world, position=position, orientation=orientation,
+                                                      light=self._light))
 
 
 class UnknownObjectException(Exception):
