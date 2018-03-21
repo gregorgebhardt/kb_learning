@@ -37,9 +37,12 @@ class ObjectEnv(KilobotsEnv):
         super().__init__()
 
     def get_state(self):
-        return np.concatenate(tuple(self._transform_position(k.get_position()) for k in self._kilobots)
-                              + (self._transform_position(self._light.get_state()),)
+        return np.concatenate(tuple(k.get_position() for k in self._kilobots)
+                              + (self._light.get_state(),)
                               + tuple(o.get_pose() for o in self._objects))
+
+    def get_info(self, state, action):
+        return np.array([o.get_pose() for o in self._objects])
 
     def _transform_position(self, position):
         return self._objects[0].get_local_point(position)

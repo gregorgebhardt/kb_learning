@@ -101,7 +101,12 @@ class ACRepsLearner(KilobotLearner):
         self._ac_reps = None
         self._policy = None
 
-        self._SARS = None
+        self._sars = None
+
+        self._it_sars = None
+        self._eval_sars = None
+        self._it_info = None
+        self._eval_info = None
 
         self._sampler = None
 
@@ -122,12 +127,12 @@ class ACRepsLearner(KilobotLearner):
 
         logger.info('sampling environment')
         self._sampler.seed = rep * 100 + n
-        it_sars, it_info = self._sampler(self._policy)
+        self._it_sars, self._it_info = self._sampler(self._policy)
         # fig, ax = plt.subplots(1)
-        # plot_light_trajectory(it_sars['S'], ax)
+        # plot_light_trajectory(self._it_sars['S'], ax)
         # fig.show()
 
-        sum_R = it_sars['R'].groupby(level=0).sum()
+        sum_R = self._it_sars['R'].groupby(level=0).sum()
 
         mean_sum_R = sum_R.mean()
         median_sum_R = sum_R.median()
@@ -139,43 +144,43 @@ class ACRepsLearner(KilobotLearner):
             mean_sum_R, median_sum_R, std_sum_R, max_sum_R, min_sum_R))
 
         # add samples to data set and select subset
-        _extended_SARS = self._SARS.append(it_sars, ignore_index=True)
-        # _extended_SARS.reset_index(drop=True)
+        _extended_sars = self._sars.append(self._it_sars, ignore_index=True)
+        # _extended_sars.reset_index(drop=True)
 
         # compute kernel parameters
         logger.debug('computing kernel bandwidths.')
-        bandwidth_kb = compute_median_bandwidth(_extended_SARS[self.kilobots_columns], sample_size=500,
+        bandwidth_kb = compute_median_bandwidth(_extended_sars[self.kilobots_columns], sample_size=500,
                                                 preprocessor=self._state_preprocessor)
         self._kernel.kilobots_dist.set_bandwidth(bandwidth_kb)
 
         if self.light_columns is not None:
-            bandwidth_l = compute_median_bandwidth(_extended_SARS[self.light_columns], sample_size=500)
+            bandwidth_l = compute_median_bandwidth(_extended_sars[self.light_columns], sample_size=500)
             self._kernel.light_dist.set_bandwidth(bandwidth_l)
 
         if self.weight_columns is not None:
-            bandwidth_w = compute_median_bandwidth(_extended_SARS[self.weight_columns], sample_size=500)
+            bandwidth_w = compute_median_bandwidth(_extended_sars[self.weight_columns], sample_size=500)
             self._kernel.weight_dist.set_bandwidth(bandwidth_w)
 
-        bandwidth_a = compute_median_bandwidth(_extended_SARS['A'], sample_size=500)
+        bandwidth_a = compute_median_bandwidth(_extended_sars['A'], sample_size=500)
         self._kernel.action_dist.set_bandwidth(bandwidth_a)
 
         logger.debug('selecting SARS samples.')
-        if _extended_SARS.shape[0] <= sampling_params['num_SARS_samples']:
-            self._SARS = _extended_SARS
+        if _extended_sars.shape[0] <= sampling_params['num_SARS_samples']:
+            self._sars = _extended_sars
         else:
-            self._SARS = _extended_SARS.sample(sampling_params['num_SARS_samples'])
-        self._SARS.reset_index(drop=True, inplace=True)
-        del _extended_SARS
+            self._sars = _extended_sars.sample(sampling_params['num_SARS_samples'])
+        self._sars.reset_index(drop=True, inplace=True)
+        del _extended_sars
 
         # compute feature matrices
         logger.debug('selecting lstd samples.')
-        lstd_reference = select_reference_set_by_kernel_activation(data=self._SARS[['S', 'A']],
+        lstd_reference = select_reference_set_by_kernel_activation(data=self._sars[['S', 'A']],
                                                                    size=self._params['lstd']['num_features'],
                                                                    kernel_function=self._kernel,
                                                                    batch_size=10)
         # lstd_samples = self._SARS.loc[lstd_reference]
-        lstd_state_samples = self._SARS.loc[lstd_reference]['S'].values
-        lstd_state_action_samples = self._SARS.loc[lstd_reference][['S', 'A']].values
+        lstd_state_samples = self._sars.loc[lstd_reference]['S'].values
+        lstd_state_action_samples = self._sars.loc[lstd_reference][['S', 'A']].values
 
         # lstd_samples = self._SARS[['S', 'A']].sample(self._params['lstd']['num_features'])
 
@@ -194,15 +199,15 @@ class ACRepsLearner(KilobotLearner):
         for i in range(self._params['learn_iterations']):
             # compute features
             logger.info('compute state-action features')
-            phi_SA = state_action_features(self._SARS['S'].values, self._SARS[['A']].values)
-            next_actions = np.array([self._policy(self._SARS['S_'].values) for _ in range(5)]).mean(axis=0)
-            phi_SA_next = state_action_features(self._SARS['S_'].values, next_actions)
+            phi_SA = state_action_features(self._sars['S'].values, self._sars[['A']].values)
+            next_actions = np.array([self._policy(self._sars['S_'].values) for _ in range(5)]).mean(axis=0)
+            phi_SA_next = state_action_features(self._sars['S_'].values, next_actions)
 
             # learn theta (parameters of Q-function) using lstd
             logger.info('learning theta [LSTD]')
             lstd = LeastSquaresTemporalDifference()
             lstd.discount_factor = self._params['lstd']['discount_factor']
-            theta = lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._SARS[['R']].values)
+            theta = lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._sars[['R']].values)
 
             # compute q-function
             logger.debug('compute q-function')
@@ -210,7 +215,7 @@ class ACRepsLearner(KilobotLearner):
 
             # compute state features
             logger.info('compute state features')
-            phi_S = state_features(self._SARS['S'].values)
+            phi_S = state_features(self._sars['S'].values)
 
             # compute sample weights using AC-REPS
             logger.info('learning weights [AC-REPS]')
@@ -222,28 +227,30 @@ class ACRepsLearner(KilobotLearner):
             logger.debug('select samples for GP')
             # weights_sort_index = np.argsort(weights)
             # gp_reference = pd.Index(weights_sort_index[-self._params['gp']['num_sparse_states']:])
-            gp_reference = pd.Index(np.random.choice(self._SARS.index.values,
+            gp_reference = pd.Index(np.random.choice(self._sars.index.values,
                                                      size=self._params['gp']['num_sparse_states'],
                                                      replace=False, p=weights))
             # gp_reference = select_reference_set_by_kernel_activation(data=self._SARS[['S']],
             #                                                          size=self._params['gp']['num_sparse_states'],
             #                                                          kernel_function=self._state_kernel,
             #                                                          batch_size=10, start_from=lstd_reference)
-            gp_samples = self._SARS['S'].loc[gp_reference].values
+            gp_samples = self._sars['S'].loc[gp_reference].values
             # gp_samples = self._SARS['S'].sample(self._params['gp']['num_sparse_states']).values
 
             # fit weighted GP to samples
             logger.info('fitting GP to policy')
             self._policy = self._init_policy((self._sampler.env.action_space.low, self._sampler.env.action_space.high))
-            self._policy.train(self._SARS['S'].values, self._SARS['A'].values, weights, gp_samples)
+            self._policy.train(self._sars['S'].values, self._sars['A'].values, weights, gp_samples)
 
             # evaluate policy
             logger.info('evaluating policy')
             self._sampler.seed = 5555
-            it_sars, it_info = self._sampler(self._policy, num_episodes=self._params['eval']['num_episodes'],
-                                             num_steps_per_episode=self._params['eval']['num_steps_per_episode'])
+            self._eval_sars, self._eval_info = self._sampler(self._policy,
+                                                             num_episodes=self._params['eval']['num_episodes'],
+                                                             num_steps_per_episode=self._params['eval'][
+                                                                 'num_steps_per_episode'])
 
-            sum_R = it_sars['R'].groupby(level=0).sum()
+            sum_R = self._eval_sars['R'].groupby(level=0).sum()
 
             mean_sum_R = sum_R.mean()
             median_sum_R = sum_R.median()
@@ -254,19 +261,9 @@ class ACRepsLearner(KilobotLearner):
             logger.info('statistics on sum R -- mean: {:.6f} median: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
                 mean_sum_R, median_sum_R, std_sum_R, max_sum_R, min_sum_R))
 
-            # store
-            if self._store_iteration:
-                # save SARS data
-                logger.info('pickling it_sars...')
-                SARS_file_name = os.path.join(self._log_path_rep, 'it_sars_{:02d}.pkl.gz'.format(self._it))
-                self._SARS.to_pickle(SARS_file_name, compression='gzip')
-
-                # save theta
-                # save object information??
-
             # plotting
             if self._plotting:
-                self._plot_iteration_results(it_sars, state_action_features, theta)
+                self._plot_iteration_results(state_action_features, theta)
 
             del phi_SA, phi_SA_next
 
@@ -351,7 +348,7 @@ class ACRepsLearner(KilobotLearner):
         self._SARS_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
             self.next_state_columns)
 
-        self._SARS = pd.DataFrame(columns=self._SARS_columns)
+        self._sars = pd.DataFrame(columns=self._SARS_columns)
 
     def _init_sampler(self):
         sampling_params = self._params['sampling']
@@ -367,14 +364,24 @@ class ACRepsLearner(KilobotLearner):
     def save_state(self, config: dict, rep: int, n: int) -> None:
         # save policy
         logger.info('pickling policy...')
-        policy_file_name = os.path.join(self._log_path_rep, 'policy_{:02d}.pkl'.format(self._it))
+        policy_file_name = os.path.join(self._log_path_rep, 'policy_it{:02d}.pkl'.format(self._it))
         with open(policy_file_name, mode='w+b') as policy_file:
             pickle.dump(self._policy, policy_file)
+
+        logger.info('pickling trajectories...')
+        it_sars_file_name = os.path.join(self._log_path_rep, 'it_sars_it{:02d}.pkl'.format(self._it))
+        np.save(it_sars_file_name, self._it_sars)
+        it_info_file_name = os.path.join(self._log_path_rep, 'it_info_it{:02d}.pkl'.format(self._it))
+        np.save(it_info_file_name, self._it_info)
+        eval_sars_file_name = os.path.join(self._log_path_rep, 'eval_sars_it{:02d}.pkl'.format(self._it))
+        np.save(eval_sars_file_name, self._eval_sars)
+        eval_info_file_name = os.path.join(self._log_path_rep, 'eval_info_it{:02d}.pkl'.format(self._it))
+        np.save(eval_info_file_name, self._eval_info)
 
         # save SARS data
         logger.info('pickling SARS...')
         SARS_file_name = os.path.join(self._log_path_rep, 'last_SARS.pkl.gz')
-        self._SARS.to_pickle(SARS_file_name, compression='gzip')
+        self._sars.to_pickle(SARS_file_name, compression='gzip')
 
     def restore_state(self, config: dict, rep: int, n: int) -> bool:
         # restore policy
@@ -387,7 +394,7 @@ class ACRepsLearner(KilobotLearner):
         SARS_file_name = os.path.join(self._log_path_rep, 'last_SARS.pkl.gz')
         if not os.path.exists(SARS_file_name):
             return False
-        self._SARS = pd.read_pickle(SARS_file_name, compression='gzip')
+        self._sars = pd.read_pickle(SARS_file_name, compression='gzip')
         return True
 
     @classmethod
@@ -408,14 +415,14 @@ class ACRepsLearner(KilobotLearner):
         plt.show(block=True)
         # fig.show()
 
-    def _plot_iteration_results(self, it_sars, state_action_features, theta):
+    def _plot_iteration_results(self, state_action_features, theta):
         # setup figure
         fig = plt.figure(figsize=(10, 20))
         gs = gridspec.GridSpec(nrows=4, ncols=2, width_ratios=[20, 1], height_ratios=[1, 3, 3, 3])
 
         # reward plot
         ax_R = fig.add_subplot(gs[0, :])
-        plot_trajectory_reward_distribution(ax_R, it_sars['R'])
+        plot_trajectory_reward_distribution(ax_R, self._it_sars['R'])
 
         # value function plot
         ax_bef_V = fig.add_subplot(gs[1, 0])
@@ -433,7 +440,7 @@ class ACRepsLearner(KilobotLearner):
         ax_bef_T_cb = fig.add_subplot(gs[2, 1])
         ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
         plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
-        tr = plot_trajectories(ax_bef_T, it_sars['S']['light'])
+        tr = plot_trajectories(ax_bef_T, self._it_sars['S']['light'])
         plot_objects(ax_bef_T, env=self._sampler.env)
         fig.colorbar(tr[0], cax=ax_bef_T_cb)
 
@@ -574,7 +581,7 @@ class SampleWeightACRepsLearner(ACRepsLearner):
 
         return sampler
 
-    def _plot_iteration_results(self, it_sars, state_action_features, theta):
+    def _plot_iteration_results(self, state_action_features, theta):
         # setup figure
         fig = plt.figure(figsize=(11, 20))
         gs = gridspec.GridSpec(nrows=4, ncols=4, width_ratios=[7, 7, 7, 1], height_ratios=[1, 3, 3, 3])
@@ -584,7 +591,7 @@ class SampleWeightACRepsLearner(ACRepsLearner):
 
         # reward plot
         ax_R = fig.add_subplot(gs[0, :])
-        plot_trajectory_reward_distribution(ax_R, it_sars['R'])
+        plot_trajectory_reward_distribution(ax_R, self._it_sars['R'])
 
         # value function plot
         cmap_plasma = cm.get_cmap('plasma')
@@ -617,16 +624,16 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         ax_T_w2.set_title('0.66 < w, iteration {}'.format(self._it))
         plot_value_function(ax_T_w0, *V_w0, cmap=cmap_gray)
         plot_objects(ax_T_w0, env=self._sampler.env)
-        small_w_index = it_sars['S']['weight'] <= .33
-        medium_w_index = (it_sars['S']['weight'] <= .66) & ~small_w_index
+        small_w_index = self._it_sars['S']['weight'] <= .33
+        medium_w_index = (self._it_sars['S']['weight'] <= .66) & ~small_w_index
         large_w_index = ~(small_w_index | medium_w_index)
-        plot_trajectories(ax_T_w0, it_sars['S']['light'].loc[small_w_index])
+        plot_trajectories(ax_T_w0, self._it_sars['S']['light'].loc[small_w_index])
         plot_value_function(ax_T_w1, *V_w1, cmap=cmap_gray)
         plot_objects(ax_T_w1, env=self._sampler.env)
-        plot_trajectories(ax_T_w1, it_sars['S']['light'].loc[medium_w_index])
+        plot_trajectories(ax_T_w1, self._it_sars['S']['light'].loc[medium_w_index])
         plot_value_function(ax_T_w2, *V_w2, cmap=cmap_gray)
         plot_objects(ax_T_w2, env=self._sampler.env)
-        tr = plot_trajectories(ax_T_w2, it_sars['S']['light'].loc[large_w_index])
+        tr = plot_trajectories(ax_T_w2, self._it_sars['S']['light'].loc[large_w_index])
         fig.colorbar(tr[0], cax=ax_T_cb)
 
         # new policy plot
@@ -748,14 +755,14 @@ class GradientLightComplexObjectACRepsLearner(ACRepsLearner):
                                                     num_workers=sampling_params['num_workers'],
                                                     seed=self._seed, mp_context=self._MP_CONTEXT)
 
-    def _plot_iteration_results(self, it_sars, state_action_features, theta):
+    def _plot_iteration_results(self, state_action_features, theta):
         # setup figure
         fig = plt.figure(figsize=(10, 20))
         gs = gridspec.GridSpec(nrows=4, ncols=2, width_ratios=[20, 1], height_ratios=[1, 3, 3, 3])
 
         # reward plot
         ax_R = fig.add_subplot(gs[0, :])
-        plot_trajectory_reward_distribution(ax_R, it_sars['R'])
+        plot_trajectory_reward_distribution(ax_R, self._it_sars['R'])
 
         # value function plot
         ax_bef_V = fig.add_subplot(gs[1, 0])
@@ -773,7 +780,7 @@ class GradientLightComplexObjectACRepsLearner(ACRepsLearner):
         ax_bef_T_cb = fig.add_subplot(gs[2, 1])
         ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
         plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
-        tr = plot_trajectories(ax_bef_T, compute_mean_position_pandas(it_sars['S']))
+        tr = plot_trajectories(ax_bef_T, compute_mean_position_pandas(self._it_sars['S']))
         plot_objects(ax_bef_T, env=self._sampler.env)
         fig.colorbar(tr[0], cax=ax_bef_T_cb)
 
@@ -874,14 +881,14 @@ class DualLightComplexObjectACRepsLearner(ACRepsLearner):
                                              num_workers=sampling_params['num_workers'],
                                              seed=self._seed, mp_context=self._MP_CONTEXT)
 
-    def _plot_iteration_results(self, it_sars, state_action_features, theta):
+    def _plot_iteration_results(self, state_action_features, theta):
         # setup figure
         fig = plt.figure(figsize=(10, 20))
         gs = gridspec.GridSpec(nrows=4, ncols=2, width_ratios=[20, 1], height_ratios=[1, 3, 3, 3])
 
         # reward plot
         ax_R = fig.add_subplot(gs[0, :])
-        plot_trajectory_reward_distribution(ax_R, it_sars['R'])
+        plot_trajectory_reward_distribution(ax_R, self._it_sars['R'])
 
         # value function plot
         ax_bef_V = fig.add_subplot(gs[1, 0])
@@ -899,7 +906,7 @@ class DualLightComplexObjectACRepsLearner(ACRepsLearner):
         ax_bef_T_cb = fig.add_subplot(gs[2, 1])
         ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
         plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
-        tr = plot_trajectories(ax_bef_T, compute_mean_position_pandas(it_sars['S']))
+        tr = plot_trajectories(ax_bef_T, compute_mean_position_pandas(self._it_sars['S']))
         plot_objects(ax_bef_T, env=self._sampler.env)
         fig.colorbar(tr[0], cax=ax_bef_T_cb)
 
