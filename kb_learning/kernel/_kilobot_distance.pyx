@@ -151,10 +151,9 @@ cdef class EmbeddedSwarmDistance:
         return True
 
     def set_bandwidth(self, bandwidth):
-        bandwidth = bandwidth.reshape((-1, 2)).mean(axis=0)
-        self._kernel_func.bandwidth = self.bandwidth_factor * bandwidth
-
-    def set_params(self, **params):
-        if 'bandwidth' in params:
-            self.set_bandwidth(params['bandwidth'])
-
+        if np.isscalar(bandwidth):
+            self._kernel_func.bandwidth = self.bandwidth_factor * np.ones(2) * bandwidth
+        elif len(bandwidth) == 1:
+            self._kernel_func.bandwidth = self.bandwidth_factor * np.ones(2) * bandwidth
+        else:
+            self._kernel_func.bandwidth = self.bandwidth_factor * bandwidth.reshape((-1, 2)).mean(axis=0)

@@ -59,12 +59,13 @@ class ACRepsLearner(KilobotLearner):
         },
         'kernel': {
             'kb_dist': 'embedded',
-            'v_dist': 'maha',
+            'l_dist': 'maha',
+            'a_dist': 'maha',
             'w_dist': 'maha',
-            'bandwidth_factor_kb': .8,
-            'bandwidth_factor_light': .8,
-            'bandwidth_factor_light_action': .8,
-            'bandwidth_factor_weight': 1.,
+            'bandwidth_factor_kb': .3,
+            'bandwidth_factor_light': .55,
+            'bandwidth_factor_action': .8,
+            'bandwidth_factor_weight': .3,
             'weight': .5,
         },
         'learn_iterations': 1,
@@ -93,7 +94,7 @@ class ACRepsLearner(KilobotLearner):
         super().__init__()
 
         self._state_preprocessor = None
-        self._state_kernel = None
+        self._kernel = None
         self._state_action_kernel = None
 
         self._lstd = None
@@ -106,12 +107,12 @@ class ACRepsLearner(KilobotLearner):
 
         self.kilobots_columns = None
         self.light_columns = None
-        self.state_columns = None
+        self.weight_columns = None
         self.action_columns = None
         self.reward_columns = None
+        self.state_columns = None
         self.next_state_columns = None
         self._SARS_columns = None
-        self.extra_dim_columns = None
 
         self._light_dimensions = 2
         self._action_dimensions = 2
@@ -145,14 +146,18 @@ class ACRepsLearner(KilobotLearner):
         logger.debug('computing kernel bandwidths.')
         bandwidth_kb = compute_median_bandwidth(_extended_SARS[self.kilobots_columns], sample_size=500,
                                                 preprocessor=self._state_preprocessor)
-        if self.extra_dim_columns is not None:
-            bandwidth_ed = compute_median_bandwidth(_extended_SARS[self.extra_dim_columns], sample_size=500)
-        else:
-            bandwidth_ed = []
-        bandwidth_a = compute_median_bandwidth(_extended_SARS['A'], sample_size=500)
+        self._kernel.kilobots_dist.set_bandwidth(bandwidth_kb)
 
-        self._state_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_ed])
-        self._state_action_kernel.set_params(bandwidth=np.r_[bandwidth_kb, bandwidth_ed, bandwidth_a])
+        if self.light_columns is not None:
+            bandwidth_l = compute_median_bandwidth(_extended_SARS[self.light_columns], sample_size=500)
+            self._kernel.light_dist.set_bandwidth(bandwidth_l)
+
+        if self.weight_columns is not None:
+            bandwidth_w = compute_median_bandwidth(_extended_SARS[self.weight_columns], sample_size=500)
+            self._kernel.weight_dist.set_bandwidth(bandwidth_w)
+
+        bandwidth_a = compute_median_bandwidth(_extended_SARS['A'], sample_size=500)
+        self._kernel.action_dist.set_bandwidth(bandwidth_a)
 
         logger.debug('selecting SARS samples.')
         if _extended_SARS.shape[0] <= sampling_params['num_SARS_samples']:
@@ -166,7 +171,7 @@ class ACRepsLearner(KilobotLearner):
         logger.debug('selecting lstd samples.')
         lstd_reference = select_reference_set_by_kernel_activation(data=self._SARS[['S', 'A']],
                                                                    size=self._params['lstd']['num_features'],
-                                                                   kernel_function=self._state_action_kernel,
+                                                                   kernel_function=self._kernel,
                                                                    batch_size=10)
         # lstd_samples = self._SARS.loc[lstd_reference]
         lstd_state_samples = self._SARS.loc[lstd_reference]['S'].values
@@ -177,14 +182,14 @@ class ACRepsLearner(KilobotLearner):
         def state_features(state):
             if state.ndim == 1:
                 state = state.reshape((1, -1))
-            return self._state_kernel(state, lstd_state_samples)
+            return self._kernel(state, lstd_state_samples)
 
         def state_action_features(state, action):
             if state.ndim == 1:
                 state = state.reshape((1, -1))
             if action.ndim == 1:
                 action = action.reshape((1, -1))
-            return self._state_action_kernel(np.c_[state, action], lstd_state_action_samples)
+            return self._kernel(np.c_[state, action], lstd_state_action_samples)
 
         for i in range(self._params['learn_iterations']):
             # compute features
@@ -198,8 +203,6 @@ class ACRepsLearner(KilobotLearner):
             lstd = LeastSquaresTemporalDifference()
             lstd.discount_factor = self._params['lstd']['discount_factor']
             theta = lstd.learn_q_function(phi_SA, phi_SA_next, rewards=self._SARS[['R']].values)
-
-            # plotting
 
             # compute q-function
             logger.debug('compute q-function')
@@ -259,8 +262,6 @@ class ACRepsLearner(KilobotLearner):
         return_dict = dict(mean_sum_R=mean_sum_R, median_sum_R=median_sum_R, std_sum_R=std_sum_R,
                            max_sum_R=max_sum_R, min_sum_R=min_sum_R)
 
-        del lstd_state_samples, lstd_state_action_samples
-        del it_sars
         gc.collect()
 
         return return_dict
@@ -289,32 +290,37 @@ class ACRepsLearner(KilobotLearner):
         else:
             raise InvalidParameterArgument
 
-        if kernel_params['v_dist'] == 'maha':
-            v_dist_class = MahaDist
-        elif kernel_params['v_dist'] == 'periodic':
-            v_dist_class = PeriodicDist
+        if kernel_params['l_dist'] == 'maha':
+            l_dist_class = MahaDist
+        elif kernel_params['l_dist'] == 'periodic':
+            l_dist_class = PeriodicDist
         else:
             raise InvalidParameterArgument
 
-        self._state_kernel = KilobotEnvKernel(weight=kernel_params['weight'],
-                                              bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                              bandwidth_factor_v=kernel_params['bandwidth_factor_light'],
-                                              v_dims=self._light_dimensions,
-                                              kb_dist_class=kb_dist_class,
-                                              v_dist_class=v_dist_class)
-        self._state_action_kernel = KilobotEnvKernel(weight=kernel_params['weight'],
-                                                     bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                                     bandwidth_factor_v=kernel_params['bandwidth_factor_light_action'],
-                                                     v_dims=self._light_dimensions + self._action_dimensions,
-                                                     kb_dist_class=kb_dist_class,
-                                                     v_dist_class=v_dist_class)
+        if kernel_params['a_dist'] == 'maha':
+            a_dist_class = MahaDist
+        elif kernel_params['a_dist'] == 'periodic':
+            a_dist_class = PeriodicDist
+        else:
+            raise InvalidParameterArgument
+
+        self._kernel = KilobotEnvKernel(weight=kernel_params['weight'],
+                                        bandwidth_factor_kilobots=kernel_params['bandwidth_factor_kb'],
+                                        bandwidth_factor_light=kernel_params['bandwidth_factor_light'],
+                                        bandwidth_factor_action=kernel_params['bandwidth_factor_action'],
+                                        light_idx=2 * self._params['sampling']['num_kilobots'],
+                                        action_idx=2 * self._params['sampling']['num_kilobots'] +
+                                                   self._light_dimensions,
+                                        kb_dist_class=kb_dist_class,
+                                        light_dist_class=l_dist_class,
+                                        action_dist_class=a_dist_class)
 
     def _init_policy(self, action_bounds):
-        policy = SparseGPPolicy(kernel=self._state_kernel)
+        policy = SparseGPPolicy(kernel=self._kernel)
         policy.gp_prior_variance = self._params['gp']['prior_variance']
         policy.gp_noise_variance = self._params['gp']['noise_variance']
         policy.gp_min_variance = self._params['gp']['min_variance']
-        policy.gp_chol_regularizer = self._params['gp']['chol_regularizer']
+        policy.gp_cholesky_regularizer = self._params['gp']['chol_regularizer']
         policy.action_bounds = action_bounds
         policy.gp_prior_mean = step_towards_center([-2, -1])
 
@@ -346,9 +352,6 @@ class ACRepsLearner(KilobotLearner):
                                             num_workers=sampling_params['num_workers'],
                                             seed=self._seed, mp_context=self._MP_CONTEXT)
         return sampler
-
-    def finalize(self):
-        pass
 
     def save_state(self, config: dict, rep: int, n: int) -> None:
         # save policy

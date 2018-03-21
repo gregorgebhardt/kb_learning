@@ -5,8 +5,6 @@ import matplotlib
 
 from gym_kilobots.envs import KilobotsEnv
 
-import mpld3
-
 import pandas as pd
 import numpy as np
 
@@ -75,49 +73,49 @@ def plot_trajectory_reward_distribution(axes: Axes, reward: pd.DataFrame):
     axes.plot(x, mean_reward)
 
 
-def save_plot_as_html(figure, filename=None, path=None, overwrite=True):
-    if path is None:
-        import tempfile
-        path = tempfile.gettempdir()
-    if filename is None:
-        filename = 'plot.html'
-
-    html_full_path = os.path.join(path, filename)
-
-    if overwrite and os.path.exists(html_full_path):
-        os.remove(html_full_path)
-    elif os.path.exists(html_full_path):
-        root, ext = os.path.splitext(html_full_path)
-        root_i = root + '_{}'
-        i = 1
-        while os.path.exists(html_full_path):
-            html_full_path = root_i.format(i) + ext
-            i = i + 1
-
-    html_data = mpld3.fig_to_html(figure)
-
-    with open(html_full_path, mode='w') as html_file:
-        # mpld3.save_html(figure, html_file)
-        html_file.write(html_data)
-
-    return html_full_path
+# def save_plot_as_html(figure, filename=None, path=None, overwrite=True):
+#     if path is None:
+#         import tempfile
+#         path = tempfile.gettempdir()
+#     if filename is None:
+#         filename = 'plot.html'
+#
+#     html_full_path = os.path.join(path, filename)
+#
+#     if overwrite and os.path.exists(html_full_path):
+#         os.remove(html_full_path)
+#     elif os.path.exists(html_full_path):
+#         root, ext = os.path.splitext(html_full_path)
+#         root_i = root + '_{}'
+#         i = 1
+#         while os.path.exists(html_full_path):
+#             html_full_path = root_i.format(i) + ext
+#             i = i + 1
+#
+#     html_data = mpld3.fig_to_html(figure)
+#
+#     with open(html_full_path, mode='w') as html_file:
+#         # mpld3.save_html(figure, html_file)
+#         html_file.write(html_data)
+#
+#     return html_full_path
 
 browser_controller = None
 
 
-def show_plot_in_browser(figure, filename=None, path=None, overwrite=True, browser='google-chrome',
-                         save_only=False):
-    html_full_path = save_plot_as_html(figure, filename, path, overwrite)
-
-    if save_only:
-        return
-
-    global browser_controller
-    if browser_controller is None:
-        import webbrowser
-        browser_controller = webbrowser.get(browser)
-
-    browser_controller.open(html_full_path)
+# def show_plot_in_browser(figure, filename=None, path=None, overwrite=True, browser='google-chrome',
+#                          save_only=False):
+#     html_full_path = save_plot_as_html(figure, filename, path, overwrite)
+#
+#     if save_only:
+#         return
+#
+#     global browser_controller
+#     if browser_controller is None:
+#         import webbrowser
+#         browser_controller = webbrowser.get(browser)
+#
+#     browser_controller.open(html_full_path)
 
 
 def save_plot_as_pdf(figure, filename=None, path=None, overwrite=True):

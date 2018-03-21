@@ -2,15 +2,12 @@ from typing import Tuple
 import numpy as np
 import scipy.linalg
 
-from sklearn.gaussian_process.kernels import Kernel
-
 import logging
-
 logger = logging.getLogger('kb_learning.gp')
 
 
 class SparseGPPolicy:
-    def __init__(self, kernel: Kernel, action_bounds: Tuple[np.ndarray, np.ndarray]=None):
+    def __init__(self, kernel, action_bounds: Tuple[np.ndarray, np.ndarray]=None):
         # TODO add documentation
         """
 
@@ -21,7 +18,7 @@ class SparseGPPolicy:
         self.gp_prior_mean = None
         self.gp_noise_variance = 1e-6
         self.gp_min_variance = 0.0005
-        self.gp_chol_regularizer = 1e-9
+        self.gp_cholesky_regularizer = 1e-9
 
         self.Q_Km = None
         self.alpha = None
@@ -37,16 +34,6 @@ class SparseGPPolicy:
     def action_dim(self):
         if self.action_bounds:
             return self.action_bounds[0].shape[0]
-
-    def _get_random_actions(self, num_samples=1):
-        # sample random numbers in [0.0, 1.0)
-        samples = np.random.random((num_samples, self.action_dim))
-        # multiply by range
-        samples *= self.action_bounds[1] - self.action_bounds[0]
-        # add lower bound to the samples
-        samples += self.action_bounds[0]
-
-        return samples
 
     @staticmethod
     def set_seed(seed):
@@ -73,11 +60,11 @@ class SparseGPPolicy:
         K_mn = self.gp_prior_variance * self.kernel(sparse_states, states)
 
         # fix cholesky with regularizer
-        reg_I = self.gp_chol_regularizer * np.eye(K_m.shape[0])
+        reg_I = self.gp_cholesky_regularizer * np.eye(K_m.shape[0])
         while True:
             try:
                 K_m_c = np.linalg.cholesky(K_m), True
-                logger.debug('regularization for chol: {}'.format(reg_I[0, 0]))
+                logger.debug('regularization for cholesky: {}'.format(reg_I[0, 0]))
                 break
             except np.linalg.LinAlgError:
                 K_m += reg_I
@@ -99,9 +86,6 @@ class SparseGPPolicy:
         self.Q_Km = np.linalg.pinv(K_m) - np.linalg.pinv(Q)
 
         self.trained = True
-
-    def get_random_action(self):
-        return self._get_random_actions()
 
     def get_mean_action(self, states, return_k=False):
         if self.trained:

@@ -5,7 +5,7 @@ repetitions: 3 # 20
 iterations: 20
 path: "data/fixed_weight_complex"
 plotting: true
-gui: true
+gui: false
 
 params:
   sampling:
@@ -45,7 +45,7 @@ params:
     object_shape: 'rect'
     object_width: .05
     object_height: .6
-    num_kilobots: 5
+    num_kilobots: 15
 grid:
   sampling:
     # w_factor: [.0, .25, .5, .75, 1.]

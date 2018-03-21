@@ -30,12 +30,11 @@ class MahaDist:
     def is_stationary():
         return True
 
-    def set_params(self, **params):
-        if 'bandwidth' in params:
-            if np.isscalar(params['bandwidth']):
-                self.bandwidth = 1 / (self.bandwidth_factor * params['bandwidth'])
-            else:
-                self.bandwidth = np.diag(1 / (self.bandwidth_factor * params['bandwidth']))
+    def set_bandwidth(self, bandwidth):
+        if np.isscalar(bandwidth):
+            self.bandwidth = 1 / (self.bandwidth_factor * bandwidth)
+        else:
+            self.bandwidth = np.diag(1 / (self.bandwidth_factor * bandwidth))
 
 
 class MeanSwarmDist(MahaDist):
@@ -85,6 +84,5 @@ class PeriodicDist:
     def is_stationary():
         return True
 
-    def set_params(self, **params):
-        if 'bandwidth' in params:
-            self.bandwidth = 1 / (self.bandwidth_factor * params['bandwidth'])
+    def set_bandwidth(self, bandwidth):
+        self.bandwidth = 1 / (self.bandwidth_factor * bandwidth)
