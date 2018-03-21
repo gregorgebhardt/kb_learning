@@ -5,24 +5,24 @@ repetitions: 3 # 20
 iterations: 20
 path: "data/fixed_weight_complex"
 plotting: true
-gui: false
+gui: true
 
 params:
   sampling:
-    num_episodes: 300 # 100
+    num_episodes: 50 # 100
     num_steps_per_episode: 40 # 125
     num_SARS_samples: 10000 # 10000
     num_workers: 8
     num_kilobots: 15
   kernel:
-    bandwidth_factor_kb: .2
-    bandwidth_factor_light: 1.0
-    bandwidth_factor_light_action: [1.0, 1.0, .5, .5]
+    bandwidth_factor_kb: .3
+    bandwidth_factor_light: .55
+    bandwidth_factor_action: .8
   lstd:
-    num_features: 500 # 1000
-    discount_factor: .97
+    num_features: 200 # 1000
+    discount_factor: .99
   gp:
-    num_sparse_states: 500 # 1000
+    num_sparse_states: 200 # 1000
 ---
 name: 'test'
 ---

@@ -30,7 +30,7 @@ class KilobotEnvKernel:
             Y_kilobots = Y_split[0]
             k = - (1 - self._weight) * self.kilobots_dist(X_kilobots, Y_kilobots)
 
-            if self._light_idx:
+            if self._light_idx and self._light_idx < X.shape[1]:
                 X_light = X_split[1]
                 Y_light = Y_split[1]
                 k -= self._weight * self.light_dist(X_light, Y_light)
@@ -42,7 +42,7 @@ class KilobotEnvKernel:
         else:
             k = - (1 - self._weight) * self.kilobots_dist(X_kilobots, X_kilobots)
 
-            if self._light_idx:
+            if self._light_idx and self._light_idx < X.shape[1]:
                 X_light = X_split[1]
                 k -= self._weight * self.light_dist(X_light)
 
@@ -57,11 +57,11 @@ class KilobotEnvKernel:
         X_kilobots = X_split[0]
         k = - (1 - self._weight) * self.kilobots_dist.diag(X_kilobots)
 
-        if self._light_idx:
+        if self._light_idx and self._light_idx < X.shape[1]:
             X_light = X_split[1]
             k -= self._weight * self.light_dist.diag(X_light)
 
-        if self._action_idx:
+        if self._action_idx and self._action_idx < X.shape[1]:
             X_action = X_split[-1]
             k -= self._weight * self.action_dist.diag(X_action)
 

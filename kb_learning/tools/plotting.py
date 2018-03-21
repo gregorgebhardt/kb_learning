@@ -35,7 +35,7 @@ def plot_trajectories(axes: Axes, trajectories: pd.DataFrame):
 
 
 def plot_value_function(axes: Axes, V, x_range, y_range, **kwargs):
-    im = axes.matshow(V, extent=x_range+y_range, **kwargs, norm=Normalize(-0.2, 0.2))
+    im = axes.matshow(V, extent=x_range+y_range, **kwargs, norm=Normalize(-0.4, 0.4))
     return im
 
 

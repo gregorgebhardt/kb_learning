@@ -239,6 +239,7 @@ class ACRepsLearner(KilobotLearner):
 
             # evaluate policy
             logger.info('evaluating policy')
+            self._sampler.seed = 5555
             it_sars, it_info = self._sampler(self._policy, num_episodes=self._params['eval']['num_episodes'],
                                              num_steps_per_episode=self._params['eval']['num_steps_per_episode'])
 
@@ -252,6 +253,16 @@ class ACRepsLearner(KilobotLearner):
 
             logger.info('statistics on sum R -- mean: {:.6f} median: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
                 mean_sum_R, median_sum_R, std_sum_R, max_sum_R, min_sum_R))
+
+            # store
+            if self._store_iteration:
+                # save SARS data
+                logger.info('pickling it_sars...')
+                SARS_file_name = os.path.join(self._log_path_rep, 'it_sars_{:02d}.pkl.gz'.format(self._it))
+                self._SARS.to_pickle(SARS_file_name, compression='gzip')
+
+                # save theta
+                # save object information??
 
             # plotting
             if self._plotting:
