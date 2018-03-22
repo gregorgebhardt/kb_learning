@@ -5,11 +5,11 @@ repetitions: 3 # 20
 iterations: 20
 path: "data/fixed_weight_complex"
 plotting: true
-gui: true
+gui: false
 
 params:
   sampling:
-    num_episodes: 50 # 100
+    num_episodes: 300 # 100
     num_steps_per_episode: 40 # 125
     num_SARS_samples: 10000 # 10000
     num_workers: 8
@@ -19,12 +19,24 @@ params:
     bandwidth_factor_light: .55
     bandwidth_factor_action: .8
   lstd:
-    num_features: 200 # 1000
+    num_features: 500 # 1000
     discount_factor: .99
   gp:
-    num_sparse_states: 200 # 1000
+    num_sparse_states: 500 # 1000
 ---
-name: 'test'
+name: 'bandwidth_eval'
+params:
+  sampling:
+    object_shape: 'rect'
+    object_width: .05
+    object_height: .6
+    num_kilobots: 15
+grid:
+  kernel:
+    bandwidth_factor_kb: [.1, .2, .3]
+    bandwidth_factor_light: [.1, .3, .5]
+    bandwidth_factor_action: [.8, 1., 1.2]
+
 ---
 name: 'square'
 params:
@@ -48,7 +60,7 @@ params:
     num_kilobots: 15
 grid:
   sampling:
-    # w_factor: [.0, .25, .5, .75, 1.]
+#    w_factor: [.0, .25, .5, .75, 1.]
     w_factor: [.0, .5, 1.]
   kernel:
     type: ['kilobot', 'mean', 'mean-cov']

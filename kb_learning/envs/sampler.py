@@ -162,6 +162,7 @@ def _do_work(policy, num_episodes, num_steps, seed):
 
         # collect samples in DataFrame
         it_sars_data[step::num_steps, state_dims:] = np.c_[actions, reward, states]
+        it_info[step::num_steps, state_dims:]
 
     return it_sars_data, info
 

@@ -2,7 +2,7 @@ import numpy as np
 
 from gym_kilobots.envs import KilobotsEnv
 from gym_kilobots.lib import PhototaxisKilobot, SimplePhototaxisKilobot, Body, CircularGradientLight
-from gym.spaces import Box
+from gym import spaces
 
 import abc
 
@@ -28,7 +28,6 @@ class ObjectEnv(KilobotsEnv):
     _spawn_angle_variance = .5 * np.pi
 
     _action_bounds = np.array([-.02, -.02]), np.array([.02, .02])
-    action_space = Box(*_action_bounds, dtype=np.float64)
 
     def __init__(self):
         self._weight = None
@@ -42,7 +41,7 @@ class ObjectEnv(KilobotsEnv):
                               + tuple(o.get_pose() for o in self._objects))
 
     def get_info(self, state, action):
-        return np.array([o.get_pose() for o in self._objects])
+        return self.get_state()
 
     def _transform_position(self, position):
         return self._objects[0].get_local_point(position)
@@ -79,6 +78,19 @@ class ObjectEnv(KilobotsEnv):
         self._init_light()
 
         self._init_kilobots()
+
+        # construct state space, observation space and action space
+        kb_low = np.array([self.world_x_range[0], self.world_y_range[0]] * len(self._kilobots))
+        kb_high = np.array([self.world_x_range[1], self.world_y_range[1]] * len(self._kilobots))
+        kilobots_space = spaces.Box(low=kb_low, high=kb_high, dtype=np.float64)
+
+        objects_low = np.array([self.world_x_range[0], self.world_y_range[0], -np.inf] * len(self._objects))
+        objects_high = np.array([self.world_x_range[1], self.world_y_range[1], np.inf] * len(self._objects))
+        objects_space = spaces.Box(low=objects_low, high=objects_high, dtype=np.float64)
+
+        self.state_space = spaces.Tuple([kilobots_space, self._light.observation_space, objects_space])
+        self.observation_space = spaces.Tuple([kilobots_space, self._light.observation_space])
+        self.action_space = spaces.Box(*self._action_bounds, dtype=np.float64)
 
         # step world once to resolve collisions
         self._step_world()
