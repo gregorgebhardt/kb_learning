@@ -3,7 +3,7 @@
 name: "DEFAULT"
 repetitions: 3 # 20
 iterations: 20
-path: "data/fixed_weight_complex"
+path: "data/fixed_weight"
 plotting: true
 gui: false
 

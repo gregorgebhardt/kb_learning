@@ -1,10 +1,10 @@
 import numpy as np
 
 from gym_kilobots.envs import KilobotsEnv
-from gym_kilobots.lib import PhototaxisKilobot, SimplePhototaxisKilobot, Body, CircularGradientLight
+from gym_kilobots.lib import PhototaxisKilobot, SimplePhototaxisKilobot, CircularGradientLight
 from gym import spaces
 
-import abc
+from gym_kilobots.lib import Body, Quad, Circle, Triangle, LForm, TForm, CForm
 
 
 class ObjectEnv(KilobotsEnv):
@@ -29,9 +29,11 @@ class ObjectEnv(KilobotsEnv):
 
     _action_bounds = np.array([-.02, -.02]), np.array([.02, .02])
 
-    def __init__(self):
-        self._weight = None
-        self._num_kilobots = None
+    def __init__(self, num_kilobots=None, weight=.0, object_shape='quad', object_width=.15, object_height=.15):
+        self._weight = weight
+        self._num_kilobots = num_kilobots
+        self._object_width, self._object_height = object_width, object_height
+        self._object_shape = object_shape
 
         super().__init__()
 
@@ -51,6 +53,9 @@ class ObjectEnv(KilobotsEnv):
                               + (self._transform_position(self._light.get_state()),))
 
     def get_reward(self, state, _, new_state):
+        if self._weight is None:
+            self._weight = np.random.rand()
+
         obj_pose = state[-3:]
         obj_pose_new = new_state[-3:]
 
@@ -70,6 +75,7 @@ class ObjectEnv(KilobotsEnv):
 
     def _configure_environment(self):
         np.random.seed(self.seed()[0])
+
         # initialize object always at (0, 0) with 0 orientation (we do not need to vary the object position and
         # orientation since we will later adapt the state based on the object pose.)
         self._objects.append(self._create_object())
@@ -95,9 +101,34 @@ class ObjectEnv(KilobotsEnv):
         # step world once to resolve collisions
         self._step_world()
 
-    @abc.abstractmethod
     def _create_object(self) -> Body:
-        pass
+        object_shape = self._object_shape.lower()
+
+        if object_shape in ['quad', 'rect']:
+            return Quad(width=self._object_width, height=self._object_height,
+                        position=self._object_init[:2], orientation=self._object_init[2],
+                        world=self.world)
+        elif object_shape == 'triangle':
+            return Triangle(width=self._object_width, height=self._object_height,
+                            position=self._object_init[:2], orientation=self._object_init[2],
+                            world=self.world)
+        elif object_shape == 'circle':
+            return Circle(radius=self._object_width, position=self._object_init[:2],
+                          orientation=self._object_init[2], world=self.world)
+        elif object_shape == 'l_shape':
+            return LForm(width=self._object_width, height=self._object_height,
+                         position=self._object_init[:2], orientation=self._object_init[2],
+                         world=self.world)
+        elif object_shape == 't_shape':
+            return TForm(width=self._object_width, height=self._object_height,
+                         position=self._object_init[:2], orientation=self._object_init[2],
+                         world=self.world)
+        elif object_shape == 'c_shape':
+            return CForm(width=self._object_width, height=self._object_height,
+                         position=self._object_init[:2], orientation=self._object_init[2],
+                         world=self.world)
+        else:
+            raise UnknownObjectException('Shape of form {} not known.'.format(self._object_shape))
 
     def _init_light(self):
         # determine sampling mode for this episode

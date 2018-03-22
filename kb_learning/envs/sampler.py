@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 
 import gym
-import kb_learning.envs as kb_envs
 import logging
 
 logger = logging.getLogger('kb_learning.sampler')
@@ -47,11 +46,16 @@ class KilobotSampler(object):
         return it_sars, info
 
 
-class QuadEnvSampler(KilobotSampler):
-    def __init__(self, w_factor, num_kilobots, *args, **kwargs):
+class ObjectEnvSampler(KilobotSampler):
+    def __init__(self, w_factor, num_kilobots, object_shape, object_width, object_height, registration_function,
+                 *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.w_factor = w_factor
         self.num_kilobots = num_kilobots
+        self.object_shape = object_shape
+        self.object_width = object_width
+        self.object_height = object_height
+        self.registration_function = registration_function
 
         self.env_id = self._get_env_id()
         # create an prototype of the environment
@@ -64,40 +68,32 @@ class QuadEnvSampler(KilobotSampler):
         for i, e in enumerate(self.envs):
             e.seed(self.seed * 100 + i)
 
-    @abc.abstractmethod
     def _get_env_id(self):
-        raise NotImplementedError
+        return self.registration_function(weight=self.w_factor, num_kilobots=self.num_kilobots,
+                                          object_shape=self.object_shape, object_width=self.object_width,
+                                          object_height=self.object_height)
 
 
-class SARSSampler(QuadEnvSampler):
-    def __init__(self, num_episodes: int, num_steps_per_episode: int, num_kilobots: int,
-                 column_index: pd.Index, seed: int=0, *args, **kwargs):
-        super().__init__(num_episodes=num_episodes, num_steps_per_episode=num_steps_per_episode,
-                         num_kilobots=num_kilobots, column_index=column_index, seed=seed, *args, **kwargs)
-
-    @abc.abstractmethod
-    def _get_env_id(self):
-        raise NotImplementedError
-
+class SARSSampler(ObjectEnvSampler):
     def _sample_sars(self, policy, num_episodes, num_steps_per_episode):
         if len(self.envs) != num_episodes:
             self._init_envs(num_episodes)
-
-        for i, e in enumerate(self.envs):
-            e.seed(self.seed * 100 + i)
 
         # reset environments and obtain initial states
         states = np.array([e.reset() for e in self.envs])
         reward = np.empty((num_episodes, 1))
         info = list()
 
-        state_dims = states.shape[1]
+        observation_dims = states.shape[1]
         action_dims = sum(self.env.action_space.shape)
+        state_dims = sum(sum(s.shape) for s in envs[0].state_space.spaces)
 
-        it_sars_data = np.empty((num_episodes * num_steps_per_episode, 2 * state_dims + action_dims + 1))
+        it_sars_data = np.empty((num_episodes * num_steps_per_episode, 2 * observation_dims + action_dims + 1))
+        it_info_data = np.empty((num_episodes * num_steps_per_episode, state_dims))
 
         for step in range(num_steps_per_episode):
-            it_sars_data[step::num_steps_per_episode, :state_dims] = states
+            it_sars_data[step::num_steps_per_episode, :observation_dims] = states
+            info.clear()
 
             actions = policy(states)
             srdi = [e.step(a) for e, a in zip(self.envs, actions)]
@@ -107,42 +103,46 @@ class SARSSampler(QuadEnvSampler):
                 reward[i] = srdi[i][1]
                 info.append(srdi[i][3])
 
-            # collect samples in DataFrame
-            it_sars_data[step::num_steps_per_episode, state_dims:] = np.c_[actions, reward, states]
+            # collect samples into matrix
+            it_sars_data[step::num_steps_per_episode, observation_dims:] = np.c_[actions, reward, states]
+            # collect environment information into matrix
+            it_info_data[step::num_steps_per_episode, :] = np.array(info)
 
-        return it_sars_data, info
+        return it_sars_data, it_info_data
 
 
 envs = []
-worker_seed = None
 
 
-def _init_worker(env_id, num_environments):
-    # env_id = kb_envs.get_quadpushing_environment(weight=w_factor, num_kilobots=num_kilobots)
-    global envs, worker_seed
-    envs = [gym.make(env_id) for _ in range(num_environments)]
-    worker_seed = multiprocessing.current_process().pid
-
-
-def _set_worker_seed(seed):
-    global envs, worker_seed
-    for i, e in enumerate(envs):
-        e.seed(worker_seed * 10000 + seed * 500 + i)
-    np.random.seed(worker_seed * 10000 + seed * 400 + 12346)
-
-
-def _do_work(policy, num_episodes, num_steps, seed):
+def _init_worker(w_factor, num_kilobots, object_shape, object_width, object_height,
+                 num_environments, registration_function):
     global envs
-    _set_worker_seed(seed)
+    env_id = registration_function(weight=w_factor, num_kilobots=num_kilobots, object_shape=object_shape,
+                                   object_width=object_width, object_height=object_height)
+    envs = [gym.make(env_id) for _ in range(num_environments)]
+
+
+def _set_worker_seed(seed, work_seed):
+    global envs
+    for i, e in enumerate(envs):
+        e.seed(work_seed * 10000 + seed * 500 + i)
+    np.random.seed(work_seed * 10000 + seed * 400 + 12346)
+
+
+def _do_work(policy, num_episodes, num_steps, seed, work_seed):
+    global envs
+    _set_worker_seed(seed, work_seed)
     # reset environments and obtain initial states
     states = np.array([e.reset() for e in envs[:num_episodes]])
     reward = np.empty((num_episodes, 1))
     info = list()
 
-    state_dims = states.shape[1]
+    observation_dims = states.shape[1]
     action_dims = sum(envs[0].action_space.shape)
+    state_dims = sum(sum(s.shape) for s in envs[0].state_space.spaces)
 
-    it_sars_data = np.empty((num_episodes * num_steps, 2 * state_dims + action_dims + 1))
+    it_sars_data = np.empty((num_episodes * num_steps, 2 * observation_dims + action_dims + 1))
+    it_info_data = np.empty((num_episodes * num_steps, state_dims))
 
     # do one additional step before
     actions = policy(states)
@@ -151,7 +151,8 @@ def _do_work(policy, num_episodes, num_steps, seed):
         states[i, :] = srdi[i][0]
 
     for step in range(num_steps):
-        it_sars_data[step::num_steps, :state_dims] = states
+        it_sars_data[step::num_steps, :observation_dims] = states
+        info.clear()
 
         actions = policy(states)
         srdi = [e.step(a) for e, a in zip(envs[:num_episodes], actions)]
@@ -160,18 +161,17 @@ def _do_work(policy, num_episodes, num_steps, seed):
             reward[i] = srdi[i][1]
             info.append(srdi[i][3])
 
-        # collect samples in DataFrame
-        it_sars_data[step::num_steps, state_dims:] = np.c_[actions, reward, states]
-        it_info[step::num_steps, state_dims:]
+        # collect samples into matrix
+        it_sars_data[step::num_steps, observation_dims:] = np.c_[actions, reward, states]
+        # collect environment information into matrix
+        it_info_data[step::num_steps, :] = np.array(info)
 
-    return it_sars_data, info
+    return it_sars_data, it_info_data
 
 
 class ParallelSARSSampler(SARSSampler):
-    def __init__(self, num_episodes: int, num_steps_per_episode: int, num_kilobots: int, w_factor: float,
-                 column_index: pd.Index, seed: int=0, num_workers: int=None, mp_context: str='forkserver'):
-        super().__init__(num_episodes=num_episodes, num_steps_per_episode=num_steps_per_episode,
-                         num_kilobots=num_kilobots, column_index=column_index, w_factor=w_factor, seed=seed)
+    def __init__(self, num_workers: int=None, mp_context: str='forkserver', *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         # self._init_worker(w_factor, num_kilobots, 2)
         self._num_workers = num_workers
@@ -182,7 +182,7 @@ class ParallelSARSSampler(SARSSampler):
             self._num_workers = multiprocessing.cpu_count()
 
         if self._num_workers > 1:
-            self._episodes_per_worker = (num_episodes // self._num_workers) + 1
+            self._episodes_per_worker = (self.max_episodes // self._num_workers) + 1
 
             # for the cluster it is necessary to use the context forkserver here, using a forkserver prevents the forked
             # processes from taking over handles to files and similar stuff
@@ -201,11 +201,8 @@ class ParallelSARSSampler(SARSSampler):
 
     def _create_pool(self) -> multiprocessing.Pool:
         return self._context.Pool(processes=self._num_workers, initializer=_init_worker,
-                                  initargs=[self.env_id, self._episodes_per_worker])
-
-    @abc.abstractmethod
-    def _get_env_id(self):
-        raise NotImplementedError
+                                  initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
+                                            self.object_height, self._episodes_per_worker, self.registration_function])
 
     def _sample_sars(self, policy, num_episodes, num_steps_per_episode):
         if self._num_workers == 1:
@@ -218,11 +215,13 @@ class ParallelSARSSampler(SARSSampler):
             episodes_per_work = [num_episodes // self._num_workers] * self._num_workers
             for i in range(num_episodes % self._num_workers):
                 episodes_per_work[i] += 1
-            episodes_per_work = filter(lambda a: a != 0, episodes_per_work)
+            episodes_per_work = list(filter(lambda a: a != 0, episodes_per_work))
 
-            work = [(policy, episodes, num_steps_per_episode, self._seed) for episodes in episodes_per_work]
+            # construct work packages with policy, number of episodes, number of steps, seed and work-seed,
+            # where work-seed is is taken from the range of work packages
+            work = [(policy, episodes, num_steps_per_episode, self._seed, work_seed) for episodes, work_seed
+                    in zip(episodes_per_work, range(len(episodes_per_work)))]
 
-            # self._do_work(*work[0])
             for i in range(self._num_restarts):
                 try:
                     results = self.__pool.starmap_async(_do_work, work, error_callback=self.__error_callback).get(
@@ -242,103 +241,103 @@ class ParallelSARSSampler(SARSSampler):
 
             # combine results
             it_sars_data = results[0][0]
-            it_info = results[0][1]
+            it_info_data = results[0][1]
 
             for sars_i, info_i in results[1:]:
                 it_sars_data = np.concatenate((it_sars_data, sars_i))
-                it_info += info_i
+                it_info_data = np.concatenate((it_info_data, info_i))
 
-            return it_sars_data, it_info
+            return it_sars_data, it_info_data
 
     @staticmethod
     def __error_callback(exception: Exception):
         logger.error(exception)
 
 
-class FixedWeightQuadEnvSampler(ParallelSARSSampler):
-    def _get_env_id(self):
-        return kb_envs.get_fixed_weight_quad_env(weight=self.w_factor, num_kilobots=self.num_kilobots)
-
-
-class SampleWeightQuadEnvSampler(ParallelSARSSampler):
-    def _get_env_id(self):
-        return kb_envs.get_sample_weight_quad_env(num_kilobots=self.num_kilobots)
-
-
-def _init_worker_complex(w_factor, num_kilobots, object_shape, object_width, object_height, num_environments):
-    env_id = kb_envs.register_complex_object_env(weight=w_factor, num_kilobots=num_kilobots,
-                                                 object_shape=object_shape, object_width=object_width,
-                                                 object_height=object_height)
-    _init_worker(env_id, num_environments)
-
-
-class ComplexObjectEnvSampler(ParallelSARSSampler):
-    def __init__(self, object_shape, object_width, object_height, *args, **kwargs):
-        self.object_shape = object_shape
-        self.object_width = object_width
-        self.object_height = object_height
-
-        super().__init__(*args, **kwargs)
-
-    def _create_pool(self):
-        return self._context.Pool(processes=self._num_workers, initializer=_init_worker_complex,
-                                  initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
-                                            self.object_height, self._episodes_per_worker])
-
-    def _get_env_id(self):
-        return kb_envs.register_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
-                                                   object_shape=self.object_shape, object_width=self.object_width,
-                                                   object_height=self.object_height)
-
-
-def _init_worker_complex_gradient_light(w_factor, num_kilobots, object_shape, object_width, object_height,
-                                        num_environments):
-    env_id = kb_envs.register_gradient_light_complex_object_env(weight=w_factor, num_kilobots=num_kilobots,
-                                                                object_shape=object_shape, object_width=object_width,
-                                                                object_height=object_height)
-    _init_worker(env_id, num_environments)
-
-
-class GradientLightComplexObjectEnvSampler(ParallelSARSSampler):
-    def __init__(self, object_shape, object_width, object_height, *args, **kwargs):
-        self.object_shape = object_shape
-        self.object_width = object_width
-        self.object_height = object_height
-
-        super().__init__(*args, **kwargs)
-
-    def _create_pool(self):
-        return self._context.Pool(processes=self._num_workers, initializer=_init_worker_complex_gradient_light,
-                                  initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
-                                            self.object_height, self._episodes_per_worker])
-
-    def _get_env_id(self):
-        return kb_envs.register_gradient_light_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
-            object_shape=self.object_shape, object_width=self.object_width, object_height=self.object_height)
-
-
-def _init_worker_dynamic_registration(w_factor, num_kilobots, object_shape, object_width, object_height,
-                                      num_environments, registration_function):
-    env_id = registration_function(weight=w_factor, num_kilobots=num_kilobots, object_shape=object_shape,
-                                   object_width=object_width, object_height=object_height)
-    _init_worker(env_id, num_environments)
-
-
-class DynamicRegistrationEnvSampler(ParallelSARSSampler):
-    def __init__(self, object_shape, object_width, object_height, registration_function, *args, **kwargs):
-        self.object_shape = object_shape
-        self.object_width = object_width
-        self.object_height = object_height
-        self.registration_function = registration_function
-
-        super().__init__(*args, **kwargs)
-
-    def _create_pool(self):
-        return self._context.Pool(processes=self._num_workers, initializer=_init_worker_dynamic_registration,
-                                  initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
-                                            self.object_height, self._episodes_per_worker, self.registration_function])
-
-    def _get_env_id(self):
-        return self.registration_function(weight=self.w_factor, num_kilobots=self.num_kilobots,
-                                          object_shape=self.object_shape, object_width=self.object_width,
-                                          object_height=self.object_height)
+# class FixedWeightQuadEnvSampler(ParallelSARSSampler):
+#     def _get_env_id(self):
+#         return kb_envs.get_fixed_weight_quad_env(weight=self.w_factor, num_kilobots=self.num_kilobots)
+#
+#
+# class SampleWeightQuadEnvSampler(ParallelSARSSampler):
+#     def _get_env_id(self):
+#         return kb_envs.get_sample_weight_quad_env(num_kilobots=self.num_kilobots)
+#
+#
+# def _init_worker_complex(w_factor, num_kilobots, object_shape, object_width, object_height, num_environments):
+#     env_id = kb_envs.register_complex_object_env(weight=w_factor, num_kilobots=num_kilobots,
+#                                                  object_shape=object_shape, object_width=object_width,
+#                                                  object_height=object_height)
+#     _init_worker(env_id, num_environments)
+#
+#
+# class ComplexObjectEnvSampler(ParallelSARSSampler):
+#     def __init__(self, object_shape, object_width, object_height, *args, **kwargs):
+#         self.object_shape = object_shape
+#         self.object_width = object_width
+#         self.object_height = object_height
+#
+#         super().__init__(*args, **kwargs)
+#
+#     def _create_pool(self):
+#         return self._context.Pool(processes=self._num_workers, initializer=_init_worker_complex,
+#                                   initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
+#                                             self.object_height, self._episodes_per_worker])
+#
+#     def _get_env_id(self):
+#         return kb_envs.register_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
+#                                                    object_shape=self.object_shape, object_width=self.object_width,
+#                                                    object_height=self.object_height)
+#
+#
+# def _init_worker_complex_gradient_light(w_factor, num_kilobots, object_shape, object_width, object_height,
+#                                         num_environments):
+#     env_id = kb_envs.register_gradient_light_complex_object_env(weight=w_factor, num_kilobots=num_kilobots,
+#                                                                 object_shape=object_shape, object_width=object_width,
+#                                                                 object_height=object_height)
+#     _init_worker(env_id, num_environments)
+#
+#
+# class GradientLightComplexObjectEnvSampler(ParallelSARSSampler):
+#     def __init__(self, object_shape, object_width, object_height, *args, **kwargs):
+#         self.object_shape = object_shape
+#         self.object_width = object_width
+#         self.object_height = object_height
+#
+#         super().__init__(*args, **kwargs)
+#
+#     def _create_pool(self):
+#         return self._context.Pool(processes=self._num_workers, initializer=_init_worker_complex_gradient_light,
+#                                   initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
+#                                             self.object_height, self._episodes_per_worker])
+#
+#     def _get_env_id(self):
+#         return kb_envs.register_gradient_light_complex_object_env(weight=self.w_factor, num_kilobots=self.num_kilobots,
+#             object_shape=self.object_shape, object_width=self.object_width, object_height=self.object_height)
+#
+#
+# def _init_worker_dynamic_registration(w_factor, num_kilobots, object_shape, object_width, object_height,
+#                                       num_environments, registration_function):
+#     env_id = registration_function(weight=w_factor, num_kilobots=num_kilobots, object_shape=object_shape,
+#                                    object_width=object_width, object_height=object_height)
+#     _init_worker(env_id, num_environments)
+#
+#
+# class DynamicRegistrationEnvSampler(ParallelSARSSampler):
+#     def __init__(self, object_shape, object_width, object_height, registration_function, *args, **kwargs):
+#         self.object_shape = object_shape
+#         self.object_width = object_width
+#         self.object_height = object_height
+#         self.registration_function = registration_function
+#
+#         super().__init__(*args, **kwargs)
+#
+#     def _create_pool(self):
+#         return self._context.Pool(processes=self._num_workers, initializer=_init_worker_dynamic_registration,
+#                                   initargs=[self.w_factor, self.num_kilobots, self.object_shape, self.object_width,
+#                                             self.object_height, self._episodes_per_worker, self.registration_function])
+#
+#     def _get_env_id(self):
+#         return self.registration_function(weight=self.w_factor, num_kilobots=self.num_kilobots,
+#                                           object_shape=self.object_shape, object_width=self.object_width,
+#                                           object_height=self.object_height)

@@ -16,11 +16,12 @@ from kb_learning.ac_reps.lstd import LeastSquaresTemporalDifference
 from kb_learning.ac_reps.reps import ActorCriticReps
 from kb_learning.ac_reps.sparse_gp_policy import SparseGPPolicy
 
-from kb_learning.envs.sampler import FixedWeightQuadEnvSampler, SampleWeightQuadEnvSampler, ComplexObjectEnvSampler, \
-    GradientLightComplexObjectEnvSampler, DynamicRegistrationEnvSampler
-from kb_learning.envs import register_dual_light_complex_object_env
+from kb_learning.envs.sampler import ParallelSARSSampler
+from kb_learning.envs import register_object_env, register_gradient_light_object_env, \
+    register_dual_light_complex_object_env
 
 import matplotlib
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib import cm, gridspec
@@ -58,7 +59,7 @@ class ACRepsLearner(KilobotLearner):
             'object_shape': 'quad',
             'object_width': .15,
             'object_height': .15,
-            'save_trajectories': True
+            'save_trajectories': False
         },
         'kernel': {
             'kb_dist': 'embedded',
@@ -255,7 +256,7 @@ class ACRepsLearner(KilobotLearner):
             self.eval_sars, self.eval_info = self._sampler(self.policy,
                                                            num_episodes=self._params['eval']['num_episodes'],
                                                            num_steps_per_episode=self._params['eval'][
-                                                                 'num_steps_per_episode'])
+                                                               'num_steps_per_episode'])
 
             sum_R = self.eval_sars['R'].groupby(level=0).sum()
 
@@ -319,16 +320,39 @@ class ACRepsLearner(KilobotLearner):
         else:
             raise InvalidParameterArgument
 
-        self.kernel = KilobotEnvKernel(weight=kernel_params['weight'],
-                                       bandwidth_factor_kilobots=kernel_params['bandwidth_factor_kb'],
-                                       bandwidth_factor_light=kernel_params['bandwidth_factor_light'],
-                                       bandwidth_factor_action=kernel_params['bandwidth_factor_action'],
-                                       light_idx=2 * self._params['sampling']['num_kilobots'],
-                                       action_idx=2 * self._params['sampling']['num_kilobots'] +
-                                                   self._light_dimensions,
-                                       kb_dist_class=kb_dist_class,
-                                       light_dist_class=l_dist_class,
-                                       action_dist_class=a_dist_class)
+        if kernel_params['w_dist'] == 'maha':
+            w_dist_class = MahaDist
+        elif kernel_params['w_dist'] == 'periodic':
+            w_dist_class = PeriodicDist
+        else:
+            raise InvalidParameterArgument
+
+        if self._params['sampling']['w_factor'] is not None:
+            self.kernel = KilobotEnvKernel(weight=kernel_params['weight'],
+                                           bandwidth_factor_kilobots=kernel_params['bandwidth_factor_kb'],
+                                           bandwidth_factor_light=kernel_params['bandwidth_factor_light'],
+                                           bandwidth_factor_action=kernel_params['bandwidth_factor_action'],
+                                           light_idx=2 * self._params['sampling']['num_kilobots'],
+                                           action_idx=2 * self._params['sampling']['num_kilobots'] +
+                                                      self._light_dimensions,
+                                           kb_dist_class=kb_dist_class,
+                                           light_dist_class=l_dist_class,
+                                           action_dist_class=a_dist_class)
+        else:
+            self.kernel = KilobotEnvKernelWithWeight(weight=kernel_params['weight'],
+                                                      bandwidth_factor_kilobots=kernel_params['bandwidth_factor_kb'],
+                                                      bandwidth_factor_light=kernel_params['bandwidth_factor_light'],
+                                                      bandwidth_factor_action=kernel_params['bandwidth_factor_light'],
+                                                      bandwidth_factor_weight=kernel_params['bandwidth_factor_weight'],
+                                                      light_idx=2 * self._params['sampling']['num_kilobots'],
+                                                      weight_idx=2 * self._params['sampling']['num_kilobots'] +
+                                                                 self._light_dimensions,
+                                                      action_idx=2 * self._params['sampling']['num_kilobots'] +
+                                                                 self._light_dimensions + 1,
+                                                      kb_dist_class=kb_dist_class,
+                                                      light_dist_class=l_dist_class,
+                                                      action_dist_class=a_dist_class,
+                                                      weight_dist_class=w_dist_class)
 
     def _init_policy(self, action_bounds):
         policy = SparseGPPolicy(kernel=self.kernel)
@@ -362,14 +386,17 @@ class ACRepsLearner(KilobotLearner):
 
     def _init_sampler(self):
         sampling_params = self._params['sampling']
-        sampler = FixedWeightQuadEnvSampler(num_episodes=sampling_params['num_episodes'],
-                                            num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                            num_kilobots=sampling_params['num_kilobots'],
-                                            column_index=self.sars_columns,
-                                            w_factor=sampling_params['w_factor'],
-                                            num_workers=sampling_params['num_workers'],
-                                            seed=self._seed, mp_context=self._MP_CONTEXT)
-        return sampler
+        return ParallelSARSSampler(object_shape=sampling_params['object_shape'],
+                                   object_width=sampling_params['object_width'],
+                                   object_height=sampling_params['object_height'],
+                                   registration_function=register_object_env,
+                                   num_episodes=sampling_params['num_episodes'],
+                                   num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                   num_kilobots=sampling_params['num_kilobots'],
+                                   column_index=self.sars_columns,
+                                   w_factor=sampling_params['w_factor'],
+                                   num_workers=sampling_params['num_workers'],
+                                   seed=self._seed, mp_context=self._MP_CONTEXT)
 
     def save_state(self, config: dict, rep: int, n: int) -> None:
         # save policy
@@ -515,58 +542,7 @@ class ACRepsLearner(KilobotLearner):
         return actions, x_range, y_range
 
 
-class SampleWeightACRepsLearner(ACRepsLearner):
-    def _init_kernels(self):
-        kernel_params = self._params['kernel']
-        if kernel_params['kb_dist'] in ['kilobot', 'embedded']:
-            kb_dist_class = EmbeddedSwarmDistance
-        elif kernel_params['kb_dist'] == 'mean':
-            from kb_learning.kernel import compute_mean_position
-            self._state_preprocessor = compute_mean_position
-            kb_dist_class = MeanSwarmDist
-        elif kernel_params['kb_dist'] == 'mean-cov':
-            from kb_learning.kernel import compute_mean_and_cov_position
-            self._state_preprocessor = compute_mean_and_cov_position
-            kb_dist_class = MeanCovSwarmDist
-        else:
-            raise InvalidParameterArgument
-
-        if kernel_params['v_dist'] == 'maha':
-            v_dist_class = MahaDist
-        elif kernel_params['v_dist'] == 'periodic':
-            v_dist_class = PeriodicDist
-        else:
-            raise InvalidParameterArgument
-
-        if kernel_params['w_dist'] == 'maha':
-            w_dist_class = MahaDist
-        elif kernel_params['w_dist'] == 'periodic':
-            w_dist_class = PeriodicDist
-        else:
-            raise InvalidParameterArgument
-
-        self._state_kernel = KilobotEnvKernelWithWeight(weight=kernel_params['weight'],
-                                                        bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                                        bandwidth_factor_v=kernel_params['bandwidth_factor_light'],
-                                                        bandwidth_factor_weight=kernel_params[
-                                                            'bandwidth_factor_weight'],
-                                                        weight_dim=-1,
-                                                        v_dims=self._light_dimensions,
-                                                        kb_dist_class=kb_dist_class,
-                                                        v_dist_class=v_dist_class,
-                                                        weight_dist_class=w_dist_class)
-        self._state_action_kernel = KilobotEnvKernelWithWeight(weight=kernel_params['weight'],
-                                                               bandwidth_factor_kb=kernel_params['bandwidth_factor_kb'],
-                                                               bandwidth_factor_v=kernel_params[
-                                                                   'bandwidth_factor_light_action'],
-                                                               bandwidth_factor_weight=kernel_params[
-                                                                   'bandwidth_factor_weight'],
-                                                               weight_dim=-3,
-                                                               v_dims=self._light_dimensions + self._action_dimensions,
-                                                               kb_dist_class=kb_dist_class,
-                                                               v_dist_class=v_dist_class,
-                                                               weight_dist_class=w_dist_class)
-
+class SampledWeightACRepsLearner(ACRepsLearner):
     def _init_policy(self, action_bounds):
         policy = super()._init_policy(action_bounds)
         policy.gp_prior_mean = step_towards_center([-3, -2])
@@ -582,22 +558,10 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         self.next_state_columns.set_levels(['S_'], 0, inplace=True)
         self.extra_dim_columns = self.light_columns.append(self.weight_columns)
 
-        self._SARS_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
+        self.sars_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
             self.next_state_columns)
 
-        self._SARS = pd.DataFrame(columns=self._SARS_columns)
-
-    def _init_sampler(self):
-        sampling_params = self._params['sampling']
-        sampler = SampleWeightQuadEnvSampler(num_episodes=sampling_params['num_episodes'],
-                                             num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                             num_kilobots=sampling_params['num_kilobots'],
-                                             column_index=self._SARS_columns,
-                                             w_factor=sampling_params['w_factor'],
-                                             num_workers=sampling_params['num_workers'],
-                                             seed=self._seed, mp_context=self._MP_CONTEXT)
-
-        return sampler
+        self.sars = pd.DataFrame(columns=self.sars_columns)
 
     def _plot_iteration_results(self, state_action_features):
         # setup figure
@@ -718,22 +682,7 @@ class SampleWeightACRepsLearner(ACRepsLearner):
         return actions, x_range, y_range
 
 
-class ComplexObjectACRepsLearner(ACRepsLearner):
-    def _init_sampler(self):
-        sampling_params = self._params['sampling']
-        return ComplexObjectEnvSampler(object_shape=sampling_params['object_shape'],
-                                       object_width=sampling_params['object_width'],
-                                       object_height=sampling_params['object_height'],
-                                       num_episodes=sampling_params['num_episodes'],
-                                       num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                       num_kilobots=sampling_params['num_kilobots'],
-                                       column_index=self.sars_columns,
-                                       w_factor=sampling_params['w_factor'],
-                                       num_workers=sampling_params['num_workers'],
-                                       seed=self._seed, mp_context=self._MP_CONTEXT)
-
-
-class GradientLightComplexObjectACRepsLearner(ACRepsLearner):
+class GradientLightObjectACRepsLearner(ACRepsLearner):
     def __init__(self):
         super().__init__()
 
@@ -747,31 +696,32 @@ class GradientLightComplexObjectACRepsLearner(ACRepsLearner):
         return policy
 
     def _init_SARS(self):
-        kb_columns_level = ['kb_{}'.format(i) for i in range(self._params['sampling']['num_kilobots'])]
-        self.kilobots_columns = pd.MultiIndex.from_product([['S'], kb_columns_level, ['x', 'y']])
+        super()._init_SARS()
+
+        self.light_columns = None
         self.state_columns = self.kilobots_columns
         self.action_columns = pd.MultiIndex.from_product([['A'], [''], ['']])
-        self.reward_columns = pd.MultiIndex.from_arrays([['R'], [''], ['']])
         self.next_state_columns = self.state_columns.copy()
         self.next_state_columns.set_levels(['S_'], 0, inplace=True)
 
-        self._SARS_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
+        self.sars_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
             self.next_state_columns)
 
-        self._SARS = pd.DataFrame(columns=self._SARS_columns)
+        self.sars = pd.DataFrame(columns=self.sars_columns)
 
     def _init_sampler(self):
         sampling_params = self._params['sampling']
-        return GradientLightComplexObjectEnvSampler(object_shape=sampling_params['object_shape'],
-                                                    object_width=sampling_params['object_width'],
-                                                    object_height=sampling_params['object_height'],
-                                                    num_episodes=sampling_params['num_episodes'],
-                                                    num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                                    num_kilobots=sampling_params['num_kilobots'],
-                                                    column_index=self._SARS_columns,
-                                                    w_factor=sampling_params['w_factor'],
-                                                    num_workers=sampling_params['num_workers'],
-                                                    seed=self._seed, mp_context=self._MP_CONTEXT)
+        return ParallelSARSSampler(object_shape=sampling_params['object_shape'],
+                                   object_width=sampling_params['object_width'],
+                                   object_height=sampling_params['object_height'],
+                                   registration_function=register_gradient_light_object_env,
+                                   num_episodes=sampling_params['num_episodes'],
+                                   num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                   num_kilobots=sampling_params['num_kilobots'],
+                                   column_index=self.sars_columns,
+                                   w_factor=sampling_params['w_factor'],
+                                   num_workers=sampling_params['num_workers'],
+                                   seed=self._seed, mp_context=self._MP_CONTEXT)
 
     def _plot_iteration_results(self, state_action_features):
         # setup figure
@@ -871,33 +821,30 @@ class DualLightComplexObjectACRepsLearner(ACRepsLearner):
         return policy
 
     def _init_SARS(self):
-        kb_columns_level = ['kb_{}'.format(i) for i in range(self._params['sampling']['num_kilobots'])]
-        self.kilobots_columns = pd.MultiIndex.from_product([['S'], kb_columns_level, ['x', 'y']])
         self.light_columns = pd.MultiIndex.from_product([['S'], ['light_0', 'light_1'], ['theta']])
         self.state_columns = self.kilobots_columns.append(self.light_columns)
         self.action_columns = pd.MultiIndex.from_product([['A'], ['light_0', 'light_1'], ['des_theta']])
-        self.reward_columns = pd.MultiIndex.from_arrays([['R'], [''], ['']])
         self.next_state_columns = self.state_columns.copy()
         self.next_state_columns.set_levels(['S_'], 0, inplace=True)
 
-        self._SARS_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
+        self.sars_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
             self.next_state_columns)
 
-        self._SARS = pd.DataFrame(columns=self._SARS_columns)
+        self.sars = pd.DataFrame(columns=self.sars_columns)
 
     def _init_sampler(self):
         sampling_params = self._params['sampling']
-        return DynamicRegistrationEnvSampler(object_shape=sampling_params['object_shape'],
-                                             object_width=sampling_params['object_width'],
-                                             object_height=sampling_params['object_height'],
-                                             registration_function=register_dual_light_complex_object_env,
-                                             num_episodes=sampling_params['num_episodes'],
-                                             num_steps_per_episode=sampling_params['num_steps_per_episode'],
-                                             num_kilobots=sampling_params['num_kilobots'],
-                                             column_index=self._SARS_columns,
-                                             w_factor=sampling_params['w_factor'],
-                                             num_workers=sampling_params['num_workers'],
-                                             seed=self._seed, mp_context=self._MP_CONTEXT)
+        return ParallelSARSSampler(object_shape=sampling_params['object_shape'],
+                                   object_width=sampling_params['object_width'],
+                                   object_height=sampling_params['object_height'],
+                                   registration_function=register_dual_light_complex_object_env,
+                                   num_episodes=sampling_params['num_episodes'],
+                                   num_steps_per_episode=sampling_params['num_steps_per_episode'],
+                                   num_kilobots=sampling_params['num_kilobots'],
+                                   column_index=self.sars_columns,
+                                   w_factor=sampling_params['w_factor'],
+                                   num_workers=sampling_params['num_workers'],
+                                   seed=self._seed, mp_context=self._MP_CONTEXT)
 
     def _plot_iteration_results(self, state_action_features):
         # setup figure

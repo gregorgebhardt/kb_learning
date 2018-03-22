@@ -1,55 +1,68 @@
-from gym.envs.registration import register
-
-# TODO replace with dynamic registration
-from ._fixed_weight_quad_env import FixedWeightQuadEnv_w000_kb15, FixedWeightQuadEnv_w025_kb15, \
-    FixedWeightQuadEnv_w050_kb15, FixedWeightQuadEnv_w075_kb15, FixedWeightQuadEnv_w100_kb15
-
-from ._sample_weight_quad_env import SampleWeightQuadEnv_kb15
-
-from ._complex_env import register_complex_object_env
-from ._gradient_light_object_env import register_gradient_light_complex_object_env
-from ._dual_light_object_env import register_dual_light_complex_object_env
+from ._object_env import ObjectEnv
+from ._gradient_light_object_env import GradientLightObjectEnv
+from ._dual_light_object_env import DualLightObjectEnv
 
 
-class QuadEnvNotAvailableError(Exception):
-    def __init__(self, weight, num_kilobots):
-        self.message = "No quad-pushing environment for w = {} and #kb = {} availabe.".format(weight, num_kilobots)
-        self.weight = weight
-        self.num_kilobots = num_kilobots
+def _check_parameters(weight: float, num_kilobots: int, object_shape: str, object_width: float, object_height: float):
+    assert type(weight) is float, "weight has to be of type float"
+    assert .0 <= weight <= 1., "weight has to be in the interval [0.0, 1.0]"
+    assert type(num_kilobots) is int, "num_kilobots has to be of type int"
+    assert 0 < num_kilobots, "num_kilobots has to be a positive integer."
+    assert .0 < object_width, "object_width has to be a positive float"
+    assert .0 < object_height, "object_height has to be a positive float"
 
 
-__fixed_weight_gym_classes = [FixedWeightQuadEnv_w000_kb15, FixedWeightQuadEnv_w025_kb15, FixedWeightQuadEnv_w050_kb15,
-                              FixedWeightQuadEnv_w075_kb15, FixedWeightQuadEnv_w100_kb15]
+def register_object_env(weight: float, num_kilobots: int, object_shape: str, object_width: float, object_height: float):
+    from gym.envs.registration import register, registry
 
-__fixed_weight_gym_names = ['FixedWeightQuadEnv_w000_kb15-v0',
-                            'FixedWeightQuadEnv_w025_kb15-v0',
-                            'FixedWeightQuadEnv_w050_kb15-v0',
-                            'FixedWeightQuadEnv_w075_kb15-v0',
-                            'FixedWeightQuadEnv_w100_kb15-v0']
+    _check_parameters(weight, num_kilobots, object_shape, object_width, object_height)
 
-for _cl, _id in zip(__fixed_weight_gym_classes, __fixed_weight_gym_names):
-    register(_id, entry_point='kb_learning.envs:' + _cl.__name__)
+    _id = 'ObjectEnv_w{:03}_kb{}_{}_{:03}x{:03}-v0'.format(int(weight * 100), num_kilobots, object_shape,
+                                                           int(object_width * 100), int(object_height * 100))
 
-
-def get_fixed_weight_quad_env(weight: float, num_kilobots: int):
-    _id = 'FixedWeightQuadEnv_w{:03}_kb{}-v0'.format(int(weight * 100), num_kilobots)
-    if _id in __fixed_weight_gym_names:
+    if _id in registry.env_specs:
         return _id
-    else:
-        raise QuadEnvNotAvailableError(weight, num_kilobots)
+
+    register(id=_id, entry_point='kb_learning.envs:ObjectEnv',
+             kwargs=dict(object_shape=object_shape, object_width=object_width, object_height=object_height,
+                         num_kilobots=num_kilobots, weight=weight))
+
+    return _id
 
 
-__sample_weight_gym_classes = [SampleWeightQuadEnv_kb15]
+def register_gradient_light_object_env(weight: float, num_kilobots: int, object_shape: str,
+                                       object_width: float, object_height: float):
+    from gym.envs.registration import register, registry
 
-__sample_weight_gym_names = ['SampleWeightQuadEnv_kb15-v0']
+    _check_parameters(weight, num_kilobots, object_shape, object_width, object_height)
 
-for _cl, _id in zip(__sample_weight_gym_classes, __sample_weight_gym_names):
-    register(_id, entry_point='kb_learning.envs:' + _cl.__name__)
+    _id = 'GradientLightObjectEnv_w{:03}_kb{}_{}_{:03}x{:03}-v0'.format(int(weight * 100), num_kilobots, object_shape,
+                                                         int(object_width * 100), int(object_height * 100))
 
-
-def get_sample_weight_quad_env(num_kilobots: int):
-    _id = 'SampleWeightQuadEnv_kb{}-v0'.format(num_kilobots)
-    if _id in __sample_weight_gym_names:
+    if _id in registry.env_specs:
         return _id
-    else:
-        raise QuadEnvNotAvailableError('sampling', num_kilobots)
+
+    register(id=_id, entry_point='kb_learning.envs:GradientLightObjectEnv',
+             kwargs=dict(object_shape=object_shape, object_width=object_width, object_height=object_height,
+                         num_kilobots=num_kilobots, weight=weight))
+
+    return _id
+
+
+def register_dual_light_complex_object_env(weight: float, num_kilobots: int, object_shape: str,
+                                           object_width: float, object_height: float):
+    from gym.envs.registration import register, registry
+
+    _check_parameters(weight, num_kilobots, object_shape, object_width, object_height)
+
+    _id = 'DualLightObjectEnv_w{:03}_kb{}_{}_{:03}x{:03}-v0'.format(int(weight * 100), num_kilobots, object_shape,
+                                                              int(object_width * 100), int(object_height * 100))
+
+    if _id in registry.env_specs:
+        return _id
+
+    register(id=_id, entry_point='kb_learning.envs:DualLightObjectEnv',
+             kwargs=dict(object_shape=object_shape, object_width=object_width, object_height=object_height,
+                         num_kilobots=num_kilobots, weight=weight))
+
+    return _id
