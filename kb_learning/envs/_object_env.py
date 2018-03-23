@@ -35,6 +35,8 @@ class ObjectEnv(KilobotsEnv):
         self._object_width, self._object_height = object_width, object_height
         self._object_shape = object_shape
 
+        self._sampled_weight = self._weight is None
+
         super().__init__()
 
     def get_state(self):
@@ -50,12 +52,10 @@ class ObjectEnv(KilobotsEnv):
 
     def get_observation(self):
         return np.concatenate(tuple(self._transform_position(k.get_position()) for k in self._kilobots)
-                              + (self._transform_position(self._light.get_state()),))
+                              + (self._transform_position(self._light.get_state()),)
+                              + (([self._weight],) if self._sampled_weight else tuple()))
 
     def get_reward(self, state, _, new_state):
-        if self._weight is None:
-            self._weight = np.random.rand()
-
         obj_pose = state[-3:]
         obj_pose_new = new_state[-3:]
 
@@ -74,6 +74,9 @@ class ObjectEnv(KilobotsEnv):
         return w * r_rot + (1 - w) * r_trans - cost[1]
 
     def _configure_environment(self):
+        if self._weight is None:
+            self._weight = np.random.rand()
+
         # initialize object always at (0, 0) with 0 orientation (we do not need to vary the object position and
         # orientation since we will later adapt the state based on the object pose.)
         self._objects.append(self._create_object())

@@ -76,6 +76,8 @@ class KilobotEnvKernelWithWeight(KilobotEnvKernel):
         super().__init__(*args, **kwargs)
         self.weight_dist = weight_dist_class(bandwidth_factor=bandwidth_factor_weight)
         self._weight_idx = weight_idx
+        if self._action_idx:
+            self._split_idx[-1] -= 1
 
     def __call__(self, X, Y=None):
         X_weight = X[:, self._weight_idx:self._action_idx]
