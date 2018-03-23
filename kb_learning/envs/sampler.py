@@ -39,6 +39,10 @@ class KilobotSampler(object):
         if num_steps_per_episode is None:
             num_steps_per_episode = self.num_steps_per_episode
 
+        if num_episodes > self.max_episodes:
+            num_episodes = self.max_episodes
+            logger.warning('num_episodes > max_episodes! Setting num_episodes to max_episodes')
+
         sars_samples, info = self._sample_sars(policy, num_episodes, num_steps_per_episode)
 
         index = pd.MultiIndex.from_product([range(num_episodes), range(num_steps_per_episode)])
@@ -66,7 +70,7 @@ class ObjectEnvSampler(KilobotSampler):
         self.envs = [gym.make(self.env_id) for _ in range(num_episodes)]
 
         for i, e in enumerate(self.envs):
-            e.seed(self.seed * 100 + i)
+            e.seed(self.seed * 1000 + i)
 
     def _get_env_id(self):
         return self.registration_function(weight=self.w_factor, num_kilobots=self.num_kilobots,
@@ -208,10 +212,6 @@ class ParallelSARSSampler(SARSSampler):
         if self._num_workers == 1:
             return super(ParallelSARSSampler, self)._sample_sars(policy, num_episodes, num_steps_per_episode)
         else:
-            if num_episodes > self.max_episodes:
-                num_episodes = self.max_episodes
-                logger.warning('num_episodes > max_episodes! Setting num_episodes to max_episodes')
-
             episodes_per_work = [num_episodes // self._num_workers] * self._num_workers
             for i in range(num_episodes % self._num_workers):
                 episodes_per_work[i] += 1

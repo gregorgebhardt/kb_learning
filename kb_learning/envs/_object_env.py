@@ -74,8 +74,6 @@ class ObjectEnv(KilobotsEnv):
         return w * r_rot + (1 - w) * r_trans - cost[1]
 
     def _configure_environment(self):
-        np.random.seed(self.seed()[0])
-
         # initialize object always at (0, 0) with 0 orientation (we do not need to vary the object position and
         # orientation since we will later adapt the state based on the object pose.)
         self._objects.append(self._create_object())

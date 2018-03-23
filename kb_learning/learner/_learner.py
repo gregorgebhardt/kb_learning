@@ -132,9 +132,10 @@ class ACRepsLearner(KilobotLearner):
 
     def iterate(self, config: dict, rep: int, n: int) -> dict:
         sampling_params = self._params['sampling']
+        np.random.seed(self._seed)
 
         logger.info('sampling environment')
-        self._sampler.seed = rep * 100 + n
+        self._sampler.seed = self._seed + 123
         self.it_sars, self.it_info = self._sampler(self.policy)
         # fig, ax = plt.subplots(1)
         # plot_light_trajectory(self._it_sars['S'], ax)

@@ -35,10 +35,6 @@ class SparseGPPolicy:
         if self.action_bounds:
             return self.action_bounds[0].shape[0]
 
-    @staticmethod
-    def set_seed(seed):
-        np.random.seed(seed)
-
     def train(self, states, actions, weights, sparse_states):
         """
 
