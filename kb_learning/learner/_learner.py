@@ -20,9 +20,8 @@ from kb_learning.envs.sampler import ParallelSARSSampler
 from kb_learning.envs import register_object_env, register_gradient_light_object_env, \
     register_dual_light_complex_object_env
 
-import matplotlib
-
-matplotlib.use('Agg')
+# import matplotlib
+# matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib import cm, gridspec
 from kb_learning.tools.plotting import plot_trajectories, plot_value_function, plot_policy, plot_objects, \
@@ -114,7 +113,9 @@ class ACRepsLearner(KilobotLearner):
         self.it_info = None
         self.eval_info = None
 
-        self._sampler = None
+        self.lstd_samples = None
+
+        self.sampler = None
 
         self.kilobots_columns = None
         self.light_columns = None
@@ -135,11 +136,8 @@ class ACRepsLearner(KilobotLearner):
         np.random.seed(self._seed)
 
         logger.info('sampling environment')
-        self._sampler.seed = self._seed + 123
-        self.it_sars, self.it_info = self._sampler(self.policy)
-        # fig, ax = plt.subplots(1)
-        # plot_light_trajectory(self._it_sars['S'], ax)
-        # fig.show()
+        self.sampler.seed = self._seed + 123
+        self.it_sars, self.it_info = self.sampler(self.policy)
 
         sum_R = self.it_sars['R'].groupby(level=0).sum()
 
@@ -187,23 +185,20 @@ class ACRepsLearner(KilobotLearner):
                                                                    size=self._params['lstd']['num_features'],
                                                                    kernel_function=self.kernel,
                                                                    batch_size=10)
-        # lstd_samples = self._SARS.loc[lstd_reference]
-        lstd_state_samples = self.sars.loc[lstd_reference]['S'].values
-        lstd_state_action_samples = self.sars.loc[lstd_reference][['S', 'A']].values
 
-        # lstd_samples = self._SARS[['S', 'A']].sample(self._params['lstd']['num_features'])
+        self.lstd_samples = self.sars.loc[lstd_reference][['S', 'A']]
 
         def state_features(state):
             if state.ndim == 1:
                 state = state.reshape((1, -1))
-            return self.kernel(state, lstd_state_samples)
+            return self.kernel(state, self.lstd_samples['S'].values)
 
         def state_action_features(state, action):
             if state.ndim == 1:
                 state = state.reshape((1, -1))
             if action.ndim == 1:
                 action = action.reshape((1, -1))
-            return self.kernel(np.c_[state, action], lstd_state_action_samples)
+            return self.kernel(np.c_[state, action], self.lstd_samples.values)
 
         for i in range(self._params['learn_iterations']):
             # compute features
@@ -248,16 +243,16 @@ class ACRepsLearner(KilobotLearner):
 
             # fit weighted GP to samples
             logger.info('fitting GP to policy')
-            self.policy = self._init_policy((self._sampler.env.action_space.low, self._sampler.env.action_space.high))
+            self.policy = self._init_policy((self.sampler.env.action_space.low, self.sampler.env.action_space.high))
             self.policy.train(self.sars['S'].values, self.sars['A'].values, weights, gp_samples)
 
             # evaluate policy
             logger.info('evaluating policy')
-            self._sampler.seed = 5555
-            self.eval_sars, self.eval_info = self._sampler(self.policy,
-                                                           num_episodes=self._params['eval']['num_episodes'],
-                                                           num_steps_per_episode=self._params['eval'][
-                                                               'num_steps_per_episode'])
+            self.sampler.seed = 5555
+            self.eval_sars, self.eval_info = self.sampler(self.policy,
+                                                          num_episodes=self._params['eval']['num_episodes'],
+                                                          num_steps_per_episode=self._params['eval'][
+                                                              'num_steps_per_episode'])
 
             sum_R = self.eval_sars['R'].groupby(level=0).sum()
 
@@ -284,13 +279,13 @@ class ACRepsLearner(KilobotLearner):
         return return_dict
 
     def reset(self, config: dict, rep: int) -> None:
-        self._init_kernels()
-
         self._init_SARS()
 
-        self._sampler = self._init_sampler()
+        self.kernel = self._init_kernels()
 
-        self.policy = self._init_policy((self._sampler.env.action_space.low, self._sampler.env.action_space.high))
+        self.sampler = self._init_sampler()
+
+        self.policy = self._init_policy((self.sampler.env.action_space.low, self.sampler.env.action_space.high))
 
     def _init_kernels(self):
         kernel_params = self._params['kernel']
@@ -329,31 +324,31 @@ class ACRepsLearner(KilobotLearner):
             raise InvalidParameterArgument
 
         if self._params['sampling']['w_factor'] is not None:
-            self.kernel = KilobotEnvKernel(weight=kernel_params['weight'],
-                                           bandwidth_factor_kilobots=kernel_params['bandwidth_factor_kb'],
-                                           bandwidth_factor_light=kernel_params['bandwidth_factor_light'],
-                                           bandwidth_factor_action=kernel_params['bandwidth_factor_action'],
-                                           light_idx=2 * self._params['sampling']['num_kilobots'],
-                                           action_idx=2 * self._params['sampling']['num_kilobots'] +
-                                                      self._light_dimensions,
-                                           kb_dist_class=kb_dist_class,
-                                           light_dist_class=l_dist_class,
-                                           action_dist_class=a_dist_class)
+            return KilobotEnvKernel(weight=kernel_params['weight'],
+                                    bandwidth_factor_kilobots=kernel_params['bandwidth_factor_kb'],
+                                    bandwidth_factor_light=kernel_params['bandwidth_factor_light'],
+                                    bandwidth_factor_action=kernel_params['bandwidth_factor_action'],
+                                    light_idx=2 * self._params['sampling']['num_kilobots'],
+                                    action_idx=2 * self._params['sampling']['num_kilobots'] +
+                                               self._light_dimensions,
+                                    kb_dist_class=kb_dist_class,
+                                    light_dist_class=l_dist_class,
+                                    action_dist_class=a_dist_class)
         else:
-            self.kernel = KilobotEnvKernelWithWeight(weight=kernel_params['weight'],
-                                                      bandwidth_factor_kilobots=kernel_params['bandwidth_factor_kb'],
-                                                      bandwidth_factor_light=kernel_params['bandwidth_factor_light'],
-                                                      bandwidth_factor_action=kernel_params['bandwidth_factor_light'],
-                                                      bandwidth_factor_weight=kernel_params['bandwidth_factor_weight'],
-                                                      light_idx=2 * self._params['sampling']['num_kilobots'],
-                                                      weight_idx=2 * self._params['sampling']['num_kilobots'] +
-                                                                 self._light_dimensions,
-                                                      action_idx=2 * self._params['sampling']['num_kilobots'] +
-                                                                 self._light_dimensions + 1,
-                                                      kb_dist_class=kb_dist_class,
-                                                      light_dist_class=l_dist_class,
-                                                      action_dist_class=a_dist_class,
-                                                      weight_dist_class=w_dist_class)
+            return KilobotEnvKernelWithWeight(weight=kernel_params['weight'],
+                                              bandwidth_factor_kilobots=kernel_params['bandwidth_factor_kb'],
+                                              bandwidth_factor_light=kernel_params['bandwidth_factor_light'],
+                                              bandwidth_factor_action=kernel_params['bandwidth_factor_light'],
+                                              bandwidth_factor_weight=kernel_params['bandwidth_factor_weight'],
+                                              light_idx=2 * self._params['sampling']['num_kilobots'],
+                                              weight_idx=2 * self._params['sampling']['num_kilobots'] +
+                                                         self._light_dimensions,
+                                              action_idx=2 * self._params['sampling']['num_kilobots'] +
+                                                         self._light_dimensions + 1,
+                                              kb_dist_class=kb_dist_class,
+                                              light_dist_class=l_dist_class,
+                                              action_dist_class=a_dist_class,
+                                              weight_dist_class=w_dist_class)
 
     def _init_policy(self, action_bounds):
         policy = SparseGPPolicy(kernel=self.kernel)
@@ -372,6 +367,7 @@ class ACRepsLearner(KilobotLearner):
         self.light_columns = pd.MultiIndex.from_product([['S'], ['light'], ['x', 'y']])
         self.object_columns = pd.MultiIndex.from_product([['S'], ['object'], ['x', 'y', 'theta']])
         self.state_columns = self.kilobots_columns.append(self.light_columns)
+        self.state_object_columns = self.state_columns.append(self.object_columns)
         self.action_columns = pd.MultiIndex.from_product([['A'], ['x', 'y'], ['']])
         self.reward_columns = pd.MultiIndex.from_arrays([['R'], [''], ['']])
         self.next_state_columns = self.state_columns.copy()
@@ -394,7 +390,8 @@ class ACRepsLearner(KilobotLearner):
                                    num_episodes=sampling_params['num_episodes'],
                                    num_steps_per_episode=sampling_params['num_steps_per_episode'],
                                    num_kilobots=sampling_params['num_kilobots'],
-                                   column_index=self.sars_columns,
+                                   sars_column_index=self.sars_columns,
+                                   state_column_index=self.state_object_columns,
                                    w_factor=sampling_params['w_factor'],
                                    num_workers=sampling_params['num_workers'],
                                    seed=self._seed, mp_context=self._MP_CONTEXT)
@@ -411,19 +408,21 @@ class ACRepsLearner(KilobotLearner):
             it_sars_file_name = os.path.join(self._log_path_rep, 'it_sars_it{:02d}.pkl'.format(self._it))
             self.it_sars.to_pickle(it_sars_file_name, compression='gzip')
             it_info_file_name = os.path.join(self._log_path_rep, 'it_info_it{:02d}.pkl'.format(self._it))
-            np.save(it_info_file_name, np.array(self.it_info))
+            self.it_info.to_pickle(it_info_file_name, compression='gzip')
 
         if self._params['eval']['save_trajectories']:
             logger.info('pickling eval trajectories...')
             eval_sars_file_name = os.path.join(self._log_path_rep, 'eval_sars_it{:02d}.pkl'.format(self._it))
             self.eval_sars.to_pickle(eval_sars_file_name, compression='gzip')
             eval_info_file_name = os.path.join(self._log_path_rep, 'eval_info_it{:02d}.pkl'.format(self._it))
-            np.save(eval_info_file_name, np.array(self.eval_info))
+            self.eval_info.to_pickle(eval_info_file_name, compression='gzip')
 
         # save theta
-        logger.info('pickling theta...')
-        theta_file_name = os.path.join(self._log_path_rep, 'theta_it{:02d}.pkl'.format(self._it))
+        logger.info('pickling theta and lstd samples...')
+        theta_file_name = os.path.join(self._log_path_rep, 'theta_it{:02d}.npy'.format(self._it))
         np.save(theta_file_name, self.theta)
+        lstd_samples_file_name = os.path.join(self._log_path_rep, 'lstd_samples_it{:02d}.pkl'.format(self._it))
+        self.lstd_samples.to_pickle(lstd_samples_file_name, compression='gzip')
 
         # save SARS data
         logger.info('pickling SARS...')
@@ -432,10 +431,33 @@ class ACRepsLearner(KilobotLearner):
 
     def restore_state(self, config: dict, rep: int, n: int) -> bool:
         # restore policy
-        policy_file_name = os.path.join(self._log_path_rep, 'policy_{:02d}.pkl'.format(n - 1))
+        logger.info('restoring policy and kernel...')
+        policy_file_name = os.path.join(self._log_path_rep, 'policy_it{:02d}.pkl'.format(n))
         with open(policy_file_name, mode='r+b') as policy_file:
             self.policy = pickle.load(policy_file)
-        self._sampler.policy = self.policy
+        self.sampler.policy = self.policy
+        self.kernel = self.policy.kernel
+
+        if self._params['sampling']['save_trajectories']:
+            logger.info('restoring sampling trajectories...')
+            it_sars_file_name = os.path.join(self._log_path_rep, 'it_sars_it{:02d}.pkl'.format(n))
+            self.it_sars = pd.read_pickle(it_sars_file_name, compression='gzip')
+            it_info_file_name = os.path.join(self._log_path_rep, 'it_info_it{:02d}.pkl'.format(n))
+            self.it_info = pd.read_pickle(it_info_file_name, compression='gzip')
+
+        if self._params['eval']['save_trajectories']:
+            logger.info('restoring eval trajectories...')
+            eval_sars_file_name = os.path.join(self._log_path_rep, 'eval_sars_it{:02d}.pkl'.format(n))
+            self.eval_sars = pd.read_pickle(eval_sars_file_name, compression='gzip')
+            eval_info_file_name = os.path.join(self._log_path_rep, 'eval_info_it{:02d}.pkl'.format(n))
+            self.eval_info = pd.read_pickle(eval_info_file_name, compression='gzip')
+
+        # save theta
+        logger.info('pickling theta and lstd samples...')
+        theta_file_name = os.path.join(self._log_path_rep, 'theta_it{:02d}.npy'.format(n))
+        self.theta = np.load(theta_file_name, self.theta)
+        lstd_samples_file_name = os.path.join(self._log_path_rep, 'lstd_samples_it{:02d}.pkl'.format(n))
+        self.lstd_samples = pd.read_pickle(lstd_samples_file_name, compression='gzip')
 
         # restore SARS data
         SARS_file_name = os.path.join(self._log_path_rep, 'last_SARS.pkl.gz')
@@ -478,7 +500,7 @@ class ACRepsLearner(KilobotLearner):
         cmap_gray = cm.get_cmap('gray')
         V = self._compute_value_function_grid(state_action_features)
         im = plot_value_function(ax_bef_V, *V, cmap=cmap_plasma)
-        plot_objects(ax_bef_V, env=self._sampler.env, alpha=.3, fill=True)
+        plot_objects(ax_bef_V, env=self.sampler.env, alpha=.3, fill=True)
         ax_bef_V.set_title('value function, before ac_reps, iteration {}'.format(self._it))
         fig.colorbar(im, cax=ax_bef_V_cb)
 
@@ -488,7 +510,7 @@ class ACRepsLearner(KilobotLearner):
         ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
         plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
         tr = plot_trajectories(ax_bef_T, self.it_sars['S']['light'])
-        plot_objects(ax_bef_T, env=self._sampler.env)
+        plot_objects(ax_bef_T, env=self.sampler.env)
         fig.colorbar(tr[0], cax=ax_bef_T_cb)
 
         # new policy plot
@@ -497,7 +519,7 @@ class ACRepsLearner(KilobotLearner):
         plot_value_function(ax_aft_P, *self._compute_value_function_grid(state_action_features),
                             cmap=cmap_gray)
         qv = plot_policy(ax_aft_P, *self._compute_policy_quivers(), cmap=cmap_plasma)
-        plot_objects(ax_aft_P, env=self._sampler.env)
+        plot_objects(ax_aft_P, env=self.sampler.env)
         fig.colorbar(qv, cax=ax_aft_P_cb)
         ax_aft_P.set_title('policy, after ac_reps, iteration {}'.format(self._it))
 
@@ -507,14 +529,14 @@ class ACRepsLearner(KilobotLearner):
         plt.close(fig)
 
     def _compute_value_function_grid(self, state_action_features, steps_x=40, steps_y=40):
-        x_range = self._sampler.env.world_x_range
-        y_range = self._sampler.env.world_y_range
+        x_range = self.sampler.env.world_x_range
+        y_range = self.sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
         X = X.flatten()
         Y = -Y.flatten()
 
         # kilobots at light position
-        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])
+        states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots + 1])
 
         # get mean actions
         actions = self.policy.get_mean_action(states)
@@ -524,14 +546,14 @@ class ACRepsLearner(KilobotLearner):
         return value_function, x_range, y_range
 
     def _compute_policy_quivers(self, steps_x=40, steps_y=40):
-        x_range = self._sampler.env.world_x_range
-        y_range = self._sampler.env.world_y_range
+        x_range = self.sampler.env.world_x_range
+        y_range = self.sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
         X = X.flatten()
         Y = Y.flatten()
 
         # kilobots at light position
-        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])
+        states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots + 1])
 
         # get mean actions
         mean_actions, sigma_actions = self.policy.get_mean_sigma_action(states)
@@ -587,13 +609,13 @@ class SampledWeightACRepsLearner(ACRepsLearner):
         ax_V_w2.set_title('w = {}, iteration {}'.format(w2, self._it))
         V_w0 = self._compute_value_function_grid(state_action_features, weight=w0)
         plot_value_function(ax_V_w0, *V_w0, cmap=cmap_plasma)
-        plot_objects(ax_V_w0, env=self._sampler.env, fill=False)
+        plot_objects(ax_V_w0, env=self.sampler.env, fill=False)
         V_w1 = self._compute_value_function_grid(state_action_features, weight=w1)
         plot_value_function(ax_V_w1, *V_w1, cmap=cmap_plasma)
-        plot_objects(ax_V_w1, env=self._sampler.env, fill=False)
+        plot_objects(ax_V_w1, env=self.sampler.env, fill=False)
         V_w2 = self._compute_value_function_grid(state_action_features, weight=w2)
         im = plot_value_function(ax_V_w2, *V_w2, cmap=cmap_plasma)
-        plot_objects(ax_V_w2, env=self._sampler.env, fill=False)
+        plot_objects(ax_V_w2, env=self.sampler.env, fill=False)
         fig.colorbar(im, cax=ax_V_cb)
 
         # trajectories plot
@@ -606,16 +628,16 @@ class SampledWeightACRepsLearner(ACRepsLearner):
         ax_T_w1.set_title('0.33 < w <= 0.66')
         ax_T_w2.set_title('0.66 < w, iteration {}'.format(self._it))
         plot_value_function(ax_T_w0, *V_w0, cmap=cmap_gray)
-        plot_objects(ax_T_w0, env=self._sampler.env)
+        plot_objects(ax_T_w0, env=self.sampler.env)
         small_w_index = self.it_sars['S']['weight'] <= .33
         medium_w_index = (self.it_sars['S']['weight'] <= .66) & ~small_w_index
         large_w_index = ~(small_w_index | medium_w_index)
         plot_trajectories(ax_T_w0, self.it_sars['S']['light'].loc[small_w_index])
         plot_value_function(ax_T_w1, *V_w1, cmap=cmap_gray)
-        plot_objects(ax_T_w1, env=self._sampler.env)
+        plot_objects(ax_T_w1, env=self.sampler.env)
         plot_trajectories(ax_T_w1, self.it_sars['S']['light'].loc[medium_w_index])
         plot_value_function(ax_T_w2, *V_w2, cmap=cmap_gray)
-        plot_objects(ax_T_w2, env=self._sampler.env)
+        plot_objects(ax_T_w2, env=self.sampler.env)
         tr = plot_trajectories(ax_T_w2, self.it_sars['S']['light'].loc[large_w_index])
         fig.colorbar(tr[0], cax=ax_T_cb)
 
@@ -628,13 +650,13 @@ class SampledWeightACRepsLearner(ACRepsLearner):
         ax_P_w1.set_title('w = {}'.format(w1))
         ax_P_w2.set_title('w = {}, iteration {}'.format(w2, self._it))
         plot_value_function(ax_P_w0, *V_w0, cmap=cmap_gray)
-        plot_objects(ax_P_w0, env=self._sampler.env)
+        plot_objects(ax_P_w0, env=self.sampler.env)
         plot_policy(ax_P_w0, *self._compute_policy_quivers(weight=w0), cmap=cmap_plasma)
         plot_value_function(ax_P_w1, *V_w1, cmap=cmap_gray)
-        plot_objects(ax_P_w1, env=self._sampler.env)
+        plot_objects(ax_P_w1, env=self.sampler.env)
         plot_policy(ax_P_w1, *self._compute_policy_quivers(weight=w1), cmap=cmap_plasma)
         plot_value_function(ax_P_w2, *V_w2, cmap=cmap_gray)
-        plot_objects(ax_P_w2, env=self._sampler.env)
+        plot_objects(ax_P_w2, env=self.sampler.env)
         qv = plot_policy(ax_P_w2, *self._compute_policy_quivers(weight=w2), cmap=cmap_plasma)
         fig.colorbar(qv, cax=ax_P_cb)
 
@@ -644,14 +666,14 @@ class SampledWeightACRepsLearner(ACRepsLearner):
         plt.close(fig)
 
     def _compute_value_function_grid(self, state_action_features, weight, steps_x=40, steps_y=40):
-        x_range = self._sampler.env.world_x_range
-        y_range = self._sampler.env.world_y_range
+        x_range = self.sampler.env.world_x_range
+        y_range = self.sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
         X = X.flatten()
         Y = -Y.flatten()
 
         # kilobots at light position
-        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])
+        states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots + 1])
         states = np.c_[states, np.ones((states.shape[0], 1)) * weight]
 
         # get mean actions
@@ -662,14 +684,14 @@ class SampledWeightACRepsLearner(ACRepsLearner):
         return value_function, x_range, y_range
 
     def _compute_policy_quivers(self, weight, steps_x=20, steps_y=20):
-        x_range = self._sampler.env.world_x_range
-        y_range = self._sampler.env.world_y_range
+        x_range = self.sampler.env.world_x_range
+        y_range = self.sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
         X = X.flatten()
         Y = Y.flatten()
 
         # kilobots at light position
-        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots + 1])
+        states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots + 1])
         states = np.c_[states, np.ones((states.shape[0], 1)) * weight]
 
         # get mean actions
@@ -740,7 +762,7 @@ class GradientLightObjectACRepsLearner(ACRepsLearner):
         cmap_gray = cm.get_cmap('gray')
         V = self._compute_value_function_grid(state_action_features)
         im = plot_value_function(ax_bef_V, *V, cmap=cmap_plasma)
-        plot_objects(ax_bef_V, env=self._sampler.env, alpha=.3, fill=True)
+        plot_objects(ax_bef_V, env=self.sampler.env, alpha=.3, fill=True)
         ax_bef_V.set_title('value function, before ac_reps, iteration {}'.format(self._it))
         fig.colorbar(im, cax=ax_bef_V_cb)
 
@@ -750,7 +772,7 @@ class GradientLightObjectACRepsLearner(ACRepsLearner):
         ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
         plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
         tr = plot_trajectories(ax_bef_T, compute_mean_position_pandas(self.it_sars['S']))
-        plot_objects(ax_bef_T, env=self._sampler.env)
+        plot_objects(ax_bef_T, env=self.sampler.env)
         fig.colorbar(tr[0], cax=ax_bef_T_cb)
 
         # new policy plot
@@ -759,7 +781,7 @@ class GradientLightObjectACRepsLearner(ACRepsLearner):
         plot_value_function(ax_aft_P, *self._compute_value_function_grid(state_action_features),
                             cmap=cmap_gray)
         qv = plot_policy(ax_aft_P, *self._compute_policy_quivers(), cmap=cmap_plasma)
-        plot_objects(ax_aft_P, env=self._sampler.env)
+        plot_objects(ax_aft_P, env=self.sampler.env)
         fig.colorbar(qv, cax=ax_aft_P_cb)
         ax_aft_P.set_title('policy, after ac_reps, iteration {}'.format(self._it))
 
@@ -771,14 +793,14 @@ class GradientLightObjectACRepsLearner(ACRepsLearner):
         plt.close(fig)
 
     def _compute_value_function_grid(self, state_action_features, steps_x=40, steps_y=40):
-        x_range = self._sampler.env.world_x_range
-        y_range = self._sampler.env.world_y_range
+        x_range = self.sampler.env.world_x_range
+        y_range = self.sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
         X = X.flatten()
         Y = -Y.flatten()
 
         # kilobots at light position
-        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots])
+        states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots])
 
         # get mean actions
         actions = self.policy.get_mean_action(states)
@@ -788,14 +810,14 @@ class GradientLightObjectACRepsLearner(ACRepsLearner):
         return value_function, x_range, y_range
 
     def _compute_policy_quivers(self, steps_x=40, steps_y=40):
-        x_range = self._sampler.env.world_x_range
-        y_range = self._sampler.env.world_y_range
+        x_range = self.sampler.env.world_x_range
+        y_range = self.sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
         X = X.flatten()
         Y = Y.flatten()
 
         # kilobots at light position
-        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots])
+        states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots])
 
         # get mean actions
         mean_actions, sigma_actions = self.policy.get_mean_sigma_action(states)
@@ -863,7 +885,7 @@ class DualLightComplexObjectACRepsLearner(ACRepsLearner):
         cmap_gray = cm.get_cmap('gray')
         V = self._compute_value_function_grid(state_action_features)
         im = plot_value_function(ax_bef_V, *V, cmap=cmap_plasma)
-        plot_objects(ax_bef_V, env=self._sampler.env, alpha=.3, fill=True)
+        plot_objects(ax_bef_V, env=self.sampler.env, alpha=.3, fill=True)
         ax_bef_V.set_title('value function, before ac_reps, iteration {}'.format(self._it))
         fig.colorbar(im, cax=ax_bef_V_cb)
 
@@ -873,7 +895,7 @@ class DualLightComplexObjectACRepsLearner(ACRepsLearner):
         ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
         plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
         tr = plot_trajectories(ax_bef_T, compute_mean_position_pandas(self.it_sars['S']))
-        plot_objects(ax_bef_T, env=self._sampler.env)
+        plot_objects(ax_bef_T, env=self.sampler.env)
         fig.colorbar(tr[0], cax=ax_bef_T_cb)
 
         # new policy plot
@@ -884,7 +906,7 @@ class DualLightComplexObjectACRepsLearner(ACRepsLearner):
         (mean_actions, sigma_actions), x_range, y_range = self._compute_policy_quivers()
         _ = plot_policy(ax_aft_P, (mean_actions[..., 0, None], sigma_actions), x_range, y_range, cmap=cmap_plasma)
         qv = plot_policy(ax_aft_P, (mean_actions[..., 1, None], sigma_actions), x_range, y_range, cmap=cmap_plasma)
-        plot_objects(ax_aft_P, env=self._sampler.env)
+        plot_objects(ax_aft_P, env=self.sampler.env)
         fig.colorbar(qv, cax=ax_aft_P_cb)
         ax_aft_P.set_title('policy, after ac_reps, iteration {}'.format(self._it))
 
@@ -896,14 +918,14 @@ class DualLightComplexObjectACRepsLearner(ACRepsLearner):
         plt.close(fig)
 
     def _compute_value_function_grid(self, state_action_features, steps_x=40, steps_y=40):
-        x_range = self._sampler.env.world_x_range
-        y_range = self._sampler.env.world_y_range
+        x_range = self.sampler.env.world_x_range
+        y_range = self.sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
         X = X.flatten()
         Y = -Y.flatten()
 
         # kilobots at light position
-        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots])
+        states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots])
 
         # get mean actions
         actions = self.policy.get_mean_action(states)
@@ -913,14 +935,14 @@ class DualLightComplexObjectACRepsLearner(ACRepsLearner):
         return value_function, x_range, y_range
 
     def _compute_policy_quivers(self, steps_x=40, steps_y=40):
-        x_range = self._sampler.env.world_x_range
-        y_range = self._sampler.env.world_y_range
+        x_range = self.sampler.env.world_x_range
+        y_range = self.sampler.env.world_y_range
         [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
         X = X.flatten()
         Y = Y.flatten()
 
         # kilobots at light position
-        states = np.tile(np.c_[X, Y], [1, self._sampler.num_kilobots])
+        states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots])
 
         # get mean actions
         mean_actions, sigma_actions = self.policy.get_mean_sigma_action(states)

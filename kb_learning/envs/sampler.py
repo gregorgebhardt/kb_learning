@@ -13,13 +13,14 @@ logger = logging.getLogger('kb_learning.sampler')
 
 class KilobotSampler(object):
     def __init__(self, num_episodes: int, num_steps_per_episode: int,
-                 column_index: pd.Index, seed: int=0, *args, **kwargs):
+                 sars_column_index: pd.Index, state_column_index: pd.Index, seed: int=0, *args, **kwargs):
         self._seed = seed
 
         self.max_episodes = num_episodes
         self.num_steps_per_episode = num_steps_per_episode
 
-        self.column_index = column_index
+        self.sars_column_index = sars_column_index
+        self.state_column_index = state_column_index
 
     @property
     def seed(self):
@@ -46,8 +47,9 @@ class KilobotSampler(object):
         sars_samples, info = self._sample_sars(policy, num_episodes, num_steps_per_episode)
 
         index = pd.MultiIndex.from_product([range(num_episodes), range(num_steps_per_episode)])
-        it_sars = pd.DataFrame(data=sars_samples, index=index, columns=self.column_index)
-        return it_sars, info
+        it_sars = pd.DataFrame(data=sars_samples, index=index, columns=self.sars_column_index)
+        it_info = pd.DataFrame(data=info, index=index, columns=self.state_column_index)
+        return it_sars, it_info
 
 
 class ObjectEnvSampler(KilobotSampler):

@@ -157,3 +157,6 @@ cdef class EmbeddedSwarmDistance:
             self._kernel_func.bandwidth = self.bandwidth_factor * np.ones(2) * bandwidth
         else:
             self._kernel_func.bandwidth = self.bandwidth_factor * bandwidth.reshape((-1, 2)).mean(axis=0)
+
+    def get_bandwidth(self):
+        return self._kernel_func.bandwidth

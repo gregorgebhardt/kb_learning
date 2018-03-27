@@ -36,6 +36,9 @@ class MahaDist:
         else:
             self.bandwidth = np.diag(1 / (self.bandwidth_factor * bandwidth))
 
+    def get_bandwidth(self):
+        return 1 / np.diag(self.bandwidth)
+
 
 class MeanSwarmDist(MahaDist):
     def __init__(self, *args, **kwargs):
@@ -86,3 +89,6 @@ class PeriodicDist:
 
     def set_bandwidth(self, bandwidth):
         self.bandwidth = 1 / (self.bandwidth_factor * bandwidth)
+
+    def get_bandwidth(self):
+        return self.bandwidth

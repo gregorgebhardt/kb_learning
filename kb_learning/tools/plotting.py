@@ -69,7 +69,7 @@ def plot_trajectory_reward_distribution(axes: Axes, reward: pd.DataFrame):
     x = np.arange(mean_reward.shape[0])
 
     axes.plot(x, reward.unstack(level=0), 'k-', alpha=.2)
-    axes.fill_between(x, mean_reward-2*std_reward, mean_reward+2*std_reward, alpha=.5)
+    axes.fill_between(x, mean_reward - 2 * std_reward, mean_reward + 2 * std_reward, alpha=.5)
     axes.plot(x, mean_reward)
 
 
