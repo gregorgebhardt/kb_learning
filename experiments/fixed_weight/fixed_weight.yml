@@ -30,13 +30,12 @@ params:
     object_shape: 'rect'
     object_width: .05
     object_height: .6
-    num_kilobots: 15
+    num_kilobots: 5
 grid:
   kernel:
     bandwidth_factor_kb: [.1, .2, .3]
     bandwidth_factor_light: [.1, .3, .5]
-    bandwidth_factor_action: [.8, 1., 1.2]
-
+    type: ['kilobot', 'mean']
 ---
 name: 'square'
 params:

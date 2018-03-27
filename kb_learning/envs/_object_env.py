@@ -11,9 +11,10 @@ class ObjectEnv(KilobotsEnv):
     world_size = world_width, world_height = .8, .8
     screen_size = screen_width, screen_height = 500, 500
 
-    _cost_vector = np.array([0.01, 0.1, 0.01])
-    # _scale_vector = np.array([5., 5., .5])
-    _scale_vector = np.array([1., 1., .2])
+    # scaling of the differences in x-, y-position and rotation, respectively
+    _scale_vector = np.array([1., 1., 1.])
+    # cost for translational movements into x, y direction and rotational movements, respectively
+    _cost_vector = np.array([0.1, 0.1, 0.15])
 
     _object_init = np.array([.0, .0, .0])
     _object_width, _object_height = .15, .15
@@ -153,8 +154,10 @@ class ObjectEnv(KilobotsEnv):
         light_init = np.maximum(light_init, self.world_bounds[0])
         light_init = np.minimum(light_init, self.world_bounds[1])
 
+        light_bounds = np.array(self.world_bounds) * 1.2
+
         self._light = CircularGradientLight(position=light_init, radius=self._light_radius,
-                                            bounds=self.world_bounds, action_bounds=self._action_bounds)
+                                            bounds=light_bounds, action_bounds=self._action_bounds)
 
     def _init_kilobots(self):
         # kilobots start at the light position in a slightly random formation

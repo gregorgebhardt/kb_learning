@@ -71,13 +71,13 @@ class SparseGPPolicy:
         L = self.gp_prior_variance * self.kernel.diag(states) \
             - np.sum(K_mn * scipy.linalg.cho_solve(K_m_c, K_mn), axis=0).squeeze() \
             + self.gp_noise_variance * (1 / weights)
-        L = np.diag(1 / L)
+        L = 1 / L
 
-        Q = K_m + K_mn.dot(L).dot(K_mn.T)
+        Q = K_m + (K_mn * L).dot(K_mn.T)
         if self.gp_prior_mean:
             actions -= self.gp_prior_mean(states)
 
-        self.alpha = np.linalg.solve(Q, K_mn).dot(L).dot(actions)
+        self.alpha = (np.linalg.solve(Q, K_mn) * L).dot(actions)
 
         self.Q_Km = np.linalg.pinv(K_m) - np.linalg.pinv(Q)
 
