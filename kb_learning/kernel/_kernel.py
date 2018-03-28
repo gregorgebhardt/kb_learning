@@ -7,9 +7,12 @@ class KilobotEnvKernel:
     def __init__(self, bandwidth_factor_kilobots=1.0, bandwidth_factor_light=1.0, bandwidth_factor_action=1.0,
                  light_idx=None, action_idx=None, weight=.5, kb_dist_class=EmbeddedSwarmDistance,
                  light_dist_class=MahaDist, action_dist_class=MahaDist):
+        # self.kilobots_dist = kb_dist_class(bandwidth_factor=bandwidth_factor_kilobots)
+        # self.light_dist = light_dist_class(bandwidth_factor=bandwidth_factor_light)
+        # self.action_dist = action_dist_class(bandwidth_factor=bandwidth_factor_action)
         self.kilobots_dist = kb_dist_class(bandwidth_factor=bandwidth_factor_kilobots)
-        self.light_dist = light_dist_class(bandwidth_factor=bandwidth_factor_light)
-        self.action_dist = action_dist_class(bandwidth_factor=bandwidth_factor_action)
+        self.light_dist = light_dist_class()
+        self.action_dist = action_dist_class()
 
         self._light_idx = light_idx
         self._action_idx = action_idx

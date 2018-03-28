@@ -37,6 +37,8 @@ class MahaDist:
             self.bandwidth = np.diag(1 / (self.bandwidth_factor * bandwidth))
 
     def get_bandwidth(self):
+        if np.isscalar(self.bandwidth):
+            return 1 / self.bandwidth
         return 1 / np.diag(self.bandwidth)
 
 

@@ -4,7 +4,8 @@ import pyximport
 pyximport.install(setup_args={'include_dirs': np.get_include()})
 
 from ._kilobot_distance import EmbeddedSwarmDistance, ExponentialQuadraticKernel
-from ._distances import MahaDist, MeanSwarmDist, MeanCovSwarmDist, PeriodicDist
+from ._mahalanobis_distance import MahaDist, MeanSwarmDist, MeanCovSwarmDist
+from ._distances import PeriodicDist
 from ._kernel import KilobotEnvKernel, KilobotEnvKernelWithWeight
 from ._preprocessors import compute_median_bandwidth, select_reference_set_randomly, \
     select_reference_set_by_kernel_activation, compute_mean_position, compute_mean_and_cov_position, \
