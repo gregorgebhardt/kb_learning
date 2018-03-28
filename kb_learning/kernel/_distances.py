@@ -59,22 +59,15 @@ class MeanCovSwarmDist(MeanSwarmDist):
 
 
 class PeriodicDist:
-    def __init__(self, bandwidth_factor=1.0):
+    def __init__(self):
         self.bandwidth = 1.
-        if type(bandwidth_factor) in [float, int]:
-            self.bandwidth_factor = bandwidth_factor
-        elif type(bandwidth_factor) in [list, tuple]:
-            self.bandwidth_factor = np.array(bandwidth_factor)
-        else:
-            self.bandwidth_factor = bandwidth_factor
-
-        self._preprocessor = None
+        self.preprocessor = None
 
     def __call__(self, X, Y=None, eval_gradient=False):
-        if self._preprocessor:
-            X = self._preprocessor(X)
+        if self.preprocessor:
+            X = self.preprocessor(X)
             if Y is not None:
-                Y = self._preprocessor(Y)
+                Y = self.preprocessor(Y)
 
         if Y is None:
             Y = X
@@ -90,7 +83,7 @@ class PeriodicDist:
         return True
 
     def set_bandwidth(self, bandwidth):
-        self.bandwidth = 1 / (self.bandwidth_factor * bandwidth)
+        self.bandwidth = 1 / (bandwidth)
 
     def get_bandwidth(self):
         return self.bandwidth

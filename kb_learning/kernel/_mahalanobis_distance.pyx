@@ -14,13 +14,13 @@ DTYPE = np.float64
 
 cdef class MahaDist:
     def __init__(self):
-        self.bandwidth = 1.
+        self.bandwidth = np.array([1.], dtype=DTYPE)
         self.preprocessor = None
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.nonecheck(False)
-    cpdef np.ndarray get_distance_matrix(self, DTYPE_t[:, :] a, DTYPE_t[:, :] b=None):
+    cdef np.ndarray get_distance_matrix(self, DTYPE_t[:, :] a, DTYPE_t[:, :] b=None):
         """computes the squared mahalanobis distance
         
         :param a: q x d matrix of kilobot positions
@@ -45,7 +45,7 @@ cdef class MahaDist:
             r = b.shape[0]
             maha_dist = np.empty((q, r))
 
-        cdef DTYPE_t[:] bw = 1 / self.bandwidth
+        cdef DTYPE_t[:] bw = 1 / (np.ones(d) * self.bandwidth)
 
         cdef DTYPE_t sq_dist_a = .0, sq_dist_ab = .0
         with nogil, parallel():
@@ -70,7 +70,7 @@ cdef class MahaDist:
 
         return np.asarray(maha_dist)
 
-    def get_gram_diag(self, np.ndarray data):
+    def diag(self, np.ndarray data):
         return np.zeros(data.shape[0])
 
     def __call__(self, X, Y=None):
@@ -79,6 +79,15 @@ cdef class MahaDist:
             if Y is not None:
                 Y = self.preprocessor(Y)
         return self.get_distance_matrix(X, Y)
+
+    def set_bandwidth(self, bandwidth):
+        if np.isscalar(bandwidth):
+            self.bandwidth = np.array([bandwidth])
+        else:
+            self.bandwidth = bandwidth
+
+    def get_bandwidth(self):
+        return self.bandwidth
 
 
 class MeanSwarmDist(MahaDist):

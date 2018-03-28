@@ -158,17 +158,21 @@ class ACRepsLearner(KilobotLearner):
         logger.debug('computing kernel bandwidths.')
         bandwidth_kb = compute_median_bandwidth(_extended_sars[self.kilobots_columns], sample_size=500,
                                                 preprocessor=self.state_preprocessor)
+        bandwidth_kb *= self._params['kernel']['bandwidth_factor_kb']
         self.kernel.kilobots_dist.set_bandwidth(bandwidth_kb)
 
         if self.light_columns is not None:
             bandwidth_l = compute_median_bandwidth(_extended_sars[self.light_columns], sample_size=500)
+            bandwidth_l *= self._params['kernel']['bandwidth_factor_light']
             self.kernel.light_dist.set_bandwidth(bandwidth_l)
 
         if self.weight_columns is not None:
             bandwidth_w = compute_median_bandwidth(_extended_sars[self.weight_columns], sample_size=500)
+            bandwidth_w *= self._params['kernel']['bandwidth_factor_weight']
             self.kernel.weight_dist.set_bandwidth(bandwidth_w)
 
         bandwidth_a = compute_median_bandwidth(_extended_sars['A'], sample_size=500)
+        bandwidth_a *= self._params['kernel']['bandwidth_factor_action']
         self.kernel.action_dist.set_bandwidth(bandwidth_a)
 
         logger.debug('selecting SARS samples.')

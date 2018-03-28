@@ -16,7 +16,7 @@ ctypedef np.float64_t DTYPE_t
 cdef class ExponentialQuadraticKernel:
     def __init__(self, normalized=0):
         self.normalized = normalized
-        # self.bandwidth = np.ndarray([1, 1])
+        self.bandwidth = np.array([1.])
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -47,7 +47,9 @@ cdef class ExponentialQuadraticKernel:
             # bq_b = np.sum((b * bw) * b, axis=-1)
             sq_dist = np.empty((q, r))
 
-        # cdef double[:] bw = -1 / (2 * self.bandwidth ** 2)
+        if len(self.bandwidth) > d:
+            self.bandwidth = self.bandwidth.reshape((-1, d)).mean(axis=0)
+
         cdef double[:] bw = -1 / (2 * self.bandwidth)
 
         # cdef np.ndarray[DTYPE_t, ndim=3] aq = a * bw
@@ -86,10 +88,8 @@ cdef class ExponentialQuadraticKernel:
         return np.ones(data.shape[0])
 
 cdef class EmbeddedSwarmDistance:
-    def __init__(self, bandwidth_factor=1., num_processes=1):
+    def __init__(self):
         self._kernel_func = ExponentialQuadraticKernel()
-        self.bandwidth_factor = bandwidth_factor
-        # self.num_processes = num_processes
 
     cdef np.ndarray _compute_kb_distance(self, np.ndarray k1, np.ndarray k2):
         """Computes the kb distance matrix between any configuration in k1 and any configuration in k2.
@@ -153,11 +153,9 @@ cdef class EmbeddedSwarmDistance:
 
     def set_bandwidth(self, bandwidth):
         if np.isscalar(bandwidth):
-            self._kernel_func.bandwidth = self.bandwidth_factor * np.ones(2) * bandwidth
-        elif len(bandwidth) == 1:
-            self._kernel_func.bandwidth = self.bandwidth_factor * np.ones(2) * bandwidth
+            self._kernel_func.bandwidth = np.array([bandwidth])
         else:
-            self._kernel_func.bandwidth = self.bandwidth_factor * bandwidth.reshape((-1, 2)).mean(axis=0)
+            self._kernel_func.bandwidth = bandwidth
 
     def get_bandwidth(self):
         return self._kernel_func.bandwidth
