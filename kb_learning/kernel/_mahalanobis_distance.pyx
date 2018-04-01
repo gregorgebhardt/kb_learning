@@ -20,11 +20,12 @@ cdef class MahaDist:
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.nonecheck(False)
-    cdef np.ndarray get_distance_matrix(self, DTYPE_t[:, :] a, DTYPE_t[:, :] b=None):
+    cpdef np.ndarray get_distance_matrix(self, double[:, :] a, double[:, :] b=None):
         """computes the squared mahalanobis distance
         
         :param a: q x d matrix of kilobot positions
         :param b: r x d matrix of kilobot positions
+        :param eval_gradient: a boolean whether the function should also return the gradients wrt the bandwidth
         :return:  q x r matrix if a and b are given, q x q matrix if only a is given
         """
         # assert a.dtype == DTYPE
@@ -34,20 +35,17 @@ cdef class MahaDist:
 
         q = a.shape[0]
         d = a.shape[1]
-        cdef DTYPE_t[:, :] a_mem = a
-        cdef DTYPE_t[:, :] b_mem
 
-        cdef DTYPE_t[:, :] maha_dist
+        cdef double[:, :] maha_dist
         if b is None:
             maha_dist = np.empty((q, q))
         else:
-            b_mem = b
             r = b.shape[0]
             maha_dist = np.empty((q, r))
 
-        cdef DTYPE_t[:] bw = 1 / (np.ones(d) * self.bandwidth)
+        cdef double[:] bw = 1 / (2 * self.bandwidth)
 
-        cdef DTYPE_t sq_dist_a = .0, sq_dist_ab = .0
+        cdef double sq_dist_a = .0, sq_dist_ab = .0
         with nogil, parallel():
             if b is None:
                 for i in prange(q, schedule='guided'):
@@ -56,19 +54,62 @@ cdef class MahaDist:
                         maha_dist[j, i] = .0
                         sq_dist_a = .0
                         for k in range(d):
-                            sq_dist_a += (a_mem[i, k] - a_mem[j, k]) ** 2 * bw[k]
+                            sq_dist_a += (a[i, k] - a[j, k])**2 * bw[k]
 
-                        maha_dist[j, i] += sq_dist_a
+                        maha_dist[i, j] += sq_dist_a
                         if j != i:
-                            maha_dist[i, j] += sq_dist_a
+                            maha_dist[j, i] += sq_dist_a
             else:
                 for i in prange(q, schedule='guided'):
                     for j in range(r):
                         maha_dist[i, j] = .0
                         for k in range(d):
-                            maha_dist[i, j] += (a_mem[i, k] - b_mem[j, k])**2 * bw[k]
+                            maha_dist[i, j] += (a[i, k] - b[j, k])**2 * bw[k]
 
         return np.asarray(maha_dist)
+
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.nonecheck(False)
+    cpdef np.ndarray get_distance_matrix_gradient(self, double[:, :] a, double[:, :] b=None):
+        """computes the squared mahalanobis distance
+        
+        :param a: q x d matrix of kilobot positions
+        :param b: r x d matrix of kilobot positions
+        :param eval_gradient: a boolean whether the function should also return the gradients wrt the bandwidth
+        :return:  q x r matrix if a and b are given, q x q matrix if only a is given
+        """
+        # assert a.dtype == DTYPE
+
+        cdef Py_ssize_t q, r, d
+        cdef Py_ssize_t i, j, k
+
+        q = a.shape[0]
+        d = a.shape[1]
+
+        cdef double[:, :, :] d_maha_dist_d_bw
+        if b is None:
+            d_maha_dist_d_bw = np.empty((q, q, d))
+        else:
+            r = b.shape[0]
+            d_maha_dist_d_bw = np.empty((q, r, d))
+
+        cdef double[:] bw = 1 / self.bandwidth
+
+        with nogil, parallel():
+            if b is None:
+                for i in prange(q, schedule='guided'):
+                    for j in range(i, q):
+                        for k in range(d):
+                            d_maha_dist_d_bw[i, j, k] = -(a[i, k] - a[j, k])**2 * bw[k]**2 / 2
+                            d_maha_dist_d_bw[j, i, k] = -(a[i, k] - a[j, k])**2 * bw[k]**2 / 2
+            else:
+                for i in prange(q, schedule='guided'):
+                    for j in range(r):
+                        for k in range(d):
+                            d_maha_dist_d_bw[i, j, k] = -(a[i, k] - b[j, k])**2 * bw[k]**2 / 2
+
+        return np.asarray(d_maha_dist_d_bw)
 
     def diag(self, np.ndarray data):
         return np.zeros(data.shape[0])

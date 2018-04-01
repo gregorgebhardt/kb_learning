@@ -1,12 +1,12 @@
 cimport numpy as np
 
 
-cdef class ExponentialQuadraticKernel:
+cdef class EmbeddingCovariance:
     cdef public np.ndarray bandwidth
-    cdef int normalized
-    cdef double[:, :] get_gram_matrix_multi(self, double[:, :, :] a, double[:, :, :] b=?)
+    cdef double[:, :] get_cov_matrix(self, double[:, :, :] a, double[:, :, :] b=?)
+    cdef double[:, :, :] get_cov_matrix_gradient(self, double[:, :, :] a, double[:, :, :] b=?)
 
 cdef class EmbeddedSwarmDistance:
-    cdef public double bandwidth_factor
-    cdef ExponentialQuadraticKernel _kernel_func
-    cdef np.ndarray _compute_kb_distance(self, np.ndarray k1, np.ndarray k2)
+    cdef EmbeddingCovariance _kernel_func
+    cpdef np.ndarray get_distance_matrix(self, np.ndarray k1, np.ndarray k2=?)
+    cpdef np.ndarray get_distance_matrix_gradient(self, np.ndarray k1, np.ndarray k2=?)

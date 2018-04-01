@@ -322,10 +322,7 @@ class ACRepsLearner(KilobotLearner):
             raise InvalidParameterArgument
 
         if self._params['sampling']['w_factor'] is not None:
-            return KilobotEnvKernel(weight=kernel_params['weight'],
-                                    bandwidth_factor_kilobots=kernel_params['bandwidth_factor_kb'],
-                                    bandwidth_factor_light=kernel_params['bandwidth_factor_light'],
-                                    bandwidth_factor_action=kernel_params['bandwidth_factor_action'],
+            return KilobotEnvKernel(rho=kernel_params['weight'],
                                     light_idx=2 * self._params['sampling']['num_kilobots'],
                                     action_idx=2 * self._params['sampling']['num_kilobots'] +
                                                self._light_dimensions,
@@ -334,10 +331,6 @@ class ACRepsLearner(KilobotLearner):
                                     action_dist_class=a_dist_class)
         else:
             return KilobotEnvKernelWithWeight(weight=kernel_params['weight'],
-                                              bandwidth_factor_kilobots=kernel_params['bandwidth_factor_kb'],
-                                              bandwidth_factor_light=kernel_params['bandwidth_factor_light'],
-                                              bandwidth_factor_action=kernel_params['bandwidth_factor_light'],
-                                              bandwidth_factor_weight=kernel_params['bandwidth_factor_weight'],
                                               light_idx=2 * self._params['sampling']['num_kilobots'],
                                               weight_idx=2 * self._params['sampling']['num_kilobots'] +
                                                          self._light_dimensions,
