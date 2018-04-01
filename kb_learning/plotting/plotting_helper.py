@@ -15,7 +15,7 @@ def compute_value_function_grid(state_action_features, policy, theta, num_kilobo
     states = np.tile(np.c_[X, Y], [1, num_kilobots + 1])
 
     # get mean actions
-    actions = policy.get_mean_action(states)
+    actions = policy.get_mean(states)
 
     value_function = state_action_features(states, actions).dot(theta).reshape((resolution[1], resolution[0]))
 
@@ -34,7 +34,7 @@ def compute_policy_quivers(policy, num_kilobots, x_range, y_range, resolution=40
     states = np.tile(np.c_[X, Y], [1, num_kilobots + 1])
 
     # get mean actions
-    mean_actions, sigma_actions = policy.get_mean_sigma_action(states)
+    mean_actions, sigma_actions = policy.get_mean_sigma(states)
     mean_actions = mean_actions.reshape((resolution[1], resolution[0], mean_actions.shape[1]))
     sigma_actions = sigma_actions.reshape((resolution[1], resolution[0]))
 

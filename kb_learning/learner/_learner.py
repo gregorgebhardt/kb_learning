@@ -14,7 +14,7 @@ from kb_learning.kernel import compute_median_bandwidth, select_reference_set_by
     compute_mean_position_pandas, angle_from_swarm_mean, step_towards_center
 from kb_learning.ac_reps.lstd import LeastSquaresTemporalDifference
 from kb_learning.ac_reps.reps import ActorCriticReps
-from kb_learning.ac_reps.sparse_gp_policy import SparseGPPolicy
+from kb_learning.ac_reps.spwgp import SparseWeightedGP
 
 from kb_learning.envs.sampler import ParallelSARSSampler
 from kb_learning.envs import register_object_env, register_gradient_light_object_env, \
@@ -142,13 +142,13 @@ class ACRepsLearner(KilobotLearner):
         sum_R = self.it_sars['R'].groupby(level=0).sum()
 
         mean_sum_R = sum_R.mean()
-        median_sum_R = sum_R.median()
+        sum_sum_R = sum_R.sum()
         std_sum_R = sum_R.std()
         max_sum_R = sum_R.max()
         min_sum_R = sum_R.min()
 
-        logger.info('statistics on sum R -- mean: {:.6f} median: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
-            mean_sum_R, median_sum_R, std_sum_R, max_sum_R, min_sum_R))
+        logger.info('statistics on sum R -- mean: {:.6f} sum: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
+            mean_sum_R, sum_sum_R, std_sum_R, max_sum_R, min_sum_R))
 
         # add samples to data set and select subset
         _extended_sars = self.sars.append(self.it_sars, ignore_index=True)
@@ -261,21 +261,15 @@ class ACRepsLearner(KilobotLearner):
             sum_R = self.eval_sars['R'].groupby(level=0).sum()
 
             mean_sum_R = sum_R.mean()
-            median_sum_R = sum_R.median()
+            sum_sum_R = sum_R.sum()
             std_sum_R = sum_R.std()
             max_sum_R = sum_R.max()
             min_sum_R = sum_R.min()
 
-            logger.info('statistics on sum R -- mean: {:.6f} median: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
-                mean_sum_R, median_sum_R, std_sum_R, max_sum_R, min_sum_R))
+            logger.info('statistics on sum R -- mean: {:.6f} sum: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
+                mean_sum_R, sum_sum_R, std_sum_R, max_sum_R, min_sum_R))
 
-            # plotting
-            if self._plotting:
-                self._plot_iteration_results(state_action_features)
-
-            del phi_SA, phi_SA_next
-
-        return_dict = dict(mean_sum_R=mean_sum_R, median_sum_R=median_sum_R, std_sum_R=std_sum_R,
+        return_dict = dict(mean_sum_R=mean_sum_R, sum_sum_R=sum_sum_R, std_sum_R=std_sum_R,
                            max_sum_R=max_sum_R, min_sum_R=min_sum_R)
 
         gc.collect()
@@ -355,12 +349,13 @@ class ACRepsLearner(KilobotLearner):
                                               weight_dist_class=w_dist_class)
 
     def _init_policy(self, action_bounds):
-        policy = SparseGPPolicy(kernel=self.kernel)
+        policy = SparseWeightedGP(kernel=self.kernel)
         policy.gp_prior_variance = self._params['gp']['prior_variance']
         policy.gp_noise_variance = self._params['gp']['noise_variance']
         policy.gp_min_variance = self._params['gp']['min_variance']
         policy.gp_cholesky_regularizer = self._params['gp']['chol_regularizer']
-        policy.action_bounds = action_bounds
+        policy.output_bounds = action_bounds
+        policy.output_bounds_enforce = True
         policy.gp_prior_mean = step_towards_center([-2, -1])
 
         return policy
@@ -470,6 +465,7 @@ class ACRepsLearner(KilobotLearner):
         self.sars = pd.read_pickle(SARS_file_name, compression='gzip')
         return True
 
+    # TODO move to notebooks
     @classmethod
     def plot_results(cls, results_config: Generator):
         fig = plt.figure()
@@ -487,86 +483,6 @@ class ACRepsLearner(KilobotLearner):
         axes.legend()
         plt.show(block=True)
         # fig.show()
-
-    def _plot_iteration_results(self, state_action_features):
-        # setup figure
-        fig = plt.figure(figsize=(10, 20))
-        gs = gridspec.GridSpec(nrows=4, ncols=2, width_ratios=[20, 1], height_ratios=[1, 3, 3, 3])
-
-        # reward plot
-        ax_R = fig.add_subplot(gs[0, :])
-        plot_trajectory_reward_distribution(ax_R, self.it_sars['R'])
-
-        # value function plot
-        ax_bef_V = fig.add_subplot(gs[1, 0])
-        ax_bef_V_cb = fig.add_subplot(gs[1, 1])
-        cmap_plasma = cm.get_cmap('plasma')
-        cmap_gray = cm.get_cmap('gray')
-        V = self._compute_value_function_grid(state_action_features)
-        im = plot_value_function(ax_bef_V, *V, cmap=cmap_plasma)
-        plot_objects(ax_bef_V, env=self.sampler.env, alpha=.3, fill=True)
-        ax_bef_V.set_title('value function, before ac_reps, iteration {}'.format(self._it))
-        fig.colorbar(im, cax=ax_bef_V_cb)
-
-        # trajectories plot
-        ax_bef_T = fig.add_subplot(gs[2, 0])
-        ax_bef_T_cb = fig.add_subplot(gs[2, 1])
-        ax_bef_T.set_title('trajectories, iteration {}'.format(self._it))
-        plot_value_function(ax_bef_T, *V, cmap=cmap_gray)
-        tr = plot_trajectories(ax_bef_T, self.it_sars['S']['light'])
-        plot_objects(ax_bef_T, env=self.sampler.env)
-        fig.colorbar(tr[0], cax=ax_bef_T_cb)
-
-        # new policy plot
-        ax_aft_P = fig.add_subplot(gs[3, 0])
-        ax_aft_P_cb = fig.add_subplot(gs[3, 1])
-        plot_value_function(ax_aft_P, *self._compute_value_function_grid(state_action_features),
-                            cmap=cmap_gray)
-        qv = plot_policy(ax_aft_P, *self._compute_policy_quivers(), cmap=cmap_plasma)
-        plot_objects(ax_aft_P, env=self.sampler.env)
-        fig.colorbar(qv, cax=ax_aft_P_cb)
-        ax_aft_P.set_title('policy, after ac_reps, iteration {}'.format(self._it))
-
-        # save and show plot
-        show_plot_as_pdf(fig, path=self._log_path_rep, filename='plot_{:02d}.pdf'.format(self._it),
-                         overwrite=True, save_only=self._no_gui)
-        plt.close(fig)
-
-    def _compute_value_function_grid(self, state_action_features, steps_x=40, steps_y=40):
-        x_range = self.sampler.env.world_x_range
-        y_range = self.sampler.env.world_y_range
-        [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
-        X = X.flatten()
-        Y = -Y.flatten()
-
-        # kilobots at light position
-        states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots + 1])
-
-        # get mean actions
-        actions = self.policy.get_mean_action(states)
-
-        value_function = state_action_features(states, actions).dot(self.theta).reshape((steps_y, steps_x))
-
-        return value_function, x_range, y_range
-
-    def _compute_policy_quivers(self, steps_x=40, steps_y=40):
-        x_range = self.sampler.env.world_x_range
-        y_range = self.sampler.env.world_y_range
-        [X, Y] = np.meshgrid(np.linspace(*x_range, steps_x), np.linspace(*y_range, steps_y))
-        X = X.flatten()
-        Y = Y.flatten()
-
-        # kilobots at light position
-        states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots + 1])
-
-        # get mean actions
-        mean_actions, sigma_actions = self.policy.get_mean_sigma_action(states)
-        mean_actions = mean_actions.reshape((steps_y, steps_x, mean_actions.shape[1]))
-        sigma_actions = sigma_actions.reshape((steps_y, steps_x))
-
-        actions = mean_actions, sigma_actions
-
-        return actions, x_range, y_range
 
 
 class SampledWeightACRepsLearner(ACRepsLearner):
@@ -681,7 +597,7 @@ class SampledWeightACRepsLearner(ACRepsLearner):
         states = np.c_[states, np.ones((states.shape[0], 1)) * weight]
 
         # get mean actions
-        actions = self.policy.get_mean_action(states)
+        actions = self.policy.get_mean(states)
 
         value_function = state_action_features(states, actions).dot(self.theta).reshape((steps_y, steps_x))
 
@@ -699,7 +615,7 @@ class SampledWeightACRepsLearner(ACRepsLearner):
         states = np.c_[states, np.ones((states.shape[0], 1)) * weight]
 
         # get mean actions
-        mean_actions, sigma_actions = self.policy.get_mean_sigma_action(states)
+        mean_actions, sigma_actions = self.policy.get_mean_sigma(states)
         # mean_actions /= np.linalg.norm(mean_actions, axis=1, keepdims=True)
         mean_actions = mean_actions.reshape((steps_y, steps_x, mean_actions.shape[1]))
         sigma_actions = sigma_actions.reshape((steps_y, steps_x))
@@ -807,7 +723,7 @@ class GradientLightObjectACRepsLearner(ACRepsLearner):
         states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots])
 
         # get mean actions
-        actions = self.policy.get_mean_action(states)
+        actions = self.policy.get_mean(states)
 
         value_function = state_action_features(states, actions).dot(self.theta).reshape((steps_y, steps_x))
 
@@ -824,7 +740,7 @@ class GradientLightObjectACRepsLearner(ACRepsLearner):
         states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots])
 
         # get mean actions
-        mean_actions, sigma_actions = self.policy.get_mean_sigma_action(states)
+        mean_actions, sigma_actions = self.policy.get_mean_sigma(states)
         # mean_actions /= np.linalg.norm(mean_actions, axis=1, keepdims=True)
         mean_actions = mean_actions.reshape((steps_y, steps_x, mean_actions.shape[1]))
         sigma_actions = sigma_actions.reshape((steps_y, steps_x))
@@ -932,7 +848,7 @@ class DualLightComplexObjectACRepsLearner(ACRepsLearner):
         states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots])
 
         # get mean actions
-        actions = self.policy.get_mean_action(states)
+        actions = self.policy.get_mean(states)
 
         value_function = state_action_features(states, actions).dot(self.theta).reshape((steps_y, steps_x))
 
@@ -949,7 +865,7 @@ class DualLightComplexObjectACRepsLearner(ACRepsLearner):
         states = np.tile(np.c_[X, Y], [1, self.sampler.num_kilobots])
 
         # get mean actions
-        mean_actions, sigma_actions = self.policy.get_mean_sigma_action(states)
+        mean_actions, sigma_actions = self.policy.get_mean_sigma(states)
         # mean_actions /= np.linalg.norm(mean_actions, axis=1, keepdims=True)
         mean_actions = mean_actions.reshape((steps_y, steps_x, mean_actions.shape[1]))
         sigma_actions = sigma_actions.reshape((steps_y, steps_x))
