@@ -123,9 +123,9 @@ class SparseWeightedGP:
         gp_mean, gp_sigma = self.get_mean_sigma(inputs)
 
         if gp_mean.ndim > 1:
-            samples = np.random.normal(gp_mean, gp_sigma[:, None])
+            samples = np.random.normal(gp_mean, np.sqrt(gp_sigma[:, None]))
         else:
-            samples = np.random.normal(gp_mean, gp_sigma)
+            samples = np.random.normal(gp_mean, np.sqrt(gp_sigma))
 
         if self.output_bounds_enforce:
             # check samples against bounds from action space

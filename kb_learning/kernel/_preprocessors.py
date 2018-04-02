@@ -45,6 +45,39 @@ def compute_median_bandwidth(data, quantile=.5, sample_size=1000, preprocessor=N
     return bandwidths
 
 
+def compute_median_bandwidth_kilobots(data, quantile=.5, sample_size=1000):
+    """Computes a bandwidth for the given data set using the median heuristic.
+    Other quantiles can be chosen with the quantile keyword argument.
+
+    Arguments:
+    data -- a DataFrame with the variables in the columns
+    quantile -- scalar or list of scalars from the range (0,1)
+    sample_size -- maximum number of sample to compute the point-wise distances
+
+    Returns:
+    bandwidths -- an array with the bandwidth for each variable
+    """
+    num_data_points = data.shape[0]
+
+    if sample_size > num_data_points:
+        data_points = data.values
+    else:
+        data_points = data.sample(sample_size).values
+
+    data_points = data_points.reshape((sample_size, -1, 2))
+
+    bandwidths = np.zeros(2)
+    for i in range(sample_size):
+        for j in range(2):
+            distances = spatial.distance.pdist(data_points[i, :, [j]].T)
+            if quantile == .5:
+                bandwidths[j] += np.median(distances)
+            else:
+                bandwidths[j] += pd.DataFrame(distances).quantile(quantile)
+
+    return bandwidths / sample_size
+
+
 def select_reference_set_randomly(data, size, consecutive_sets=1, group_by=None):
     """selects a random reference set from the given DataFrame. Consecutive sets are computed from the first random
     reference set, where it is assured that only data points are chosen for the random set that have the required

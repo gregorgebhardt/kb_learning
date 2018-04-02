@@ -8,15 +8,15 @@ from typing import Generator
 from cluster_work import ClusterWork, InvalidParameterArgument
 
 from kb_learning.kernel import KilobotEnvKernel
-from kb_learning.kernel import KilobotEnvKernelWithWeight
 from kb_learning.kernel import EmbeddedSwarmDistance, MahaDist, MeanSwarmDist, MeanCovSwarmDist, PeriodicDist
-from kb_learning.kernel import compute_median_bandwidth, select_reference_set_by_kernel_activation, \
-    compute_mean_position_pandas, angle_from_swarm_mean, step_towards_center
+from kb_learning.kernel import compute_median_bandwidth, compute_median_bandwidth_kilobots, \
+    select_reference_set_by_kernel_activation, compute_mean_position_pandas, angle_from_swarm_mean, step_towards_center
 from kb_learning.ac_reps.lstd import LeastSquaresTemporalDifference
 from kb_learning.ac_reps.reps import ActorCriticReps
 from kb_learning.ac_reps.spwgp import SparseWeightedGP
+from kb_learning.ac_reps.gpy_spwgp import SparseWeightedGPyWrapper
 
-from kb_learning.envs.sampler import ParallelSARSSampler
+from kb_learning.envs.sampler import ParallelSARSSampler, SARSSampler
 from kb_learning.envs import register_object_env, register_gradient_light_object_env, \
     register_dual_light_complex_object_env
 
@@ -69,7 +69,8 @@ class ACRepsLearner(KilobotLearner):
             'bandwidth_factor_light': .55,
             'bandwidth_factor_action': .8,
             'bandwidth_factor_weight': .3,
-            'weight': .5,
+            'rho': .5,
+            'variance': .02 ** 2,
         },
         'learn_iterations': 1,
         'lstd': {
@@ -81,10 +82,7 @@ class ACRepsLearner(KilobotLearner):
             'epsilon': .3
         },
         'gp': {
-            'prior_variance': .02 ** 2,
             'noise_variance': 2e-5,
-            'min_variance': 1e-8,
-            'chol_regularizer': 1e-9,
             'num_sparse_states': 1000,
         },
         'eval': {
@@ -98,7 +96,7 @@ class ACRepsLearner(KilobotLearner):
         super().__init__()
 
         self.state_preprocessor = None
-        self.kernel = None
+        self.state_kernel = None
         self.state_action_kernel = None
 
         self.lstd = None
@@ -154,26 +152,34 @@ class ACRepsLearner(KilobotLearner):
         _extended_sars = self.sars.append(self.it_sars, ignore_index=True)
         # _extended_sars.reset_index(drop=True)
 
+        self.state_kernel, self.state_action_kernel = self._init_kernels()
+
         # compute kernel parameters
         logger.debug('computing kernel bandwidths.')
-        bandwidth_kb = compute_median_bandwidth(_extended_sars[self.kilobots_columns], sample_size=500,
-                                                preprocessor=self.state_preprocessor)
+        if self.state_preprocessor:
+            bandwidth_kb = compute_median_bandwidth(_extended_sars[self.kilobots_columns], sample_size=500,
+                                                    preprocessor=self.state_preprocessor)
+        else:
+            bandwidth_kb = compute_median_bandwidth_kilobots(_extended_sars[self.kilobots_columns], sample_size=500)
         bandwidth_kb *= self._params['kernel']['bandwidth_factor_kb']
-        self.kernel.kilobots_dist.set_bandwidth(bandwidth_kb)
+        self.state_kernel.kilobots_bandwidth = bandwidth_kb
+        self.state_action_kernel.kilobots_bandwidth = bandwidth_kb
 
         if self.light_columns is not None:
             bandwidth_l = compute_median_bandwidth(_extended_sars[self.light_columns], sample_size=500)
             bandwidth_l *= self._params['kernel']['bandwidth_factor_light']
-            self.kernel.light_dist.set_bandwidth(bandwidth_l)
+            self.state_kernel.light_bandwidth = bandwidth_l
+            self.state_action_kernel.light_bandwidth = bandwidth_l
 
         if self.weight_columns is not None:
             bandwidth_w = compute_median_bandwidth(_extended_sars[self.weight_columns], sample_size=500)
             bandwidth_w *= self._params['kernel']['bandwidth_factor_weight']
-            self.kernel.weight_dist.set_bandwidth(bandwidth_w)
+            self.state_kernel.weight_bandwidth = bandwidth_w
+            self.state_action_kernel.weight_bandwidth = bandwidth_w
 
         bandwidth_a = compute_median_bandwidth(_extended_sars['A'], sample_size=500)
         bandwidth_a *= self._params['kernel']['bandwidth_factor_action']
-        self.kernel.action_dist.set_bandwidth(bandwidth_a)
+        self.state_action_kernel.action_bandwidth = bandwidth_a
 
         logger.debug('selecting SARS samples.')
         if _extended_sars.shape[0] <= sampling_params['num_SARS_samples']:
@@ -187,7 +193,7 @@ class ACRepsLearner(KilobotLearner):
         logger.debug('selecting lstd samples.')
         lstd_reference = select_reference_set_by_kernel_activation(data=self.sars[['S', 'A']],
                                                                    size=self._params['lstd']['num_features'],
-                                                                   kernel_function=self.kernel,
+                                                                   kernel_function=self.state_kernel,
                                                                    batch_size=10)
 
         self.lstd_samples = self.sars.loc[lstd_reference][['S', 'A']]
@@ -195,14 +201,14 @@ class ACRepsLearner(KilobotLearner):
         def state_features(state):
             if state.ndim == 1:
                 state = state.reshape((1, -1))
-            return self.kernel(state, self.lstd_samples['S'].values)
+            return self.state_kernel(state, self.lstd_samples['S'].values)
 
         def state_action_features(state, action):
             if state.ndim == 1:
                 state = state.reshape((1, -1))
             if action.ndim == 1:
                 action = action.reshape((1, -1))
-            return self.kernel(np.c_[state, action], self.lstd_samples.values)
+            return self.state_action_kernel(np.c_[state, action], self.lstd_samples.values)
 
         for i in range(self._params['learn_iterations']):
             # compute features
@@ -247,8 +253,10 @@ class ACRepsLearner(KilobotLearner):
 
             # fit weighted GP to samples
             logger.info('fitting GP to policy')
-            self.policy = self._init_policy((self.sampler.env.action_space.low, self.sampler.env.action_space.high))
-            self.policy.train(self.sars['S'].values, self.sars['A'].values, weights, gp_samples)
+            # self.policy = self._init_policy(self.state_kernel,
+            #                                 (self.sampler.env.action_space.low, self.sampler.env.action_space.high))
+            self.policy.train(inputs=self.sars['S'].values, outputs=self.sars['A'].values, weights=weights,
+                              sparse_inputs=gp_samples, optimize=True)
 
             # evaluate policy
             logger.info('evaluating policy')
@@ -279,14 +287,17 @@ class ACRepsLearner(KilobotLearner):
     def reset(self, config: dict, rep: int) -> None:
         self._init_SARS()
 
-        self.kernel = self._init_kernels()
+        self.state_kernel, self.state_action_kernel = self._init_kernels()
 
         self.sampler = self._init_sampler()
 
-        self.policy = self._init_policy((self.sampler.env.action_space.low, self.sampler.env.action_space.high))
+        self.policy = self._init_policy(kernel=self.state_kernel, output_bounds=(self.sampler.env.action_space.low,
+                                                                                 self.sampler.env.action_space.high))
 
     def _init_kernels(self):
         kernel_params = self._params['kernel']
+        sampling_params = self._params['sampling']
+
         if kernel_params['kb_dist'] in ['kilobot', 'embedded']:
             kb_dist_class = EmbeddedSwarmDistance
         elif kernel_params['kb_dist'] == 'mean':
@@ -321,35 +332,31 @@ class ACRepsLearner(KilobotLearner):
         else:
             raise InvalidParameterArgument
 
-        if self._params['sampling']['w_factor'] is not None:
-            return KilobotEnvKernel(rho=kernel_params['weight'],
-                                    light_idx=2 * self._params['sampling']['num_kilobots'],
-                                    action_idx=2 * self._params['sampling']['num_kilobots'] +
-                                               self._light_dimensions,
-                                    kb_dist_class=kb_dist_class,
-                                    light_dist_class=l_dist_class,
-                                    action_dist_class=a_dist_class)
-        else:
-            return KilobotEnvKernelWithWeight(weight=kernel_params['weight'],
-                                              light_idx=2 * self._params['sampling']['num_kilobots'],
-                                              weight_idx=2 * self._params['sampling']['num_kilobots'] +
-                                                         self._light_dimensions,
-                                              action_idx=2 * self._params['sampling']['num_kilobots'] +
-                                                         self._light_dimensions + 1,
-                                              kb_dist_class=kb_dist_class,
-                                              light_dist_class=l_dist_class,
-                                              action_dist_class=a_dist_class,
-                                              weight_dist_class=w_dist_class)
+        state_kernel = KilobotEnvKernel(rho=kernel_params['rho'],
+                                        variance=kernel_params['variance'],
+                                        kilobots_dim=sampling_params['num_kilobots'] * 2,
+                                        light_dim=self._light_dimensions,
+                                        weight_dim=1 if sampling_params['w_factor'] is None else 0)
+        state_kernel.kilobots_dist = kb_dist_class()
+        state_kernel.light_dist = l_dist_class()
+        state_kernel.weight_dist = w_dist_class()
 
-    def _init_policy(self, action_bounds):
-        policy = SparseWeightedGP(kernel=self.kernel)
-        policy.gp_prior_variance = self._params['gp']['prior_variance']
-        policy.gp_noise_variance = self._params['gp']['noise_variance']
-        policy.gp_min_variance = self._params['gp']['min_variance']
-        policy.gp_cholesky_regularizer = self._params['gp']['chol_regularizer']
-        policy.output_bounds = action_bounds
-        policy.output_bounds_enforce = True
-        policy.gp_prior_mean = step_towards_center([-2, -1])
+        state_action_kernel = KilobotEnvKernel(rho=kernel_params['rho'],
+                                               variance=kernel_params['variance'],
+                                               kilobots_dim=sampling_params['num_kilobots'] * 2,
+                                               light_dim=self._light_dimensions,
+                                               weight_dim=1 if sampling_params['w_factor'] is None else 0,
+                                               action_dim=self._action_dimensions)
+        state_action_kernel.kilobots_dist = kb_dist_class()
+        state_action_kernel.light_dist = l_dist_class()
+        state_action_kernel.weight_dist = w_dist_class()
+        state_action_kernel.action_dist = a_dist_class()
+
+        return state_kernel, state_action_kernel
+
+    def _init_policy(self, kernel, output_bounds):
+        policy = SparseWeightedGPyWrapper(kernel=kernel, noise_var=self._params['gp']['noise_variance'],
+                                          mean_function=step_towards_center([-2, -1]), output_bounds=output_bounds)
 
         return policy
 
@@ -375,7 +382,7 @@ class ACRepsLearner(KilobotLearner):
 
     def _init_sampler(self):
         sampling_params = self._params['sampling']
-        return ParallelSARSSampler(object_shape=sampling_params['object_shape'],
+        return SARSSampler(object_shape=sampling_params['object_shape'],
                                    object_width=sampling_params['object_width'],
                                    object_height=sampling_params['object_height'],
                                    registration_function=register_object_env,
@@ -393,7 +400,17 @@ class ACRepsLearner(KilobotLearner):
         logger.info('pickling policy...')
         policy_file_name = os.path.join(self._log_path_rep, 'policy_it{:02d}.pkl'.format(self._it))
         with open(policy_file_name, mode='w+b') as policy_file:
-            pickle.dump(self.policy, policy_file)
+            pickle.dump(self.policy.to_dict(), policy_file)
+
+        # save kernels
+        logger.info('pickling kernel...')
+        state_kernel_file_name = os.path.join(self._log_path_rep, 'state_kernel_it{:02d}.pkl'.format(self._it))
+        with open(state_kernel_file_name, mode='w+b') as state_kernel_file:
+            pickle.dump(self.state_kernel.to_dict(), state_kernel_file)
+        state_action_kernel_file_name = os.path.join(self._log_path_rep, 'state_action_kernel_it{:02d}.pkl'.format(self._it))
+        with open(state_action_kernel_file_name, mode='w+b') as state_action_file:
+            pickle.dump(self.state_action_kernel.to_dict(), state_action_file)
+
 
         if self._params['sampling']['save_trajectories']:
             logger.info('pickling sampling trajectories...')
@@ -426,9 +443,20 @@ class ACRepsLearner(KilobotLearner):
         logger.info('restoring policy and kernel...')
         policy_file_name = os.path.join(self._log_path_rep, 'policy_it{:02d}.pkl'.format(n))
         with open(policy_file_name, mode='r+b') as policy_file:
-            self.policy = pickle.load(policy_file)
+            policy_dict = pickle.load(policy_file)
+        self.policy = SparseWeightedGPyWrapper.from_dict(policy_dict)
         self.sampler.policy = self.policy
-        self.kernel = self.policy.kernel
+
+        # restore kernel
+        logger.info('restoring policy and kernel...')
+        state_kernel_file_name = os.path.join(self._log_path_rep, 'state_kernel_it{:02d}.pkl'.format(n))
+        with open(state_kernel_file_name, mode='r+b') as state_kernel_file:
+            state_kernel_dict = pickle.load(state_kernel_file)
+        self.state_kernel = KilobotEnvKernel.from_dict(state_kernel_dict)
+        state_action_kernel_file_name = os.path.join(self._log_path_rep, 'state_action_kernel_it{:02d}.pkl'.format(n))
+        with open(state_action_kernel_file_name, mode='r+b') as state_action_kernel_file:
+            state_action_kernel_dict = pickle.load(state_action_kernel_file)
+        self.state_action_kernel = KilobotEnvKernel.from_dict(state_action_kernel_dict)
 
         if self._params['sampling']['save_trajectories']:
             logger.info('restoring sampling trajectories...')
@@ -479,8 +507,8 @@ class ACRepsLearner(KilobotLearner):
 
 
 class SampledWeightACRepsLearner(ACRepsLearner):
-    def _init_policy(self, action_bounds):
-        policy = super()._init_policy(action_bounds)
+    def _init_policy(self, output_bounds):
+        policy = super()._init_policy(output_bounds)
         policy.gp_prior_mean = step_towards_center([-3, -2])
 
         return policy
@@ -625,8 +653,8 @@ class GradientLightObjectACRepsLearner(ACRepsLearner):
         self._light_dimensions = 0
         self._action_dimensions = 1
 
-    def _init_policy(self, action_bounds):
-        policy = super()._init_policy(action_bounds)
+    def _init_policy(self, output_bounds):
+        policy = super()._init_policy(output_bounds)
         policy.gp_prior_mean = angle_from_swarm_mean(range(self._params['sampling']['num_kilobots'] * 2))
 
         return policy
@@ -750,8 +778,8 @@ class DualLightComplexObjectACRepsLearner(ACRepsLearner):
         self._light_dimensions = 2
         self._action_dimensions = 2
 
-    def _init_policy(self, action_bounds):
-        policy = super()._init_policy(action_bounds)
+    def _init_policy(self, output_bounds):
+        policy = super()._init_policy(output_bounds)
         policy.gp_prior_mean = angle_from_swarm_mean(range(self._params['sampling']['num_kilobots'] * 2), 2)
 
         return policy

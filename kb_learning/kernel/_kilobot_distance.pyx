@@ -46,7 +46,7 @@ cdef class EmbeddingCovariance:
         if len(self.bandwidth) > d:
             self.bandwidth = self.bandwidth.reshape((-1, d)).mean(axis=0)
 
-        cdef double[:] bw = -1 / (2 * self.bandwidth)
+        cdef double[:] bw = 1 / self.bandwidth
 
         cdef DTYPE_t kb_sum_1 = .0, kb_sum_2 = .0
         with nogil, parallel():
@@ -58,7 +58,7 @@ cdef class EmbeddingCovariance:
                             kb_sum_1 = .0
                             for s in range(d):
                                 kb_sum_1 += (a[i, j, s] - a[i, k, s])**2 * bw[s]
-                            sq_dist[i, 0] += exp(kb_sum_1)
+                            sq_dist[i, 0] += exp(-kb_sum_1 / 2)
                     sq_dist[i, 0] /= n**2
             else:
                 for i in prange(q, schedule='guided'):
@@ -69,7 +69,7 @@ cdef class EmbeddingCovariance:
                                 kb_sum_2 = .0
                                 for s in range(d):
                                     kb_sum_2 += (a[i, k, s] - b[j, l, s])**2 * bw[s]
-                                sq_dist[i, j] += exp(kb_sum_2)
+                                sq_dist[i, j] += exp(-kb_sum_2 / 2)
                         sq_dist[i, j] /= n * m
                         sq_dist[i, j] *= 2
 
@@ -114,33 +114,30 @@ cdef class EmbeddingCovariance:
         with nogil, parallel():
             if b is None:
                 for i in prange(q, schedule='guided'):
-                    sq_dist_1 = .0
+                    for s in range(d):
+                        d_sq_dist_d_bw[i, 0, s] = .0
                     for k in range(n):
                         for l in range(n):
                             kb_sum_1 = .0
                             for s in range(d):
                                 kb_sum_1 += (a[i, k, s] - a[i, l, s])**2 * bw[s]
-                            sq_dist_1 += exp(-kb_sum_1 / 2)
-                    sq_dist_1 = sq_dist_1 / n**2
-                    for k in range(n):
-                        for l in range(n):
+                            kb_sum_1 = exp(-kb_sum_1 / 2) / (2 * n**2)
                             for s in range(d):
-                                d_sq_dist_d_bw[i, 0, s] = - sq_dist_1 * (a[i, k, s] - a[i, l, s])**2 * bw[s]**2 / 2
+                                d_sq_dist_d_bw[i, 0, s] += kb_sum_1 * (a[i, k, s] - a[i, l, s])**2 * bw[s]**2
+
             else:
                 for i in prange(q, schedule='guided'):
                     for j in range(r):
-                        sq_dist_2 = .0
+                        for s in range(d):
+                            d_sq_dist_d_bw[i, j, s] = .0
                         for k in range(n):
                             for l in range(m):
                                 kb_sum_2 = .0
                                 for s in range(d):
                                     kb_sum_2 += (a[i, k, s] - b[j, l, s])**2 * bw[s]
-                                sq_dist_2 += exp(-kb_sum_2 / 2)
-                        sq_dist_2 = 2 * sq_dist_2 / (n * m)
-                        for k in range(n):
-                            for l in range(m):
+                                kb_sum_2 = exp(-kb_sum_2 / 2) / (n * m)
                                 for s in range(d):
-                                    d_sq_dist_d_bw[i, j, s] = -sq_dist_2 * (a[i, k, s] - b[j, l, s])**2 * bw[s]**2 / 2
+                                    d_sq_dist_d_bw[i, j, s] += kb_sum_2 * (a[i, k, s] - b[j, l, s])**2 * bw[s]**2
 
         return d_sq_dist_d_bw
 

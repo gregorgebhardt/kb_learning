@@ -13,7 +13,7 @@ DTYPE = np.float64
 
 
 cdef class MahaDist:
-    def __init__(self):
+    def __init__(self, bandwidth=None):
         self.bandwidth = np.array([1.], dtype=DTYPE)
         self.preprocessor = None
 

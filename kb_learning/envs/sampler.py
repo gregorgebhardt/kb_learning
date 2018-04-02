@@ -8,6 +8,8 @@ import pandas as pd
 import gym
 import logging
 
+from kb_learning.ac_reps.gpy_spwgp import SparseWeightedGPyWrapper
+
 logger = logging.getLogger('kb_learning.sampler')
 
 
@@ -92,7 +94,7 @@ class SARSSampler(ObjectEnvSampler):
 
         observation_dims = states.shape[1]
         action_dims = sum(self.env.action_space.shape)
-        state_dims = sum(sum(s.shape) for s in envs[0].state_space.spaces)
+        state_dims = sum(sum(s.shape) for s in self.envs[0].state_space.spaces)
 
         it_sars_data = np.empty((num_episodes * num_steps_per_episode, 2 * observation_dims + action_dims + 1))
         it_info_data = np.empty((num_episodes * num_steps_per_episode, state_dims))
@@ -135,7 +137,7 @@ def _set_worker_seed(seed, work_seed):
     np.random.seed(work_seed * 10000 + seed * 400 + 12346)
 
 
-def _do_work(policy, num_episodes, num_steps, seed, work_seed):
+def _do_work(policy_dict, num_episodes, num_steps, seed, work_seed):
     global envs
     _set_worker_seed(seed, work_seed)
     # reset environments and obtain initial states
@@ -150,6 +152,7 @@ def _do_work(policy, num_episodes, num_steps, seed, work_seed):
     it_sars_data = np.empty((num_episodes * num_steps, 2 * observation_dims + action_dims + 1))
     it_info_data = np.empty((num_episodes * num_steps, state_dims))
 
+    policy = SparseWeightedGPyWrapper.from_dict(policy_dict)
     # do one additional step before
     actions = policy(states)
     srdi = [e.step(a) for e, a in zip(envs[:num_episodes], actions)]
@@ -221,7 +224,7 @@ class ParallelSARSSampler(SARSSampler):
 
             # construct work packages with policy, number of episodes, number of steps, seed and work-seed,
             # where work-seed is is taken from the range of work packages
-            work = [(policy, episodes, num_steps_per_episode, self._seed, work_seed) for episodes, work_seed
+            work = [(policy.to_dict(), episodes, num_steps_per_episode, self._seed, work_seed) for episodes, work_seed
                     in zip(episodes_per_work, range(len(episodes_per_work)))]
 
             for i in range(self._num_restarts):

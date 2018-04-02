@@ -7,42 +7,62 @@ from . import EmbeddedSwarmDistance, MahaDist
 
 
 class KilobotEnvKernel(Kern):
-    def __init__(self, kilobots_dim, light_dim=0, weight_dim=0, action_dim=0,
-                 rho=.5, active_dims=None):
+    _name = 'kilobot_env'
+
+    def __init__(self, kilobots_dim, light_dim=0, weight_dim=0, action_dim=0, rho=.5, variance=1.,
+                 kilobots_bandwidth=None, light_bandwidth=None, weight_bandwidth=None,
+                 action_bandwidth=None, light_dist_class=None, weight_dist_class=None, action_dist_class=None,
+                 active_dims=None):
         super(KilobotEnvKernel, self).__init__(input_dim=kilobots_dim+light_dim+weight_dim+action_dim,
-                                               active_dims=active_dims, name='kilobot_env')
+                                               active_dims=active_dims, name=self._name)
         self.kilobots_dim = kilobots_dim
         self.light_dim = light_dim
         self.weight_dim = weight_dim
         self.action_dim = action_dim
 
         self.kilobots_dist = EmbeddedSwarmDistance()
-        self.light_dist = MahaDist()
-        self.weight_dist = MahaDist()
-        self.action_dist = MahaDist()
+        self.light_dist = light_dist_class() if light_dist_class else MahaDist()
+        self.weight_dist = weight_dist_class() if weight_dist_class else MahaDist()
+        self.action_dist = action_dist_class() if action_dist_class else MahaDist()
 
-        self.kilobots_bandwidth = Param('kilobots_bandwidth', np.array([1.] * 2), Logexp())
+        if kilobots_bandwidth is None:
+            self.kilobots_bandwidth = Param('kilobots_bandwidth', np.array([1.] * 2), Logexp())
+        else:
+            self.kilobots_bandwidth = Param('kilobots_bandwidth', kilobots_bandwidth, Logexp())
+        self.kilobots_dist.bandwidth = self.kilobots_bandwidth
         self.kilobots_bandwidth.add_observer(self, self.__kilobots_bandwidth_observer)
         self.link_parameter(self.kilobots_bandwidth)
 
         if light_dim:
-            self.light_bandwidth = Param('light_bandwidth', np.array([1.] * light_dim), Logexp())
+            if light_bandwidth is None:
+                self.light_bandwidth = Param('light_bandwidth', np.array([1.] * light_dim), Logexp())
+            else:
+                self.light_bandwidth = Param('light_bandwidth', light_bandwidth, Logexp())
+            self.light_dist.bandwidth = self.light_bandwidth
             self.light_bandwidth.add_observer(self, self.__light_bandwidth_observer)
             self.link_parameter(self.light_bandwidth)
 
         if weight_dim:
-            self.weight_bandwidth = Param('weight_bandwidth', np.array([1.] * weight_dim), Logexp())
+            if weight_bandwidth is None:
+                self.weight_bandwidth = Param('weight_bandwidth', np.array([1.] * weight_dim), Logexp())
+            else:
+                self.weight_bandwidth = Param('weight_bandwidth', weight_bandwidth, Logexp())
+            self.weight_dist.bandwidth = self.weight_bandwidth
             self.weight_bandwidth.add_observer(self, self.__weight_bandwidth_observer)
             self.link_parameter(self.weight_bandwidth)
 
         if action_dim:
-            self.action_bandwidth = Param('action_bandwidth', np.array([1.] * action_dim), Logexp())
+            if action_bandwidth is None:
+                self.action_bandwidth = Param('action_bandwidth', np.array([1.] * action_dim), Logexp())
+            else:
+                self.action_bandwidth = Param('action_bandwidth', action_bandwidth, Logexp())
+            self.action_dist.bandwidth = self.action_bandwidth
             self.action_bandwidth.add_observer(self, self.__action_bandwidth_observer)
             self.link_parameter(self.action_bandwidth)
 
         self.rho = Param('rho', np.array([rho]))
         self.rho.constrain_bounded(.0, 1.)
-        self.variance = Param('variance', np.array([1.]), Logexp())
+        self.variance = Param('variance', np.array([variance]), Logexp())
 
         self.link_parameters(self.rho, self.variance)
 
@@ -57,6 +77,31 @@ class KilobotEnvKernel(Kern):
 
     def __action_bandwidth_observer(self, param, which):
         self.action_dist.bandwidth = self.action_bandwidth.values
+
+    def to_dict(self):
+        input_dict = dict()
+        input_dict['kilobots_dim'] = self.kilobots_dim
+        input_dict['light_dim'] = self.light_dim
+        input_dict['weight_dim'] = self.weight_dim
+        input_dict['action_dim'] = self.action_dim
+        input_dict['kilobots_bandwidth'] = self.kilobots_bandwidth.values
+        if self.light_dim:
+            input_dict['light_bandwidth'] = self.light_bandwidth.values
+        if self.weight_dim:
+            input_dict['weight_bandwidth'] = self.weight_bandwidth.values
+        if self.action_dim:
+            input_dict['action_bandwidth'] = self.action_bandwidth.values
+        # TODO add distance classes
+        input_dict['rho'] = self.rho[0]
+        input_dict['variance'] = self.variance[0]
+
+        return input_dict
+
+    @staticmethod
+    def from_dict(input_dict):
+        import copy
+        input_dict = copy.deepcopy(input_dict)
+        return KilobotEnvKernel(**input_dict)
 
     def K(self, X, X2=None, return_components=False):
         X_splits = np.split(X, np.cumsum([self.kilobots_dim, self.light_dim, self.weight_dim]), axis=1)
@@ -77,24 +122,24 @@ class KilobotEnvKernel(Kern):
             Y_weight = None
             Y_action = None
 
-        k_kilobots = - (1 - self.rho) * self.kilobots_dist(X_kilobots, Y_kilobots)
+        k_kilobots = self.kilobots_dist(X_kilobots, Y_kilobots)
         if self.light_dim:
-            k_light = - self.rho * self.light_dist(X_light, Y_light)
+            k_light = self.light_dist(X_light, Y_light)
         else:
             k_light = .0
         if self.weight_dim:
-            k_weight = - self.rho * self.weight_dist(X_weight, Y_weight)
+            k_weight = self.weight_dist(X_weight, Y_weight)
         else:
             k_weight = .0
         if self.action_dim:
-            k_action = - self.rho * self.action_dist(X_action, Y_action)
+            k_action = self.action_dist(X_action, Y_action)
         else:
             k_action = .0
 
         if return_components:
-            return (self.variance * np.exp(k_kilobots + k_light + k_weight + k_action),
+            return (self.variance * np.exp((self.rho - 1) * k_kilobots - self.rho * (k_light + k_weight + k_action)),
                     k_kilobots, k_light, k_weight, k_action)
-        return self.variance * np.exp(k_kilobots + k_light + k_weight + k_action)
+        return self.variance * np.exp((self.rho - 1) * k_kilobots - self.rho * (k_light + k_weight + k_action))
 
     def Kdiag(self, X):
         X_splits = np.split(X, np.cumsum([self.kilobots_dim, self.light_dim, self.weight_dim]), axis=1)
@@ -103,21 +148,21 @@ class KilobotEnvKernel(Kern):
         X_weight = X_splits[2]
         X_action = X_splits[3]
 
-        k_kilobots = -(1 - self.rho) * self.kilobots_dist.diag(X_kilobots)
+        k_kilobots = self.kilobots_dist.diag(X_kilobots)
         if self.light_dim:
-            k_light = -self.rho * self.light_dist.diag(X_light)
+            k_light = self.light_dist.diag(X_light)
         else:
             k_light = .0
         if self.weight_dim:
-            k_weight = -self.rho * self.weight_dist.diag(X_weight)
+            k_weight = self.weight_dist.diag(X_weight)
         else:
             k_weight = .0
         if self.action_dim:
-            k_action = -self.rho * self.action_dist.diag(X_action)
+            k_action = self.action_dist.diag(X_action)
         else:
             k_action = .0
 
-        return self.variance * np.exp(k_kilobots + k_light + k_weight + k_action)
+        return self.variance * np.exp((self.rho - 1) * k_kilobots - self.rho * (k_light + k_weight + k_action))
 
     def update_gradients_full(self, dL_dK, X, Y=None):
         X_splits = np.split(X, np.cumsum([self.kilobots_dim, self.light_dim, self.weight_dim]), axis=1)
@@ -158,21 +203,32 @@ class KilobotEnvKernel(Kern):
             self.action_bandwidth.gradient = np.sum(dK_a_d_bw, axis=(0, 1))
 
         # compute gradient w.r.t. rho
-        self.rho.gradient = np.sum(dL_dK * k * (-k_kilobots - k_light - k_weight - k_action))
+        self.rho.gradient = np.sum(dL_dK * k * (k_kilobots - k_light - k_weight - k_action))
 
         # compute gradient w.r.t. variance
         self.variance.gradient = np.sum(dL_dK * k) / self.variance
 
     def update_gradients_diag(self, dL_dKdiag, X):
         # compute gradient w.r.t. kernel bandwidths
-        # self.kilobots_bandwidth.gradient = np.zeros(2)
-        # self.light_bandwidth.gradient = np.zeros(self.light_dim)
-        # self.weight_bandwidth.gradient = np.zeros(self.weight_dim)
-        # self.action_bandwidth.gradient = np.zeros(self.action_dim)
+        self.kilobots_bandwidth.gradient = np.zeros(2)
+        if self.light_dim:
+            self.light_bandwidth.gradient = np.zeros(self.light_dim)
+        if self.weight_dim:
+            self.weight_bandwidth.gradient = np.zeros(self.weight_dim)
+        if self.action_dim:
+            self.action_bandwidth.gradient = np.zeros(self.action_dim)
         # compute gradient w.r.t. rho
-        # self.rho.gradient = 0
+        self.rho.gradient = 0
         # compute gradient w.r.t. variance
         self.variance.gradient = np.sum(dL_dKdiag)
+
+    def gradients_X(self, dL_dK, X, X2):
+        # return np.zeros((dL_dK.shape[0], 1))
+        pass
+
+    def gradients_X_diag(self, dL_dKdiag, X):
+        # return np.zeros((dL_dKdiag.shape[0], 1))
+        pass
 
     def __call__(self, X, Y=None):
         return self.K(X, Y)

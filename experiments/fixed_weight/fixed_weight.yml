@@ -15,10 +15,10 @@ params:
     num_workers: 8
     num_kilobots: 15
   kernel:
-    bandwidth_factor_kb: .3
-    bandwidth_factor_light: .55
-    bandwidth_factor_action: .8
-    weight: .2
+    bandwidth_factor_kb: .1
+    bandwidth_factor_light: 1.
+    bandwidth_factor_action: 1.
+    rho: .5
   lstd:
     num_features: 500 # 1000
     discount_factor: .99
@@ -34,8 +34,8 @@ params:
     num_kilobots: 5
 grid:
   kernel:
-    bandwidth_factor_kb: [.1, .2, .3]
-    bandwidth_factor_light: [.1, .3, .5]
+#    bandwidth_factor_kb: [.1, .2, .3]
+#    bandwidth_factor_light: [.1, .3, .5]
     type: ['kilobot', 'mean']
 ---
 name: 'square'
