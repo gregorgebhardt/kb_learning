@@ -108,9 +108,9 @@ def trajectory_animation_output(learner: ACRepsLearner, config):
 
     from sklearn.gaussian_process.kernels import RBF
     kernel = RBF()
-    kernel.set_params(length_scale=learner.kernel.kilobots_dist.get_bandwidth())
+    kernel.set_params(length_scale=np.sqrt(learner.state_kernel.kilobots_dist.bandwidth))
     kernel_l = RBF()
-    kernel_l.set_params(length_scale=learner.kernel.light_dist.get_bandwidth())
+    kernel_l.set_params(length_scale=np.sqrt(learner.state_kernel.light_dist.bandwidth))
 
     N = 40
     X, Y = np.meshgrid(np.linspace(-.4, .4, N), np.linspace(-.4, .4, N))
@@ -185,7 +185,7 @@ def plot_fixed_weight_iteration(learner, config):
             state = state.reshape((1, -1))
         if action.ndim == 1:
             action = action.reshape((1, -1))
-        return learner.kernel(np.c_[state, action], learner.lstd_samples.values)
+        return learner.state_action_kernel(np.c_[state, action], learner.lstd_samples.values)
 
     # setup figure
     fig = plt.figure(figsize=(10, 20))

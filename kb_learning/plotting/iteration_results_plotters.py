@@ -21,7 +21,7 @@ def reward_distribution_plot(R, R_axes: Axes):
 
 
 def value_function_plot(V: np.ndarray, x_range, y_range, axes: Axes, cm_axes: Axes = None, **kwargs):
-    im = axes.matshow(V, extent=x_range + y_range, norm=Normalize(-0.2, 0.2), **kwargs)
+    im = axes.matshow(V, extent=x_range + y_range, **kwargs)  # norm=Normalize(-0.05, 0.05)
 
     if cm_axes is not None:
         Colorbar(cm_axes, im)
