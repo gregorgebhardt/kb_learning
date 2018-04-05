@@ -39,12 +39,15 @@ cdef class EmbeddingCovariance:
         if b is None:
             sq_dist = np.empty((q, 1))
         else:
+            assert b.shape[2] == d
             r = b.shape[0]
             m = b.shape[1]
             sq_dist = np.empty((q, r))
 
         if len(self.bandwidth) > d:
             self.bandwidth = self.bandwidth.reshape((-1, d)).mean(axis=0)
+
+        assert d == len(self.bandwidth)
 
         cdef double[:] bw = 1 / self.bandwidth
 
@@ -101,12 +104,15 @@ cdef class EmbeddingCovariance:
         if b is None:
             d_sq_dist_d_bw = np.empty((q, 1, d))
         else:
+            assert b.shape[2] == d
             r = b.shape[0]
             m = b.shape[1]
             d_sq_dist_d_bw = np.empty((q, r, d))
 
         if len(self.bandwidth) > d:
             self.bandwidth = self.bandwidth.reshape((-1, d)).mean(axis=0)
+
+        assert d == len(self.bandwidth)
 
         cdef double[:] bw = 1 / self.bandwidth
 

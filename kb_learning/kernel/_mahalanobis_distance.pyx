@@ -36,10 +36,13 @@ cdef class MahaDist:
         q = a.shape[0]
         d = a.shape[1]
 
+        assert d == len(self.bandwidth)
+
         cdef double[:, :] maha_dist
         if b is None:
             maha_dist = np.empty((q, q))
         else:
+            assert b.shape[1] == d
             r = b.shape[0]
             maha_dist = np.empty((q, r))
 
@@ -87,10 +90,13 @@ cdef class MahaDist:
         q = a.shape[0]
         d = a.shape[1]
 
+        assert d == len(self.bandwidth)
+
         cdef double[:, :, :] d_maha_dist_d_bw
         if b is None:
             d_maha_dist_d_bw = np.empty((q, q, d))
         else:
+            assert b.shape[1] == d
             r = b.shape[0]
             d_maha_dist_d_bw = np.empty((q, r, d))
 

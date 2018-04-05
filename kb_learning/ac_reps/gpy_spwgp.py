@@ -1,12 +1,17 @@
 import numpy as np
-import GPy
 
+from GPy.core import SparseGP
+from GPy.likelihoods import Gaussian
+from GPy.inference.latent_function_inference import VarDTC
 from paramz.transformations import Logexp
 from GPy.core.parameterization import Param
 from kb_learning.kernel import KilobotEnvKernel
 
+import logging
+logger = logging.getLogger('kb_learning.gp')
 
-class SemiHeteroscedasticGaussian(GPy.likelihoods.Gaussian):
+
+class SemiHeteroscedasticGaussian(Gaussian):
     """
     A Gaussian likelihood that has both, a heteroscedastic variance and a homoscedastic variance.
     While both the heteroscedastic part and the homoscedastic part are returned by the function gaussian_variance
@@ -26,12 +31,12 @@ class SemiHeteroscedasticGaussian(GPy.likelihoods.Gaussian):
 
 
 class SparseWeightedGPyWrapper:
-    def __init__(self, kernel, noise_var=1., mean_function=None, output_bounds=None):
-        self.kernel = kernel
-        # self.kernel.variance.fix()
-        self.noise_var = noise_var
+    def __init__(self, kernel: KilobotEnvKernel, noise_variance=1.,
+                 mean_function=None, output_bounds=None):
+        self.kernel: KilobotEnvKernel = kernel
+        self.noise_variance = noise_variance
 
-        self._gp = None
+        self._gp: SparseGP = None
         self._mean_function = mean_function
 
         self.output_bounds = output_bounds
@@ -41,29 +46,35 @@ class SparseWeightedGPyWrapper:
             outputs = outputs - self._mean_function(inputs)
 
         if self._gp is None:
-            semi_het_lik = SemiHeteroscedasticGaussian(variance=self.noise_var, het_variance=weights.max() / weights)
-            self._gp = GPy.core.SparseGP(X=inputs, Y=outputs, Z=sparse_inputs, kernel=self.kernel,
-                                         likelihood=semi_het_lik,
-                                         Y_metadata=dict(output_index=np.arange(inputs.shape[0])))
-            self._gp.inducing_inputs.fix()
+            semi_het_lik = SemiHeteroscedasticGaussian(variance=self.noise_variance, het_variance=1 / weights)
+            self._gp = SparseGP(X=inputs, Y=outputs, Z=sparse_inputs, kernel=self.kernel, likelihood=semi_het_lik,
+                                inference_method=VarDTC(3), Y_metadata=dict(output_index=np.arange(inputs.shape[0])))
+            self._gp.Z.fix()
 
         else:
             # self._gp.set_updates(False)
             self._gp.set_XY(inputs, outputs)
             self._gp.set_Z(sparse_inputs, False)
-            self._gp.inducing_inputs.fix()
+            self._gp.Z.fix()
             self._gp.likelihood.het_variance = weights.max() / weights
             # self._gp.set_updates()
             self._gp.update_model(True)
 
         if optimize:
             self._gp.optimize('bfgs', messages=True)
-        print(self._gp)
+            logger.info(self._gp)
+            logger.debug(self.kernel.kilobots_bandwidth)
+            if self.kernel.light_dim:
+                logger.debug(self.kernel.light_bandwidth)
+            if self.kernel.weight_dim:
+                logger.debug(self.kernel.weight_bandwidth)
+            if self.kernel.action_dim:
+                logger.debug(self.kernel.action_bandwidth)
 
     def to_dict(self):
         input_dict = dict()
         input_dict['kernel'] = self.kernel.to_dict()
-        input_dict['noise_var'] = self.noise_var
+        input_dict['noise_variance'] = self.noise_variance
         input_dict['mean_function'] = self._mean_function
         input_dict['output_bounds'] = self.output_bounds
 
@@ -81,6 +92,8 @@ class SparseWeightedGPyWrapper:
         gp_dict = input_dict.pop('gp', None)
         kernel_dict = input_dict.pop('kernel')
         input_dict['kernel'] = KilobotEnvKernel.from_dict(kernel_dict)
+        if 'noise_var' in input_dict:
+            input_dict['noise_variance'] = input_dict.pop('noise_var')
 
         spwgp = SparseWeightedGPyWrapper(**input_dict)
         if gp_dict:
@@ -96,7 +109,7 @@ class SparseWeightedGPyWrapper:
 
     def sample(self, inputs):
         if self._gp is None:
-            variance = self.noise_var + self.kernel.variance
+            variance = self.kernel.variance + self.noise_variance
             # TODO remove magic number
             samples = np.random.normal(scale=np.sqrt(variance), size=(inputs.shape[0], 2))
         else:

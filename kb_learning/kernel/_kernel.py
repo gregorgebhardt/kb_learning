@@ -10,8 +10,8 @@ class KilobotEnvKernel(Kern):
     _name = 'kilobot_env'
 
     def __init__(self, kilobots_dim, light_dim=0, weight_dim=0, action_dim=0, rho=.5, variance=1.,
-                 kilobots_bandwidth=None, light_bandwidth=None, weight_bandwidth=None,
-                 action_bandwidth=None, light_dist_class=None, weight_dist_class=None, action_dist_class=None,
+                 kilobots_bandwidth=None, light_bandwidth=None, weight_bandwidth=None, action_bandwidth=None,
+                 kilobots_dist_class=None, light_dist_class=None, weight_dist_class=None, action_dist_class=None,
                  active_dims=None):
         super(KilobotEnvKernel, self).__init__(input_dim=kilobots_dim+light_dim+weight_dim+action_dim,
                                                active_dims=active_dims, name=self._name)
@@ -20,7 +20,7 @@ class KilobotEnvKernel(Kern):
         self.weight_dim = weight_dim
         self.action_dim = action_dim
 
-        self.kilobots_dist = EmbeddedSwarmDistance()
+        self.kilobots_dist = kilobots_dist_class() if kilobots_dist_class else EmbeddedSwarmDistance()
         self.light_dist = light_dist_class() if light_dist_class else MahaDist()
         self.weight_dist = weight_dist_class() if weight_dist_class else MahaDist()
         self.action_dist = action_dist_class() if action_dist_class else MahaDist()
@@ -61,8 +61,11 @@ class KilobotEnvKernel(Kern):
             self.link_parameter(self.action_bandwidth)
 
         self.rho = Param('rho', np.array([rho]))
-        self.rho.constrain_bounded(.0, 1.)
+        self.rho.constrain_bounded(.1, .9)
+        # self.rho.fix()
+
         self.variance = Param('variance', np.array([variance]), Logexp())
+        # self.variance.fix()
 
         self.link_parameters(self.rho, self.variance)
 

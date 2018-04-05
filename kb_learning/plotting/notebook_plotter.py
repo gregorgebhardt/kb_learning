@@ -94,25 +94,33 @@ def trajectory_plot_output(T, x_range, y_range, V=None, obj=None):
 
 
 @plot_work.register_iteration_plot_function('animate_trajectories')
-def trajectory_animation_output(learner: ACRepsLearner, config):
+def trajectory_animation_output(learner: ACRepsLearner, config, args):
     params = config['params']
 
-    num_episodes = params['eval']['num_episodes']
-    num_steps = params['eval']['num_steps_per_episode']
+    if args and 'samples' in args:
+        num_episodes = params['sampling']['num_episodes']
+        num_steps = params['sampling']['num_steps_per_episode']
 
-    kb_T = learner.eval_info[learner.kilobots_columns].values.reshape((num_episodes * num_steps, -1, 2))
-    light_T = learner.eval_info.S.loc[:, 'light'].values
-    reward_T = learner.eval_sars.R.values
+        kb_T = learner.it_info[learner.kilobots_columns].values.reshape((num_episodes * num_steps, -1, 2))
+        light_T = learner.it_info.S.loc[:, 'light'].values
+        reward_T = learner.it_sars.R.values
 
-    object_T = learner.eval_info.S.loc[:, 'object'].values
+        object_T = learner.it_info.S.loc[:, 'object'].values
+    else:
+        num_episodes = params['eval']['num_episodes']
+        num_steps = params['eval']['num_steps_per_episode']
+
+        kb_T = learner.eval_info[learner.kilobots_columns].values.reshape((num_episodes * num_steps, -1, 2))
+        light_T = learner.eval_info.S.loc[:, 'light'].values
+        reward_T = learner.eval_sars.R.values
+
+        object_T = learner.eval_info.S.loc[:, 'object'].values
 
     from sklearn.gaussian_process.kernels import RBF
-    kernel = RBF()
-    kernel.set_params(length_scale=np.sqrt(learner.state_kernel.kilobots_dist.bandwidth))
-    kernel_l = RBF()
-    kernel_l.set_params(length_scale=np.sqrt(learner.state_kernel.light_dist.bandwidth))
+    kernel = learner.state_kernel.variance[0] * RBF(length_scale=np.sqrt(learner.state_kernel.kilobots_dist.bandwidth))
+    kernel_l = learner.state_kernel.variance[0] * RBF(length_scale=np.sqrt(learner.state_kernel.light_dist.bandwidth))
 
-    N = 40
+    N = 30
     X, Y = np.meshgrid(np.linspace(-.4, .4, N), np.linspace(-.4, .4, N))
     XY = np.c_[X.flat, Y.flat]
 
@@ -155,7 +163,7 @@ def trajectory_animation_output(learner: ACRepsLearner, config):
             ax.set_ylim([-.4, .4])
 
             cax.clear()
-            cax.bar(0, reward_T[i])
+            cax.bar(0, reward_T[i], color='r' if reward_T[i] < 0 else 'g')
             cax.set_xlim([-.5, .5])
             cax.set_ylim([*range_R])
             cax.set_xticks([])
@@ -177,7 +185,7 @@ def trajectory_animation_output(learner: ACRepsLearner, config):
 
 
 @plot_work.register_iteration_plot_function('fixed_weight')
-def plot_fixed_weight_iteration(learner, config):
+def plot_fixed_weight_iteration(learner: ACRepsLearner, config, args=None):
     params = config['params']
 
     def state_action_features(state, action):
@@ -199,14 +207,23 @@ def plot_fixed_weight_iteration(learner, config):
                      object_height=params['sampling']['object_height'],
                      object_init=(.0, .0, .0))
     num_kilobots = params['sampling']['num_kilobots']
-    num_episodes = params['eval']['num_episodes']
-    num_steps = params['eval']['num_steps_per_episode']
+
+    if args and 'samples' in args:
+        num_episodes = params['sampling']['num_episodes']
+        num_steps = params['sampling']['num_steps_per_episode']
+
+        T = learner.it_sars['S']['light'].values.reshape((num_episodes, num_steps, 2))
+        R = learner.it_sars['R'].unstack(level=0).values
+    else:
+        num_episodes = params['eval']['num_episodes']
+        num_steps = params['eval']['num_steps_per_episode']
+
+        T = learner.eval_sars['S']['light'].values.reshape((num_episodes, num_steps, 2))
+        R = learner.eval_sars['R'].unstack(level=0).values
 
     V = compute_value_function_grid(state_action_features, learner.policy, learner.theta, num_kilobots=num_kilobots,
                                     x_range=x_range, y_range=y_range)
-    P = compute_policy_quivers(learner.policy, num_kilobots, x_range, y_range)
-    T = learner.eval_sars['S']['light'].values.reshape((num_episodes, num_steps, 2))
-    R = learner.eval_sars['R'].unstack(level=0).values
+    # P = compute_policy_quivers(learner.policy, num_kilobots, x_range, y_range)
 
     # reward plot
     R_out = reward_plot_output(R)

@@ -12,9 +12,9 @@ class ObjectEnv(KilobotsEnv):
     screen_size = screen_width, screen_height = 500, 500
 
     # scaling of the differences in x-, y-position and rotation, respectively
-    _scale_vector = np.array([1., 1., 1.])
+    _scale_vector = np.array([2., 2., 2.])
     # cost for translational movements into x, y direction and rotational movements, respectively
-    _cost_vector = np.array([0.1, 0.1, 0.15])
+    _cost_vector = np.array([0.1, 0.1, 0.1])
 
     _object_init = np.array([.0, .0, .0])
     _object_width, _object_height = .15, .15
@@ -28,7 +28,7 @@ class ObjectEnv(KilobotsEnv):
     _spawn_angle_mean = np.pi
     _spawn_angle_variance = .5 * np.pi
 
-    _action_bounds = np.array([-.02, -.02]), np.array([.02, .02])
+    _action_bounds = np.array([-.01, -.01]), np.array([.01, .01])
 
     def __init__(self, num_kilobots=None, weight=.0, object_shape='quad', object_width=.15, object_height=.15):
         self._weight = weight
