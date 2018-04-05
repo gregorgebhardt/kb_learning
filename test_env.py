@@ -1,32 +1,14 @@
 import numpy as np
-# from kb_learning.learner._learner import QuadPushingACRepsLearner
-from kb_learning.kernel import EmbeddedSwarmDistance
+import gym
+from kb_learning.envs import register_object_env
 
-from memory_profiler import profile
+env_id = register_object_env(weight=.0, num_kilobots=15, object_shape='quad', object_width=.15, object_height=.15,
+                             light_type='linear', light_radius=.3)
 
-# zeros = np.array([[.0, .0]])
-#
-#
-# def policy(s):
-#     return zeros
-#
-#
-# learner = QuadPushingACRepsLearner()
-# learner.policy = policy
-#
-# learner._get_samples_parallel(100, 125, .0, 15)
+print(env_id)
 
-kernel = EmbeddedSwarmDistance()
-kernel.set_params(bandwidth=np.array([1., 1., 1., 1.]))
+env = gym.make(env_id)
 
-
-@profile
-def compute_kernel_matrix(A, B):
-    K = kernel(A, B)
-    del K
-
-
-for i in range(10):
-    A = np.random.rand(10000, 32)
-    B = np.random.rand(300, 32)
-    compute_kernel_matrix(A, B)
+for i in range(500):
+    env.render()
+    env.step(env.action_space.sample())
