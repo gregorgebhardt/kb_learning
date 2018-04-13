@@ -11,11 +11,11 @@ import logging
 logger = logging.getLogger('kb_learning.gp')
 
 
-class SemiHeteroscedasticGaussian(Gaussian):
+class HybridGaussian(Gaussian):
     """
-    A Gaussian likelihood that has both, a heteroscedastic variance and a homoscedastic variance.
-    While both the heteroscedastic part and the homoscedastic part are returned by the function gaussian_variance
-    during inference, only the homoscedastic variance is used for doing prediction
+    A Gaussian likelihood that has both, an overall variance and a variance per data point.
+    While both variances are returned by the function gaussian_variance which is used during inference, only the
+    overall variance is used for doing prediction
     """
 
     def __init__(self, het_variance, variance=1., name='semi_het_Gauss'):
@@ -31,22 +31,25 @@ class SemiHeteroscedasticGaussian(Gaussian):
 
 
 class SparseWeightedGPyWrapper:
-    def __init__(self, kernel: KilobotEnvKernel, noise_variance=1.,
+    def __init__(self, kernel: KilobotEnvKernel, output_dim: int, noise_variance=1.,
                  mean_function=None, output_bounds=None):
         self.kernel: KilobotEnvKernel = kernel
         self.noise_variance = noise_variance
 
         self._gp: SparseGP = None
-        self._mean_function = mean_function
+        self.mean_function = mean_function
 
+        self.output_dim = output_dim
         self.output_bounds = output_bounds
 
+        self.eval_mode = False
+
     def train(self, inputs, outputs, weights, sparse_inputs, optimize=True):
-        if self._mean_function:
-            outputs = outputs - self._mean_function(inputs)
+        if self.mean_function:
+            outputs = outputs - self.mean_function(inputs)
 
         if self._gp is None:
-            semi_het_lik = SemiHeteroscedasticGaussian(variance=self.noise_variance, het_variance=1 / weights)
+            semi_het_lik = HybridGaussian(variance=self.noise_variance, het_variance=1 / weights)
             self._gp = SparseGP(X=inputs, Y=outputs, Z=sparse_inputs, kernel=self.kernel, likelihood=semi_het_lik,
                                 inference_method=VarDTC(3), Y_metadata=dict(output_index=np.arange(inputs.shape[0])))
             self._gp.Z.fix()
@@ -56,12 +59,12 @@ class SparseWeightedGPyWrapper:
             self._gp.set_XY(inputs, outputs)
             self._gp.set_Z(sparse_inputs, False)
             self._gp.Z.fix()
-            self._gp.likelihood.het_variance = weights.max() / weights
+            self._gp.likelihood.het_variance = 1 / weights
             # self._gp.set_updates()
             self._gp.update_model(True)
 
         if optimize:
-            self._gp.optimize('bfgs', messages=True)
+            self._gp.optimize('bfgs', messages=True, max_iters=10)
             logger.info(self._gp)
             logger.debug(self.kernel.kilobots_bandwidth)
             if self.kernel.light_dim:
@@ -73,10 +76,12 @@ class SparseWeightedGPyWrapper:
 
     def to_dict(self):
         input_dict = dict()
+        input_dict['class'] = 'SparseWeightedGPyWrapper'
         input_dict['kernel'] = self.kernel.to_dict()
         input_dict['noise_variance'] = self.noise_variance
-        input_dict['mean_function'] = self._mean_function
+        input_dict['mean_function'] = self.mean_function
         input_dict['output_bounds'] = self.output_bounds
+        input_dict['output_dim'] = self.output_dim
 
         if self._gp:
             input_dict['gp'] = dict()
@@ -89,6 +94,8 @@ class SparseWeightedGPyWrapper:
 
     @staticmethod
     def from_dict(input_dict):
+        policy_class = input_dict.pop('class')
+        assert policy_class == 'SparseWeightedGPyWrapper'
         gp_dict = input_dict.pop('gp', None)
         kernel_dict = input_dict.pop('kernel')
         input_dict['kernel'] = KilobotEnvKernel.from_dict(kernel_dict)
@@ -105,19 +112,20 @@ class SparseWeightedGPyWrapper:
         return self._gp.predict(Xnew=inputs)[0]
 
     def get_mean_sigma(self, inputs):
-        return self._gp.predict(Xnew=inputs)
+        mean, sigma = self._gp.predict(Xnew=inputs)
+        return mean, np.sqrt(sigma)
 
     def sample(self, inputs):
         if self._gp is None:
-            variance = self.kernel.variance + self.noise_variance
-            # TODO remove magic number
-            samples = np.random.normal(scale=np.sqrt(variance), size=(inputs.shape[0], 2))
+            mean = .0
+            sigma = np.sqrt(self.kernel.variance + self.noise_variance)
         else:
-            mean, variance = self._gp.predict(Xnew=inputs)
-            samples = mean + np.random.normal(scale=np.sqrt(variance), size=(inputs.shape[0], 2))
+            mean, sigma = self.get_mean_sigma(inputs=inputs)
 
-        if self._mean_function:
-            samples += self._mean_function(inputs)
+        samples = mean + np.random.normal(scale=sigma, size=(inputs.shape[0], self.output_dim))
+
+        if self.mean_function:
+            samples += self.mean_function(inputs)
 
         if self.output_bounds is not None:
                 # check samples against bounds from action space
@@ -127,4 +135,6 @@ class SparseWeightedGPyWrapper:
         return samples
 
     def __call__(self, inputs):
+        if self.eval_mode:
+            return self.get_mean(inputs)
         return self.sample(inputs)

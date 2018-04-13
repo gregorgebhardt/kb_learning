@@ -38,9 +38,7 @@ def compute_policy_quivers(policy, num_kilobots, x_range, y_range, resolution=40
     mean_actions = mean_actions.reshape((resolution[1], resolution[0], mean_actions.shape[1]))
     sigma_actions = sigma_actions.reshape((resolution[1], resolution[0]))
 
-    actions = mean_actions, sigma_actions
-
-    return actions, x_range, y_range
+    return mean_actions, sigma_actions
 
 
 def get_object(object_shape, object_width, object_height, object_init):

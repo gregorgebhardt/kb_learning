@@ -54,15 +54,17 @@ def reward_plot_output(R):
         clear_output(wait=True)
         display(f)
 
+    plt.close(f)
+
     return out
 
 
-def value_function_plot_output(V, x_range, y_range, obj=None):
+def value_function_plot_output(V, x_range, y_range, obj=None, S=None):
     f = plt.figure()
     ax = plt.gca()
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05)
-    value_function_plot(V, x_range, y_range, axes=ax, cm_axes=cax, cmap=cmap_plasma)
+    value_function_plot(V, x_range, y_range, axes=ax, cm_axes=cax, cmap=cmap_plasma, S=S)
     if obj is not None:
         obj.plot(ax, alpha=.3, fill=True)
 
@@ -71,17 +73,19 @@ def value_function_plot_output(V, x_range, y_range, obj=None):
         clear_output(wait=True)
         display(f)
 
+    plt.close(f)
+
     return out
 
 
-def trajectory_plot_output(T, x_range, y_range, V=None, obj=None):
+def trajectory_plot_output(T, x_range, y_range, V=None, obj=None, color=None):
     f = plt.figure()
     ax = plt.gca()
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05)
     if V is not None:
         value_function_plot(V, x_range, y_range, axes=ax, cmap=cmap_gray)
-    trajectories_plot(T, x_range, y_range, ax, cm_axes=cax)
+    trajectories_plot(T, x_range, y_range, ax, cm_axes=cax, color=color)
     if obj is not None:
         obj.plot(ax, alpha=.3, fill=True)
 
@@ -90,12 +94,35 @@ def trajectory_plot_output(T, x_range, y_range, V=None, obj=None):
         clear_output(wait=True)
         display(f)
 
+    plt.close(f)
+
+    return out
+
+
+def policy_plot_output(P, x_range, y_range, V=None, obj=None):
+    f = plt.figure()
+    ax = plt.gca()
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+    if V is not None:
+        value_function_plot(V, x_range, y_range, axes=ax, cmap=cmap_gray)
+    policy_plot(P, x_range, y_range, ax, cm_axes=cax, cmap=cmap_plasma)
+    if obj is not None:
+        obj.plot(ax, alpha=.3, fill=True)
+
+    out = widgets.Output()
+    with out:
+        clear_output(wait=True)
+        display(f)
+
+    plt.close(f)
+
     return out
 
 
 @plot_work.register_iteration_plot_function('animate_trajectories')
-def trajectory_animation_output(learner: ACRepsLearner, config, args):
-    params = config['params']
+def trajectory_animation_output(learner: ACRepsLearner, args):
+    params = learner._params
 
     if args and 'samples' in args:
         num_episodes = params['sampling']['num_episodes']
@@ -117,8 +144,9 @@ def trajectory_animation_output(learner: ACRepsLearner, config, args):
         object_T = learner.eval_info.S.loc[:, 'object'].values
 
     from sklearn.gaussian_process.kernels import RBF
-    kernel = learner.state_kernel.variance[0] * RBF(length_scale=np.sqrt(learner.state_kernel.kilobots_dist.bandwidth))
-    kernel_l = learner.state_kernel.variance[0] * RBF(length_scale=np.sqrt(learner.state_kernel.light_dist.bandwidth))
+    print(learner.policy.kernel.kilobots_dist.bandwidth)
+    kernel = learner.policy.kernel.variance[0] * RBF(length_scale=np.sqrt(learner.policy.kernel.kilobots_dist.bandwidth))
+    kernel_l = learner.policy.kernel.variance[0] * RBF(length_scale=np.sqrt(learner.policy.kernel.light_dist.bandwidth))
 
     N = 30
     X, Y = np.meshgrid(np.linspace(-.4, .4, N), np.linspace(-.4, .4, N))
@@ -185,8 +213,8 @@ def trajectory_animation_output(learner: ACRepsLearner, config, args):
 
 
 @plot_work.register_iteration_plot_function('fixed_weight')
-def plot_fixed_weight_iteration(learner: ACRepsLearner, config, args=None):
-    params = config['params']
+def plot_fixed_weight_iteration(learner: ACRepsLearner, args=None):
+    params = learner._params
 
     def state_action_features(state, action):
         if state.ndim == 1:
@@ -213,35 +241,32 @@ def plot_fixed_weight_iteration(learner: ACRepsLearner, config, args=None):
         num_steps = params['sampling']['num_steps_per_episode']
 
         T = learner.it_sars['S']['light'].values.reshape((num_episodes, num_steps, 2))
-        R = learner.it_sars['R'].unstack(level=0).values
+        R = learner.it_sars['R'].unstack(level=0).values.T
     else:
         num_episodes = params['eval']['num_episodes']
         num_steps = params['eval']['num_steps_per_episode']
 
         T = learner.eval_sars['S']['light'].values.reshape((num_episodes, num_steps, 2))
-        R = learner.eval_sars['R'].unstack(level=0).values
+        R = learner.eval_sars['R'].unstack(level=0).values.T
 
     V = compute_value_function_grid(state_action_features, learner.policy, learner.theta, num_kilobots=num_kilobots,
                                     x_range=x_range, y_range=y_range)
-    # P = compute_policy_quivers(learner.policy, num_kilobots, x_range, y_range)
+    S = learner.lstd_samples.S.light.values
+    P = compute_policy_quivers(learner.policy, num_kilobots, x_range, y_range)
 
     # reward plot
     R_out = reward_plot_output(R)
 
     # value function plot
-    V_out = value_function_plot_output(V, x_range, y_range, obj=obj)
+    V_out = value_function_plot_output(V, x_range, y_range, obj=obj, S=S)
 
     # trajectories plot
-    T_out = trajectory_plot_output(T, x_range, y_range, V=V, obj=obj)
+    T_out = trajectory_plot_output(T, x_range, y_range, V=V, obj=obj, color=R)
 
     # new policy plot
-    # ax_aft_P = fig.add_subplot(gs[3, 0])
-    # ax_aft_P_cb = fig.add_subplot(gs[3, 1])
-    # value_function_plot(V, x_range, y_range, axes=ax_aft_P, cmap=cmap_gray)
-    # policy_plot(P, x_range, y_range, ax_aft_P, cm_axes=ax_aft_P_cb, cmap=cmap_plasma)
-    # obj.plot(ax_bef_T, alpha=.3, fill=True)
+    P_out = policy_plot_output(P, x_range, y_range, V=V, obj=obj)
 
-    box = widgets.VBox(children=[R_out, V_out, T_out])
+    box = widgets.VBox(children=[R_out, V_out, T_out, P_out])
 
     # save and show plot
     return box

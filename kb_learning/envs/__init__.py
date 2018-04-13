@@ -1,6 +1,8 @@
 from ._object_env import ObjectEnv
-from ._gradient_light_object_env import GradientLightObjectEnv
-from ._dual_light_object_env import DualLightObjectEnv
+# from ._gradient_light_object_env import GradientLightObjectEnv
+# from ._dual_light_object_env import DualLightObjectEnv
+
+from .sampler import SARSSampler, ParallelSARSSampler
 
 
 def _check_parameters(weight: float, num_kilobots: int, object_shape: str, object_width: float, object_height: float,

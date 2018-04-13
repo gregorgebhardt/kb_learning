@@ -8,12 +8,15 @@ import pandas as pd
 import gym
 import logging
 
+from kb_learning.ac_reps.gpy_spwgp import SparseWeightedGPyWrapper
+from kb_learning.ac_reps.spwgp import SparseWeightedGP
+
 logger = logging.getLogger('kb_learning.sampler')
 
 
 class KilobotSampler(object):
     def __init__(self, num_episodes: int, num_steps_per_episode: int,
-                 sars_column_index: pd.Index, state_column_index: pd.Index, seed: int=0, *args, **kwargs):
+                 sars_column_index: pd.Index=None, state_column_index: pd.Index=None, seed: int=0, *args, **kwargs):
         self._seed = seed
 
         self.max_episodes = num_episodes
@@ -142,7 +145,7 @@ def _set_worker_seed(seed, work_seed):
     np.random.seed(work_seed * 10000 + seed * 400 + 12346)
 
 
-def _do_work(policy, num_episodes, num_steps, seed, work_seed):
+def _do_work(policy_dict, num_episodes, num_steps, seed, work_seed):
     global envs
     _set_worker_seed(seed, work_seed)
     # reset environments and obtain initial states
@@ -158,6 +161,14 @@ def _do_work(policy, num_episodes, num_steps, seed, work_seed):
     it_info_data = np.empty((num_episodes * num_steps, state_dims))
 
     # do one additional step before
+    policy_class = policy_dict['class']
+    if policy_class == 'SparseWeightedGPyWrapper':
+        policy = SparseWeightedGPyWrapper.from_dict(policy_dict)
+    elif policy_class == 'SparseWeightedGP':
+        policy = SparseWeightedGP.from_dict(policy_dict)
+    else:
+        raise UnknownPolicyClassException()
+
     actions = policy(states)
     srdi = [e.step(a) for e, a in zip(envs[:num_episodes], actions)]
     for i in range(num_episodes):
@@ -262,3 +273,7 @@ class ParallelSARSSampler(SARSSampler):
     @staticmethod
     def __error_callback(exception: Exception):
         logger.error(exception)
+
+
+class UnknownPolicyClassException(Exception):
+    pass

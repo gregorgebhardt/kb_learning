@@ -224,12 +224,13 @@ class angle_from_swarm_mean:
 
 
 class step_towards_center:
-    def __init__(self, coordinates):
+    def __init__(self, coordinates, step_size: float=.01):
         self.coordinates = coordinates
+        self.step_size = step_size
 
     def __call__(self, states):
         light_direction = -states[:, self.coordinates]
         light_norm = np.linalg.norm(light_direction, keepdims=True)
-        return np.divide(light_direction, light_norm, where=light_norm != .0) *.02
+        return np.divide(light_direction, light_norm, where=light_norm != .0) * self.step_size
         # return light_direction / np.linalg.norm(light_direction, axis=1, keepdims=True) * .02
 

@@ -1,2 +1,1 @@
-from ._learner import ACRepsLearner, SampledWeightACRepsLearner, \
-    GradientLightObjectACRepsLearner, DualLightComplexObjectACRepsLearner
+from ._learner import ACRepsLearner

@@ -3,7 +3,7 @@ from GPy import Param
 from GPy.kern.src.kern import Kern
 from paramz.transformations import Logexp
 
-from . import EmbeddedSwarmDistance, MahaDist
+from . import EmbeddedSwarmDistance, MeanSwarmDist, MeanCovSwarmDist, MahaDist, PeriodicDist
 
 
 class KilobotEnvKernel(Kern):
@@ -20,10 +20,17 @@ class KilobotEnvKernel(Kern):
         self.weight_dim = weight_dim
         self.action_dim = action_dim
 
-        self.kilobots_dist = kilobots_dist_class() if kilobots_dist_class else EmbeddedSwarmDistance()
-        self.light_dist = light_dist_class() if light_dist_class else MahaDist()
-        self.weight_dist = weight_dist_class() if weight_dist_class else MahaDist()
-        self.action_dist = action_dist_class() if action_dist_class else MahaDist()
+        if isinstance(kilobots_dist_class, str):
+            if kilobots_dist_class == 'embedded':
+                self.kilobots_dist = EmbeddedSwarmDistance()
+            elif kilobots_dist_class == 'mean':
+                self.kilobots_dist = MeanSwarmDist()
+            elif kilobots_dist_class == 'mean_cov':
+                self.kilobots_dist = MeanCovSwarmDist()
+            else:
+                raise UnknownDistClassException()
+        else:
+            self.kilobots_dist = kilobots_dist_class() if kilobots_dist_class else EmbeddedSwarmDistance()
 
         if kilobots_bandwidth is None:
             self.kilobots_bandwidth = Param('kilobots_bandwidth', np.array([1.] * 2), Logexp())
@@ -34,6 +41,16 @@ class KilobotEnvKernel(Kern):
         self.link_parameter(self.kilobots_bandwidth)
 
         if light_dim:
+            if isinstance(light_dist_class, str):
+                if light_dist_class == 'maha':
+                    self.light_dist = MahaDist()
+                elif light_dist_class == 'periodic':
+                    self.light_dist = PeriodicDist()
+                else:
+                    raise UnknownDistClassException
+            else:
+                self.light_dist = light_dist_class() if light_dist_class else MahaDist()
+
             if light_bandwidth is None:
                 self.light_bandwidth = Param('light_bandwidth', np.array([1.] * light_dim), Logexp())
             else:
@@ -43,6 +60,16 @@ class KilobotEnvKernel(Kern):
             self.link_parameter(self.light_bandwidth)
 
         if weight_dim:
+            if isinstance(weight_dist_class, str):
+                if weight_dist_class == 'maha':
+                    self.weight_dist = MahaDist()
+                elif weight_dist_class == 'periodic':
+                    self.weight_dist = PeriodicDist()
+                else:
+                    raise UnknownDistClassException
+            else:
+                self.weight_dist = weight_dist_class() if weight_dist_class else MahaDist()
+
             if weight_bandwidth is None:
                 self.weight_bandwidth = Param('weight_bandwidth', np.array([1.] * weight_dim), Logexp())
             else:
@@ -52,6 +79,16 @@ class KilobotEnvKernel(Kern):
             self.link_parameter(self.weight_bandwidth)
 
         if action_dim:
+            if isinstance(action_dist_class, str):
+                if action_dist_class == 'maha':
+                    self.action_dist = MahaDist()
+                elif action_dist_class == 'periodic':
+                    self.action_dist = PeriodicDist()
+                else:
+                    raise UnknownDistClassException
+            else:
+                self.action_dist = action_dist_class() if action_dist_class else MahaDist()
+
             if action_bandwidth is None:
                 self.action_bandwidth = Param('action_bandwidth', np.array([1.] * action_dim), Logexp())
             else:
@@ -88,13 +125,23 @@ class KilobotEnvKernel(Kern):
         input_dict['weight_dim'] = self.weight_dim
         input_dict['action_dim'] = self.action_dim
         input_dict['kilobots_bandwidth'] = self.kilobots_bandwidth.values
+        if isinstance(self.kilobots_dist, EmbeddedSwarmDistance):
+            input_dict['kilobots_dist_class'] = 'embedded'
+        elif isinstance(self.kilobots_dist, MeanSwarmDist):
+            input_dict['kilobots_dist_class'] = 'mean'
+        else:
+            input_dict['kilobots_dist_class'] = 'mean_cov'
+
         if self.light_dim:
             input_dict['light_bandwidth'] = self.light_bandwidth.values
+            input_dict['light_dist_class'] = 'maha' if isinstance(self.light_dist, MahaDist) else 'periodic'
         if self.weight_dim:
             input_dict['weight_bandwidth'] = self.weight_bandwidth.values
+            input_dict['weight_dist_class'] = 'maha' if isinstance(self.weight_dist, MahaDist) else 'periodic'
         if self.action_dim:
             input_dict['action_bandwidth'] = self.action_bandwidth.values
-        # TODO add distance classes
+            input_dict['action_dist_class'] = 'maha' if isinstance(self.light_dist, MahaDist) else 'periodic'
+
         input_dict['rho'] = self.rho[0]
         input_dict['variance'] = self.variance[0]
 
@@ -238,3 +285,7 @@ class KilobotEnvKernel(Kern):
 
     def diag(self, X):
         return self.Kdiag(X)
+
+
+class UnknownDistClassException(Exception):
+    pass

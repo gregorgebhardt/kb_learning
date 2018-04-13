@@ -33,9 +33,9 @@ class ObjectEnv(KilobotsEnv):
         self._max_spawn_std = .3 * self._light_radius
 
         # scaling of the differences in x-, y-position and rotation, respectively
-        self._scale_vector = np.array([2., 2., 2.])
+        self._scale_vector = np.array([2., 2., .2])
         # cost for translational movements into x, y direction and rotational movements, respectively
-        self._cost_vector = np.array([0.1, 0.1, 0.1])
+        self._cost_vector = np.array([.02, 2., .002])
 
         super().__init__()
 
@@ -64,14 +64,14 @@ class ObjectEnv(KilobotsEnv):
         obj_pose_diff = obj_pose_new - obj_pose
 
         # scale diff
-        obj_pose_diff_scaled = obj_pose_diff * self._scale_vector
+        reward = obj_pose_diff * self._scale_vector
 
-        cost = np.abs(obj_pose_diff_scaled) * self._cost_vector
+        cost = np.abs(obj_pose_diff) * self._cost_vector
 
         w = self._weight
 
-        r_trans = obj_pose_diff_scaled[0] - cost[2]
-        r_rot = obj_pose_diff_scaled[2] - cost[0]
+        r_trans = reward[0] - cost[2]
+        r_rot = reward[2] - cost[0]
         return w * r_rot + (1 - w) * r_trans - cost[1]
 
     def _configure_environment(self):
@@ -162,7 +162,7 @@ class ObjectEnv(KilobotsEnv):
         light_init = np.minimum(light_init, self.world_bounds[1])
 
         light_bounds = np.array(self.world_bounds) * 1.2
-        action_bounds = np.array([-1, -1]), np.array([1, 1]) * .015
+        action_bounds = np.array([-1, -1]) * .02, np.array([1, 1]) * .02
 
         self._light = CircularGradientLight(position=light_init, radius=self._light_radius,
                                             bounds=light_bounds, action_bounds=action_bounds)
@@ -231,7 +231,6 @@ class ObjectEnv(KilobotsEnv):
             orientations = 2 * np.pi * np.random.rand(self._num_kilobots)
         else:
             raise UnknownLightTypeException()
-
 
         # assert for each kilobot that it is within the world bounds and add kilobot to the world
         for position, orientation in zip(kilobot_positions, orientations):
