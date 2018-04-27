@@ -44,6 +44,7 @@ cmap_gray = cm.get_cmap('gray')
 #
 #     html_data = mpld3.fig_to_html(figure)
 
+
 def reward_plot_output(R):
     f = plt.figure()
     ax_R = plt.gca()
@@ -216,12 +217,12 @@ def trajectory_animation_output(learner: ACRepsLearner, args):
 def plot_fixed_weight_iteration(learner: ACRepsLearner, args=None):
     params = learner._params
 
-    def state_action_features(state, action):
-        if state.ndim == 1:
-            state = state.reshape((1, -1))
-        if action.ndim == 1:
-            action = action.reshape((1, -1))
-        return learner.state_action_kernel(np.c_[state, action], learner.lstd_samples.values)
+    # def state_action_features(state, action):
+    #     if state.ndim == 1:
+    #         state = state.reshape((1, -1))
+    #     if action.ndim == 1:
+    #         action = action.reshape((1, -1))
+    #     return learner.state_action_kernel(np.c_[state, action], learner.lstd_samples.values)
 
     # setup figure
     fig = plt.figure(figsize=(10, 20))
@@ -249,7 +250,11 @@ def plot_fixed_weight_iteration(learner: ACRepsLearner, args=None):
         T = learner.eval_sars['S']['light'].values.reshape((num_episodes, num_steps, 2))
         R = learner.eval_sars['R'].unstack(level=0).values.T
 
-    V = compute_value_function_grid(state_action_features, learner.policy, learner.theta, num_kilobots=num_kilobots,
+    # V = compute_value_function_grid(state_action_features, learner.policy, learner.theta, num_kilobots=num_kilobots,
+    #                                 x_range=x_range, y_range=y_range)
+    V = compute_value_function_grid(lambda s, a: learner.state_action_kernel(np.c_[s, a],
+                                                                             learner.lstd_samples.values),
+                                    learner.policy, learner.theta, num_kilobots=num_kilobots,
                                     x_range=x_range, y_range=y_range)
     S = learner.lstd_samples.S.light.values
     P = compute_policy_quivers(learner.policy, num_kilobots, x_range, y_range)
@@ -267,6 +272,8 @@ def plot_fixed_weight_iteration(learner: ACRepsLearner, args=None):
     P_out = policy_plot_output(P, x_range, y_range, V=V, obj=obj)
 
     box = widgets.VBox(children=[R_out, V_out, T_out, P_out])
+
+    # del state_action_features
 
     # save and show plot
     return box

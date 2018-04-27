@@ -205,13 +205,7 @@ class ParallelSARSSampler(SARSSampler):
         if self._num_workers is None or self._num_workers <= 0:
             self._num_workers = multiprocessing.cpu_count()
 
-        if self._num_workers > 1:
-            self._episodes_per_worker = (self.max_episodes // self._num_workers) + 1
-
-            # for the cluster it is necessary to use the context forkserver here, using a forkserver prevents the forked
-            # processes from taking over handles to files and similar stuff
-            self._context = multiprocessing.get_context(mp_context)
-            self.__pool = self._create_pool()
+        self._mp_context = mp_context
 
     def __del__(self):
         del self._num_workers
@@ -233,6 +227,13 @@ class ParallelSARSSampler(SARSSampler):
         if self._num_workers == 1:
             return super(ParallelSARSSampler, self)._sample_sars(policy, num_episodes, num_steps_per_episode)
         else:
+            if self.__pool is None:
+                self._episodes_per_worker = (self.max_episodes // self._num_workers) + 1
+
+                # for the cluster it is necessary to use the context forkserver here, using a forkserver prevents the
+                # forked processes from taking over handles to files and similar stuff
+                self._context = multiprocessing.get_context(self._mp_context)
+                self.__pool = self._create_pool()
             episodes_per_work = [num_episodes // self._num_workers] * self._num_workers
             for i in range(num_episodes % self._num_workers):
                 episodes_per_work[i] += 1
