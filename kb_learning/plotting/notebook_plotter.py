@@ -224,10 +224,6 @@ def plot_fixed_weight_iteration(learner: ACRepsLearner, args=None):
     #         action = action.reshape((1, -1))
     #     return learner.state_action_kernel(np.c_[state, action], learner.lstd_samples.values)
 
-    # setup figure
-    fig = plt.figure(figsize=(10, 20))
-    gs = GridSpec(nrows=4, ncols=2, width_ratios=[20, 1], height_ratios=[1, 3, 3, 3])
-
     x_range = (-.4, .4)
     y_range = (-.4, .4)
 
@@ -236,18 +232,29 @@ def plot_fixed_weight_iteration(learner: ACRepsLearner, args=None):
                      object_height=params['sampling']['object_height'],
                      object_init=(.0, .0, .0))
     num_kilobots = params['sampling']['num_kilobots']
+    light_type = params['sampling']['light_type']
 
     if args and 'samples' in args:
         num_episodes = params['sampling']['num_episodes']
         num_steps = params['sampling']['num_steps_per_episode']
 
-        T = learner.it_sars['S']['light'].values.reshape((num_episodes, num_steps, 2))
+        if light_type == 'circular':
+            T = learner.it_sars['S']['light'].values.reshape((num_episodes, num_steps, 2))
+            S = learner.lstd_samples.S.light.values
+        elif light_type == 'linear':
+            T = learner.it_sars['S'].values.reshape((num_episodes, num_steps, num_kilobots, 2)).mean(axis=2)
+            S = learner.lstd_samples.S.values.reshape((-1, num_kilobots, 2)).mean(axis=1)
         R = learner.it_sars['R'].unstack(level=0).values.T
     else:
         num_episodes = params['eval']['num_episodes']
         num_steps = params['eval']['num_steps_per_episode']
 
-        T = learner.eval_sars['S']['light'].values.reshape((num_episodes, num_steps, 2))
+        if light_type == 'circular':
+            T = learner.eval_sars['S']['light'].values.reshape((num_episodes, num_steps, 2))
+            S = learner.lstd_samples.S.light.values
+        elif light_type == 'linear':
+            T = learner.eval_sars['S'].values.reshape((num_episodes, num_steps, num_kilobots, 2)).mean(axis=2)
+            S = learner.lstd_samples.S.values.reshape((-1, num_kilobots, 2)).mean(axis=1)
         R = learner.eval_sars['R'].unstack(level=0).values.T
 
     # V = compute_value_function_grid(state_action_features, learner.policy, learner.theta, num_kilobots=num_kilobots,
@@ -256,7 +263,6 @@ def plot_fixed_weight_iteration(learner: ACRepsLearner, args=None):
                                                                              learner.lstd_samples.values),
                                     learner.policy, learner.theta, num_kilobots=num_kilobots,
                                     x_range=x_range, y_range=y_range)
-    S = learner.lstd_samples.S.light.values
     P = compute_policy_quivers(learner.policy, num_kilobots, x_range, y_range)
 
     # reward plot

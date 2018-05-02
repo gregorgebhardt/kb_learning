@@ -140,7 +140,7 @@ class KilobotEnvKernel(Kern):
             input_dict['weight_dist_class'] = 'maha' if isinstance(self.weight_dist, MahaDist) else 'periodic'
         if self.action_dim:
             input_dict['action_bandwidth'] = self.action_bandwidth.values
-            input_dict['action_dist_class'] = 'maha' if isinstance(self.light_dist, MahaDist) else 'periodic'
+            input_dict['action_dist_class'] = 'maha' if isinstance(self.action_dist, MahaDist) else 'periodic'
 
         input_dict['rho'] = self.rho[0]
         input_dict['variance'] = self.variance[0]

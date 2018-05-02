@@ -1,10 +1,10 @@
 import numpy as np
 
 from gym_kilobots.envs import KilobotsEnv
-from gym_kilobots.lib import PhototaxisKilobot, SimplePhototaxisKilobot, CircularGradientLight, GradientLight
+from gym_kilobots.lib import SimplePhototaxisKilobot, CircularGradientLight, GradientLight
 from gym import spaces
 
-from gym_kilobots.lib import Body, Quad, Circle, Triangle, LForm, TForm, CForm
+from gym_kilobots.lib import Quad, Circle, Triangle, LForm, TForm, CForm
 
 
 class ObjectEnv(KilobotsEnv):
@@ -29,13 +29,24 @@ class ObjectEnv(KilobotsEnv):
         self._light_type = light_type
         self._light_radius = light_radius
 
-        self._spawn_type_ratio = .90
+        self._spawn_type_ratio = 1.
         self._max_spawn_std = .3 * self._light_radius
 
         # scaling of the differences in x-, y-position and rotation, respectively
         self._scale_vector = np.array([2., 2., .2])
         # cost for translational movements into x, y direction and rotational movements, respectively
         self._cost_vector = np.array([.02, 2., .002])
+
+        self._kilobots_space = None
+
+        self._light_state_space = None
+        self._light_observation_space = None
+
+        self._weight_state_space = None
+        self._weight_observation_space = None
+
+        self._object_state_space = None
+        self._object_observation_space = None
 
         super().__init__()
 
@@ -53,8 +64,8 @@ class ObjectEnv(KilobotsEnv):
 
     def get_observation(self):
         return np.concatenate(tuple(self._transform_position(k.get_position()) for k in self._kilobots)
-            + ((self._transform_position(self._light.get_state()),) if self._light_type == 'circular' else tuple())
-            + (([self._weight],) if self._sampled_weight else tuple()))
+                              + ((self._transform_position(self._light.get_state()),) if self._light_type == 'circular' else tuple())
+                              + (([self._weight],) if self._sampled_weight else tuple()))
 
     def get_reward(self, state, _, new_state):
         obj_pose = state[-3:]
@@ -76,60 +87,74 @@ class ObjectEnv(KilobotsEnv):
 
     def _configure_environment(self):
         if self._weight is None:
+            self._weight_state_space = spaces.Box(np.array([.0]), np.array([1.]), dtype=np.float32)
+            self._weight_observation_space = spaces.Box(np.array([.0]), np.array([1.]), dtype=np.float32)
             self._weight = np.random.rand()
 
         # initialize object always at (0, 0) with 0 orientation (we do not need to vary the object position and
         # orientation since we will later adapt the state based on the object pose.)
-        self._objects.append(self._create_object())
+        self._init_object()
 
         # initialize light position
         self._init_light()
 
         self._init_kilobots()
 
-        # construct state space, observation space and action space
-        kb_low = np.array([self.world_x_range[0], self.world_y_range[0]] * len(self._kilobots))
-        kb_high = np.array([self.world_x_range[1], self.world_y_range[1]] * len(self._kilobots))
-        kilobots_space = spaces.Box(low=kb_low, high=kb_high, dtype=np.float64)
+        _state_spaces = [self._kilobots_space]
+        if self._light_state_space:
+            _state_spaces.append(self._light_state_space)
+        if self._weight_state_space:
+            _state_spaces.append(self._weight_state_space)
+        if self._object_state_space:
+            _state_spaces.append(self._object_state_space)
+        self.state_space = spaces.Tuple(_state_spaces)
 
-        objects_low = np.array([self.world_x_range[0], self.world_y_range[0], -np.inf] * len(self._objects))
-        objects_high = np.array([self.world_x_range[1], self.world_y_range[1], np.inf] * len(self._objects))
-        objects_space = spaces.Box(low=objects_low, high=objects_high, dtype=np.float64)
-
-        self.state_space = spaces.Tuple([kilobots_space, self._light.observation_space, objects_space])
-        self.observation_space = spaces.Tuple([kilobots_space, self._light.observation_space])
+        _observation_spaces = [self._kilobots_space]
+        if self._light_observation_space:
+            _observation_spaces.append(self._light_observation_space)
+        if self._weight_observation_space:
+            _observation_spaces.append(self._weight_observation_space)
+        if self._object_observation_space:
+            _observation_spaces.append(self._object_observation_space)
+        self.observation_space = spaces.Tuple(_observation_spaces)
 
         # step world once to resolve collisions
         self._step_world()
 
-    def _create_object(self) -> Body:
+    def _init_object(self):
         object_shape = self._object_shape.lower()
 
         if object_shape in ['quad', 'rect']:
-            return Quad(width=self._object_width, height=self._object_height,
+            obj = Quad(width=self._object_width, height=self._object_height,
+                       position=self._object_init[:2], orientation=self._object_init[2],
+                       world=self.world)
+        elif object_shape == 'triangle':
+            obj = Triangle(width=self._object_width, height=self._object_height,
+                           position=self._object_init[:2], orientation=self._object_init[2],
+                           world=self.world)
+        elif object_shape == 'circle':
+            obj = Circle(radius=self._object_width, position=self._object_init[:2],
+                         orientation=self._object_init[2], world=self.world)
+        elif object_shape == 'l_shape':
+            obj = LForm(width=self._object_width, height=self._object_height,
                         position=self._object_init[:2], orientation=self._object_init[2],
                         world=self.world)
-        elif object_shape == 'triangle':
-            return Triangle(width=self._object_width, height=self._object_height,
-                            position=self._object_init[:2], orientation=self._object_init[2],
-                            world=self.world)
-        elif object_shape == 'circle':
-            return Circle(radius=self._object_width, position=self._object_init[:2],
-                          orientation=self._object_init[2], world=self.world)
-        elif object_shape == 'l_shape':
-            return LForm(width=self._object_width, height=self._object_height,
-                         position=self._object_init[:2], orientation=self._object_init[2],
-                         world=self.world)
         elif object_shape == 't_shape':
-            return TForm(width=self._object_width, height=self._object_height,
-                         position=self._object_init[:2], orientation=self._object_init[2],
-                         world=self.world)
+            obj = TForm(width=self._object_width, height=self._object_height,
+                        position=self._object_init[:2], orientation=self._object_init[2],
+                        world=self.world)
         elif object_shape == 'c_shape':
-            return CForm(width=self._object_width, height=self._object_height,
-                         position=self._object_init[:2], orientation=self._object_init[2],
-                         world=self.world)
+            obj = CForm(width=self._object_width, height=self._object_height,
+                        position=self._object_init[:2], orientation=self._object_init[2],
+                        world=self.world)
         else:
             raise UnknownObjectException('Shape of form {} not known.'.format(self._object_shape))
+
+        self._objects.append(obj)
+
+        objects_low = np.array([self.world_x_range[0], self.world_y_range[0], -np.inf] * len(self._objects))
+        objects_high = np.array([self.world_x_range[1], self.world_y_range[1], np.inf] * len(self._objects))
+        self._object_state_space = spaces.Box(low=objects_low, high=objects_high, dtype=np.float64)
 
     def _init_light(self):
         # determine sampling mode for this episode
@@ -138,9 +163,11 @@ class ObjectEnv(KilobotsEnv):
         if self._light_type == 'circular':
             self._init_circular_light()
         elif self._light_type == 'linear':
-            self._init_gradient_light()
+            self._init_linear_light()
         else:
             raise UnknownLightTypeException()
+
+        self.action_space = self._light.action_space
 
     def _init_circular_light(self):
         if self.__spawn_randomly:
@@ -162,17 +189,20 @@ class ObjectEnv(KilobotsEnv):
         light_init = np.minimum(light_init, self.world_bounds[1])
 
         light_bounds = np.array(self.world_bounds) * 1.2
-        action_bounds = np.array([-1, -1]) * .02, np.array([1, 1]) * .02
+        action_bounds = np.array([-1, -1]) * .01, np.array([1, 1]) * .01
 
         self._light = CircularGradientLight(position=light_init, radius=self._light_radius,
                                             bounds=light_bounds, action_bounds=action_bounds)
-        self.action_space = self._light.action_space
 
-    def _init_gradient_light(self):
+        self._light_observation_space = self._light.observation_space
+        self._light_state_space = self._light.observation_space
+
+    def _init_linear_light(self):
         # sample initial angle from a uniform between -pi and pi
         init_angle = np.random.rand() * 2 * np.pi - np.pi
         self._light = GradientLight(angle=init_angle)
-        self.action_space = self._light.action_space
+
+        self._light_state_space = self._light.observation_space
 
     def _init_kilobots(self):
         # kilobots start at the light position in a slightly random formation
@@ -238,6 +268,11 @@ class ObjectEnv(KilobotsEnv):
             position = np.minimum(position, self.world_bounds[1] - 0.02)
             self._add_kilobot(SimplePhototaxisKilobot(self.world, position=position, orientation=orientation,
                                                       light=self._light))
+
+        # construct state space, observation space and action space
+        kb_low = np.array([self.world_x_range[0], self.world_y_range[0]] * len(self._kilobots))
+        kb_high = np.array([self.world_x_range[1], self.world_y_range[1]] * len(self._kilobots))
+        self._kilobots_space = spaces.Box(low=kb_low, high=kb_high, dtype=np.float64)
 
 
 class UnknownObjectException(Exception):

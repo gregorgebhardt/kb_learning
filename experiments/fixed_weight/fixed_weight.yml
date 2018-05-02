@@ -9,15 +9,15 @@ gui: false
 
 params:
   sampling:
-    num_episodes: 400 # 100
-    num_steps_per_episode: 25 # 125
-    num_SARS_samples: 10000 # 10000
+    num_episodes: 200 # 100
+    num_steps_per_episode: 30 # 125
+    num_SARS_samples: 5000 # 10000
     num_workers: 8
     num_kilobots: 15
   kernel:
-    bandwidth_factor_kb: .1 # .05
-    bandwidth_factor_light: .05 # .05
-    bandwidth_factor_action: 1.
+    bandwidth_factor_kb: .55 # .05
+    bandwidth_factor_light: .5 #.8 # .05
+    bandwidth_factor_action: .5
     rho: .5
     variance: 1.
   lstd:
@@ -25,9 +25,12 @@ params:
     discount_factor: .99
   gp:
     num_sparse_states: 500 # 1000
-    bandwidth_factor_kb: [.1, .1]
-    bandwidth_factor_light: [.05, .05]
+    bandwidth_factor_kb: .55 #[.05, .05]
+    bandwidth_factor_light: .5 #[.05, .05]
     rho: .5
+    prior_variance: .0004
+    noise_variance: .00002
+  learn_iterations: 1
 ---
 name: 'bandwidth_eval'
 params:

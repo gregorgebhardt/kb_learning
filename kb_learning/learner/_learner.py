@@ -75,14 +75,14 @@ class ACRepsLearner(KilobotLearner):
         'lstd': {
             'discount_factor': .99,
             'num_features': 1000,
-            'num_policy_samples': 1,
+            'num_policy_samples': 5,
         },
         'ac_reps': {
             'epsilon': .3
         },
         'gp': {
-            'prior_variance': 5e-5,
-            'noise_variance': 2e-5,
+            'prior_variance': 7e-5,
+            'noise_variance': 1e-5,
             'num_sparse_states': 1000,
             'kb_dist': 'embedded',
             'l_dist': 'maha',
@@ -131,8 +131,8 @@ class ACRepsLearner(KilobotLearner):
         self.sars_columns = None
         self.state_object_columns = None
 
-        self._light_dimensions = 2
-        self._action_dimensions = 2
+        self._light_dimensions = None
+        self._action_dimensions = None
 
     def iterate(self, config: dict, rep: int, n: int) -> dict:
         sampling_params = self._params['sampling']
@@ -169,7 +169,7 @@ class ACRepsLearner(KilobotLearner):
             self.state_action_kernel.kilobots_bandwidth = bandwidth_kb * self._params['kernel']['bandwidth_factor_kb']
             self.policy.kernel.kilobots_bandwidth = bandwidth_kb * self._params['gp']['bandwidth_factor_kb']
 
-            if self.light_columns is not None:
+            if self._light_dimensions:
                 bandwidth_l = compute_median_bandwidth(_extended_sars[self.light_columns], sample_size=500)
                 self.state_kernel.light_bandwidth = bandwidth_l * self._params['kernel']['bandwidth_factor_light']
                 self.state_action_kernel.light_bandwidth = bandwidth_l * self._params['kernel']['bandwidth_factor_light']
@@ -215,11 +215,19 @@ class ACRepsLearner(KilobotLearner):
                 action = action.reshape((1, -1))
             return self.state_action_kernel(np.c_[state, action], self.lstd_samples.values)
 
+        # compute state-action features
+        logger.info('compute state-action features')
+        phi_SA = state_action_features(self.sars['S'].values, self.sars[['A']].values)
+
+        # compute state features
+        logger.info('compute state features')
+        phi_S = state_features(self.sars['S'].values)
+
         for i in range(self._params['learn_iterations']):
-            # compute features
-            logger.info('compute state-action features')
-            phi_SA = state_action_features(self.sars['S'].values, self.sars[['A']].values)
-            next_actions = np.array([self.policy(self.sars['S_'].values) for _ in range(5)]).mean(axis=0)
+            # compute next state-action features
+            logger.info('compute next state-action features')
+            policy_samples = self._params['lstd']['num_policy_samples']
+            next_actions = np.array([self.policy(self.sars['S_'].values) for _ in range(policy_samples)]).mean(axis=0)
             # next_actions = self.policy.get_mean(self.sars['S_'].values)
             phi_SA_next = state_action_features(self.sars['S_'].values, next_actions)
 
@@ -232,10 +240,6 @@ class ACRepsLearner(KilobotLearner):
             # compute q-function
             logger.debug('compute q-function')
             q_fct = phi_SA.dot(self.theta)
-
-            # compute state features
-            logger.info('compute state features')
-            phi_S = state_features(self.sars['S'].values)
 
             # compute sample weights using AC-REPS
             logger.info('learning weights [AC-REPS]')
@@ -264,26 +268,26 @@ class ACRepsLearner(KilobotLearner):
             self.policy.train(inputs=self.sars['S'].values, outputs=self.sars['A'].values, weights=weights,
                               sparse_inputs=gp_samples, optimize=True)
 
-            # evaluate policy
-            logger.info('evaluating policy')
-            self.sampler.seed = 5555
-            self.policy.eval_mode = True
-            self.eval_sars, self.eval_info = self.sampler(self.policy,
-                                                          num_episodes=self._params['eval']['num_episodes'],
-                                                          num_steps_per_episode=self._params['eval'][
-                                                              'num_steps_per_episode'])
-            self.policy.eval_mode = False
+        # evaluate policy
+        logger.info('evaluating policy')
+        self.sampler.seed = 5555
+        self.policy.eval_mode = True
+        self.eval_sars, self.eval_info = self.sampler(self.policy,
+                                                      num_episodes=self._params['eval']['num_episodes'],
+                                                      num_steps_per_episode=self._params['eval'][
+                                                          'num_steps_per_episode'])
+        self.policy.eval_mode = False
 
-            sum_R = self.eval_sars['R'].groupby(level=0).sum()
+        sum_R = self.eval_sars['R'].groupby(level=0).sum()
 
-            mean_sum_R = sum_R.mean()
-            sum_sum_R = sum_R.sum()
-            std_sum_R = sum_R.std()
-            max_sum_R = sum_R.max()
-            min_sum_R = sum_R.min()
+        mean_sum_R = sum_R.mean()
+        sum_sum_R = sum_R.sum()
+        std_sum_R = sum_R.std()
+        max_sum_R = sum_R.max()
+        min_sum_R = sum_R.min()
 
-            logger.info('statistics on sum R -- mean: {:.6f} sum: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
-                mean_sum_R, sum_sum_R, std_sum_R, max_sum_R, min_sum_R))
+        logger.info('statistics on sum R -- mean: {:.6f} sum: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
+            mean_sum_R, sum_sum_R, std_sum_R, max_sum_R, min_sum_R))
 
         return_dict = dict(mean_sum_R=mean_sum_R, sum_sum_R=sum_sum_R, std_sum_R=std_sum_R,
                            max_sum_R=max_sum_R, min_sum_R=min_sum_R)
@@ -312,6 +316,13 @@ class ACRepsLearner(KilobotLearner):
         elif kernel_params['kb_dist'] == 'mean-cov':
             from kb_learning.kernel import compute_mean_and_cov_position
             self.state_preprocessor = compute_mean_and_cov_position
+
+        if sampling_params['light_type'] == 'circular':
+            self._light_dimensions = 2
+            self._action_dimensions = 2
+        elif sampling_params['light_type'] == 'linear':
+            self._light_dimensions = 0
+            self._action_dimensions = 1
 
         state_kernel = KilobotEnvKernel(rho=kernel_params['rho'],
                                         variance=kernel_params['variance'],
@@ -352,29 +363,50 @@ class ACRepsLearner(KilobotLearner):
 
         self.PolicyClass = SparseWeightedGP
         # self.PolicyClass = SparseWeightedGPyWrapper
+        if sampling_params['light_type'] == 'circular':
+            mean_function = step_towards_center([-2, -1])
+        elif sampling_params['light_type'] == 'linear':
+            mean_function = angle_from_swarm_mean(range(sampling_params['num_kilobots'] * 2))
+
         policy = self.PolicyClass(kernel=gp_kernel, noise_variance=self._params['gp']['noise_variance'],
-                                  mean_function=step_towards_center([-2, -1]), output_bounds=output_bounds,
+                                  mean_function=mean_function, output_bounds=output_bounds,
                                   output_dim=output_bounds[0].shape[0])
 
         return policy
 
     def _init_SARS(self):
+        sampling_params = self._params['sampling']
+
         kb_columns_level = ['kb_{}'.format(i) for i in range(self._params['sampling']['num_kilobots'])]
         self.kilobots_columns = pd.MultiIndex.from_product([['S'], kb_columns_level, ['x', 'y']])
-        self.light_columns = pd.MultiIndex.from_product([['S'], ['light'], ['x', 'y']])
+        self.state_columns = self.kilobots_columns.copy()
+        self.state_object_columns = self.state_columns.copy()
         self.object_columns = pd.MultiIndex.from_product([['S'], ['object'], ['x', 'y', 'theta']])
-        self.state_columns = self.kilobots_columns.append(self.light_columns)
-        self.state_object_columns = self.state_columns.append(self.object_columns)
-        self.action_columns = pd.MultiIndex.from_product([['A'], ['x', 'y'], ['']])
+
+        if sampling_params['light_type'] == 'circular':
+            self.light_columns = pd.MultiIndex.from_product([['S'], ['light'], ['x', 'y']])
+            self.action_columns = pd.MultiIndex.from_product([['A'], ['x', 'y'], ['']])
+            self.state_columns = self.state_columns.append(self.light_columns)
+        else:
+            self.light_columns = pd.MultiIndex.from_product([['S'], ['light'], ['theta']])
+            self.action_columns = pd.MultiIndex.from_product([['A'], ['theta'], ['']])
+
+        self.state_object_columns = self.state_object_columns.append(self.light_columns)
+
+        if sampling_params['w_factor'] is None:
+            self.weight_columns = pd.MultiIndex.from_product([['S'], ['weight'], ['']])
+            self.state_columns = self.state_columns.append(self.weight_columns)
+            self.state_object_columns = self.state_object_columns.append(self.weight_columns)
+
+        self.state_object_columns = self.state_object_columns.append(self.object_columns)
+
         self.reward_columns = pd.MultiIndex.from_arrays([['R'], [''], ['']])
+
         self.next_state_columns = self.state_columns.copy()
         self.next_state_columns.set_levels(['S_'], 0, inplace=True)
-        self.extra_dim_columns = self.light_columns
 
         self.sars_columns = self.state_columns.append(self.action_columns).append(self.reward_columns).append(
             self.next_state_columns)
-
-        self._info_columns = self.state_columns.append(self.object_columns)
 
         self.sars = pd.DataFrame(columns=self.sars_columns)
 
@@ -474,7 +506,7 @@ class ACRepsLearner(KilobotLearner):
             self.eval_info = pd.read_pickle(eval_info_file_name, compression='gzip')
 
         # save theta
-        logger.info('pickling theta and lstd samples...')
+        logger.info('restoring theta and lstd samples...')
         theta_file_name = os.path.join(self._log_path_rep, 'theta_it{:02d}.npy'.format(n))
         self.theta = np.load(theta_file_name, self.theta)
         lstd_samples_file_name = os.path.join(self._log_path_rep, 'lstd_samples_it{:02d}.pkl'.format(n))

@@ -4,9 +4,6 @@ from matplotlib.colorbar import Colorbar
 from matplotlib.axes import Axes
 from matplotlib.collections import LineCollection
 from matplotlib.colors import Normalize
-import matplotlib
-
-matplotlib.rc('font', family='Oswald')
 
 
 def reward_distribution_plot(R, R_axes: Axes):
