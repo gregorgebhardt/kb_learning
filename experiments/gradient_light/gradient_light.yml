@@ -31,7 +31,19 @@ params:
     bandwidth_factor_kb: .01
 #    bandwidth_factor_weight: .1
 #  learn_iterations: 3
-
+---
+name: 'eval_height'
+params:
+  sampling:
+    object_shape: 'quad'
+    object_width: .15
+#    object_height: .15
+    w_factor: .0
+grid:
+  sampling:
+    object_height: [.15, .25, .35, .45]
+  kernel:
+    type: ['kilobot', 'mean']
 ---
 name: 'square'
 params:
