@@ -1,11 +1,11 @@
 #!/bin/bash
 #SBATCH -A project00672 # 672, 664
-#SBATCH -J gradient_light_complex
+#SBATCH -J gradient_light
 #SBATCH -D /home/yy05vipo/git/kb_learning/experiments
 #SBATCH --mail-type=END
 # Please use the complete path details :
-#SBATCH -e /home/yy05vipo/git/kb_learning/experiments/gradient_light_complex/l_%j.stderr
-#SBATCH -o /home/yy05vipo/git/kb_learning/experiments/gradient_light_complex/l_%j.stdout
+#SBATCH -e /home/yy05vipo/git/kb_learning/experiments/gradient_light/l_%j.stderr
+#SBATCH -o /home/yy05vipo/git/kb_learning/experiments/gradient_light/l_%j.stdout
 #
 #SBATCH -n 12               # Number of tasks
 #SBATCH -c 8                # Number of cores per task
