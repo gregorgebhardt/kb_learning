@@ -1,7 +1,7 @@
 ---
 # DEFAULT
 name: "DEFAULT"
-repetitions: 3 # 20
+repetitions: 5 # 20
 iterations: 25
 path: "data/gradient_light"
 gui: false
