@@ -17,7 +17,7 @@ params:
 #    w_factor: null
   kernel:
     a_dist: 'periodic'
-    bandwidth_factor_kb: .5
+    bandwidth_factor_kb: .1
     bandwidth_factor_action: .5
 #    bandwidth_factor_weight: .1
     rho: .5
@@ -28,7 +28,7 @@ params:
     num_sparse_states: 1000 # 1000
     prior_variance: 2.
     noise_variance: .5
-    bandwidth_factor_kb: .01
+    bandwidth_factor_kb: .1
 #    bandwidth_factor_weight: .1
 #  learn_iterations: 3
 ---
