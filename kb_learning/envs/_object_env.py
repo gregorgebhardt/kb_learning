@@ -173,17 +173,15 @@ class ObjectEnv(KilobotsEnv):
         if self.__spawn_randomly:
             # select light init position randomly as polar coordinates between .25π and 1.75π
             light_init_direction = np.random.rand() * np.pi * 1.5 + np.pi * .25
-            light_init_radius = np.abs(np.random.normal() * max(self.world_size))
+            light_init_radius = np.abs(np.random.normal() * max(self.world_size) / 2)
 
             light_init = light_init_radius * np.array([np.cos(light_init_direction), np.sin(light_init_direction)])
-            light_init = np.maximum(light_init, self.world_bounds[0])
-            light_init = np.minimum(light_init, self.world_bounds[1])
         else:
             # otherwise, the light starts above the object
             light_init = self._object_init[:2]
 
-        light_init = np.maximum(light_init, self.world_bounds[0])
-        light_init = np.minimum(light_init, self.world_bounds[1])
+        light_init = np.maximum(light_init, self.world_bounds[0] * .98)
+        light_init = np.minimum(light_init, self.world_bounds[1] * .98)
 
         light_bounds = np.array(self.world_bounds) * 1.2
         action_bounds = np.array([-1, -1]) * .01, np.array([1, 1]) * .01
@@ -214,14 +212,14 @@ class ObjectEnv(KilobotsEnv):
         elif self._light_type == 'linear':
             # select spawn mean position randomly as polar coordinates between .25π and 1.75π
             spawn_direction = np.random.rand() * np.pi * 1.5 + np.pi * .25
-            spawn_radius = np.abs(np.random.normal() * max(self.world_size))
+            spawn_radius = np.abs(np.random.normal() * max(self.world_size) / 2)
 
             spawn_mean = spawn_radius * np.array([np.cos(spawn_direction), np.sin(spawn_direction)])
             spawn_mean = np.maximum(spawn_mean, self.world_bounds[0])
             spawn_mean = np.minimum(spawn_mean, self.world_bounds[1])
 
             # select a spawn std uniformly between zero and half the world width
-            spawn_std = np.random.rand() * self.world_width / 4
+            spawn_std = np.random.rand() * min(self.world_size) / 5
 
             # draw the kilobots positions from a normal with mean and variance selected above
             kilobot_positions = np.random.normal(scale=spawn_std, size=(self._num_kilobots, 2))
