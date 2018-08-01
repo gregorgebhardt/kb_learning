@@ -171,16 +171,13 @@ class ObjectEnv(KilobotsEnv):
 
     def _init_circular_light(self):
         if self.__spawn_randomly:
-            # if we spawn the light randomly, we select random polar coordinates for the light
-            # the radius is half the object width plus a uniform sample from the range [0, light_max_dist)
-            # light_radius = (0.5 * self._object_width + self._light_max_dist * np.random.rand())
-            # the angle is sampled normally with spawn_angle_mean and spawn_angle_variance
-            # angle = np.random.normal(self._spawn_angle_mean, self._spawn_angle_variance)
+            # select light init position randomly as polar coordinates between .25π and 1.75π
+            light_init_direction = np.random.rand() * np.pi * 1.5 + np.pi * .25
+            light_init_radius = np.abs(np.random.normal() * max(self.world_size))
 
-            # light_init = self._object_init[:2] + light_radius * np.array([np.cos(angle), np.sin(angle)])
-
-            light_init = np.random.rand(2) * np.array(self.world_size) * np.array((.98, .98))
-            light_init += self.world_bounds[0]
+            light_init = light_init_radius * np.array([np.cos(light_init_direction), np.sin(light_init_direction)])
+            light_init = np.maximum(light_init, self.world_bounds[0])
+            light_init = np.minimum(light_init, self.world_bounds[1])
         else:
             # otherwise, the light starts above the object
             light_init = self._object_init[:2]
@@ -205,37 +202,6 @@ class ObjectEnv(KilobotsEnv):
         self._light_state_space = self._light.observation_space
 
     def _init_kilobots(self):
-        # kilobots start at the light position in a slightly random formation
-        # kb_radius = PhototaxisKilobot.get_radius()
-        # kilobot_offsets = np.array([[-kb_radius, 0], [kb_radius, 0], [0, kb_radius], [0, -kb_radius]])
-        # start_angles = 2 * np.pi * np.random.randn(self._num_kilobots)
-        #
-        # kilobot_poses = []
-        #
-        # for i in range(self._num_kilobots):
-        #     if self.__spawn_randomly:
-        #         position = (1 + i / 4) * kilobot_offsets[i % 4, :] + .25 * (np.random.rand(2) - .5)
-        #         # x = (start[0] + (10 + i / 4) * kilobot_offsets[i % 4, 0] + 0.25 * (np.random.rand() - 0.5))
-        #         # y = (start[1] + (10 + i / 4) * kilobot_offsets[i % 4, 1] + 0.25 * (np.random.rand() - 0.5))
-        #     else:
-        #         sampled_radius = np.maximum(np.random.normal(0, self._max_spawn_std), 1.1 * kb_radius)
-        #         sampled_radius = np.minimum(sampled_radius, self._light_radius)
-        #         # x = float(start[0] + 1.1 * sampled_radius * np.cos(start_angles[i]))
-        #         # y = float(start[1] + 1.1 * sampled_radius * np.sin(start_angles[i]))
-        #         position = sampled_radius * np.r_[np.cos(start_angles[i]), np.sin(start_angles[i])]
-        #
-        #     # the orientation of the kilobots is chosen randomly
-        #     orientation = 2 * np.pi * np.random.rand()
-        #
-        #     kilobot_poses.append((position, orientation))
-        #
-        # for position, orientation in kilobot_poses:
-        #     position += self._light.get_state()
-        #     position = np.maximum(position, self.world_bounds[0] + 1.5 * kb_radius)
-        #     position = np.minimum(position, self.world_bounds[1] - 1.5 * kb_radius)
-        #     self._add_kilobot(SimplePhototaxisKilobot(self.world, position=position, orientation=orientation,
-        #                                               light=self._light))
-
         if self._light_type == 'circular':
             # select the mean position of the swarm to be the position of the light
             spawn_mean = self._light.get_state()
@@ -246,10 +212,14 @@ class ObjectEnv(KilobotsEnv):
             orientations = 2 * np.pi * np.random.rand(self._num_kilobots)
 
         elif self._light_type == 'linear':
-            # select a random mean position uniformly from .98 of the world size
-            spawn_mean = np.random.rand(2) * np.array(self.world_size) * np.array((.98, .98))
-            # fit this mean position to the world bounds, i.e., shift by lower bounds
-            spawn_mean += self.world_bounds[0]
+            # select spawn mean position randomly as polar coordinates between .25π and 1.75π
+            spawn_direction = np.random.rand() * np.pi * 1.5 + np.pi * .25
+            spawn_radius = np.abs(np.random.normal() * max(self.world_size))
+
+            spawn_mean = spawn_radius * np.array([np.cos(spawn_direction), np.sin(spawn_direction)])
+            spawn_mean = np.maximum(spawn_mean, self.world_bounds[0])
+            spawn_mean = np.minimum(spawn_mean, self.world_bounds[1])
+
             # select a spawn std uniformly between zero and half the world width
             spawn_std = np.random.rand() * self.world_width / 4
 
