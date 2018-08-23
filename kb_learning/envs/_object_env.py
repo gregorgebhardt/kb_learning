@@ -15,12 +15,22 @@ class ObjectEnv(KilobotsEnv):
     # _spawn_angle_mean = np.pi
     # _spawn_angle_variance = .5 * np.pi
 
-    def __init__(self, num_kilobots=None, weight=.0, object_shape='quad', object_width=.15, object_height=.15,
-                 light_type='circular', light_radius=.2):
+    def __init__(self,
+                 num_kilobots=None,
+                 weight=.0,
+                 object_shape='quad',
+                 object_width=.15,
+                 object_height=.15,
+                 object_init=None,
+                 light_type='circular',
+                 light_radius=.2):
         self._weight = weight
         self._num_kilobots = num_kilobots
 
-        self._object_init = np.array([.0, .0, .0])
+        if object_init:
+            self._object_init = np.array(object_init)
+        else:
+            self._object_init = np.array([.0, .0, .0])
         self._object_width, self._object_height = object_width, object_height
         self._object_shape = object_shape
 

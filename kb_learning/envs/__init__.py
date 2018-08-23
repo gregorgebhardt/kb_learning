@@ -1,6 +1,5 @@
 from ._object_env import ObjectEnv
-# from ._gradient_light_object_env import GradientLightObjectEnv
-# from ._dual_light_object_env import DualLightObjectEnv
+from ._eval_env import EvalEnv
 
 from .sampler import SARSSampler, ParallelSARSSampler
 

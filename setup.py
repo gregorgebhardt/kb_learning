@@ -81,5 +81,5 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=['cluster_work', 'numpy', 'pandas', 'gym', 'gym_kilobots', 'numexpr', 'scipy', 'scikit-learn',
-                      'cython', 'matplotlib', 'GPy', 'paramz']
+                      'cython', 'matplotlib', 'GPy', 'paramz', 'PyYAML']
 )

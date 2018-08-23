@@ -1,4 +1,4 @@
-from kb_learning.learner import SampledWeightACRepsLearner
+from kb_learning.learner import ACRepsLearner
 
 if __name__ == '__main__':
-    SampledWeightACRepsLearner.run()
+    ACRepsLearner.run()
