@@ -47,16 +47,16 @@ class ObjectEnv(KilobotsEnv):
         # cost for translational movements into x, y direction and rotational movements, respectively
         self._cost_vector = np.array([.02, 2., .002])
 
-        self._kilobots_space = None
+        self._kilobots_space: spaces.Box = None
 
-        self._light_state_space = None
-        self._light_observation_space = None
+        self._light_state_space: spaces.Box = None
+        self._light_observation_space: spaces.Box = None
 
-        self._weight_state_space = None
-        self._weight_observation_space = None
+        self._weight_state_space: spaces.Box = None
+        self._weight_observation_space: spaces.Box = None
 
-        self._object_state_space = None
-        self._object_observation_space = None
+        self._object_state_space: spaces.Box = None
+        self._object_observation_space: spaces.Box = None
 
         super().__init__()
 
@@ -67,7 +67,7 @@ class ObjectEnv(KilobotsEnv):
                               + tuple(o.get_pose() for o in self._objects))
 
     def get_info(self, state, action):
-        return self.get_state()
+        return {'state': self.get_state()}
 
     def _transform_position(self, position):
         return self._objects[0].get_local_point(position)
@@ -110,23 +110,31 @@ class ObjectEnv(KilobotsEnv):
 
         self._init_kilobots()
 
-        _state_spaces = [self._kilobots_space]
+        _state_space_low = self._kilobots_space.low
+        _state_space_high = self._kilobots_space.high
         if self._light_state_space:
-            _state_spaces.append(self._light_state_space)
+            _state_space_low = np.concatenate((_state_space_low, self._light_state_space.low))
+            _state_space_high = np.concatenate((_state_space_high, self._light_state_space.high))
         if self._weight_state_space:
-            _state_spaces.append(self._weight_state_space)
+            _state_space_low = np.concatenate((_state_space_low, self._weight_state_space.low))
+            _state_space_high = np.concatenate((_state_space_high, self._weight_state_space.high))
         if self._object_state_space:
-            _state_spaces.append(self._object_state_space)
-        self.state_space = spaces.Tuple(_state_spaces)
+            _state_space_low = np.concatenate((_state_space_low, self._object_state_space.low))
+            _state_space_high = np.concatenate((_state_space_high, self._object_state_space.high))
+        self.state_space = spaces.Box(low=_state_space_low, high=_state_space_high, dtype=np.float32)
 
-        _observation_spaces = [self._kilobots_space]
+        _observation_spaces_low = self._kilobots_space.low
+        _observation_spaces_high = self._kilobots_space.high
         if self._light_observation_space:
-            _observation_spaces.append(self._light_observation_space)
+            _observation_spaces_low = np.concatenate((_observation_spaces_low, self._light_observation_space.low))
+            _observation_spaces_high = np.concatenate((_observation_spaces_high, self._light_observation_space.high))
         if self._weight_observation_space:
-            _observation_spaces.append(self._weight_observation_space)
+            _observation_spaces_low = np.concatenate((_observation_spaces_low, self._weight_observation_space.low))
+            _observation_spaces_high = np.concatenate((_observation_spaces_high, self._weight_observation_space.high))
         if self._object_observation_space:
-            _observation_spaces.append(self._object_observation_space)
-        self.observation_space = spaces.Tuple(_observation_spaces)
+            _observation_spaces_low = np.concatenate((_observation_spaces_low, self._object_observation_space.low))
+            _observation_spaces_high = np.concatenate((_observation_spaces_high, self._object_observation_space.high))
+        self.observation_space = spaces.Box(low=_observation_spaces_low, high=_observation_spaces_high, dtype=np.float32)
 
         # step world once to resolve collisions
         self._step_world()
