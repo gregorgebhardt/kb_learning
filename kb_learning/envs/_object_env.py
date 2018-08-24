@@ -6,6 +6,8 @@ from gym import spaces
 
 from gym_kilobots.lib import Quad, Circle, Triangle, LForm, TForm, CForm
 
+from kb_learning.tools import compute_robust_mean_swarm_position
+
 
 class ObjectEnv(KilobotsEnv):
     world_size = world_width, world_height = .8, .8
@@ -81,6 +83,10 @@ class ObjectEnv(KilobotsEnv):
         obj_pose = state[-3:]
         obj_pose_new = new_state[-3:]
 
+        # punish distance of swarm to object
+        swarm_mean = compute_robust_mean_swarm_position(state[:2*self._num_kilobots])
+        sq_dist = (swarm_mean**2).sum()
+
         # compute diff between last and current pose
         obj_pose_diff = obj_pose_new - obj_pose
 
@@ -93,7 +99,23 @@ class ObjectEnv(KilobotsEnv):
 
         r_trans = reward[0] - cost[2]
         r_rot = reward[2] - cost[0]
-        return w * r_rot + (1 - w) * r_trans - cost[1]
+        return w * r_rot + (1 - w) * r_trans - cost[1] - .001 * sq_dist
+
+    def has_finished(self, state, action):
+        # check if body is in contact with table
+        if self.get_objects()[0].collides_with(self.table):
+            print('collision with table')
+            return True
+
+        if np.abs(self._objects[0].get_orientation()) > np.pi/2:
+            print('more than quarter rotation')
+            return True
+
+        if self._sim_steps >= 2500:
+            # print('maximum number of sim steps.')
+            return True
+
+        return False
 
     def _configure_environment(self):
         if self._weight is None:
