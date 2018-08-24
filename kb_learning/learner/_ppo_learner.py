@@ -6,6 +6,7 @@ from baselines.bench.monitor import Monitor
 from baselines.ppo2.ppo2 import learn
 
 from kb_learning.envs import register_object_env, NormalizeActionWrapper
+from kb_learning.policy_networks.me_mlp import me_mlp
 
 logger.configure(format_strs=['stdout'])
 
@@ -32,11 +33,14 @@ def train(num_envs):
         # wrap env in SubprocVecEnv
         vec_env = SubprocVecEnv(envs)
 
+        network = me_mlp()
+
         # def policy_fn(name):
         #     return mlp_policy.MlpPolicy(name=name, ob_space=vec_env.observation_space, ac_space=vec_env.action_space,
         #         hid_size=256, num_hid_layers=3)
 
-        model = learn(network='mlp', env=vec_env, total_timesteps=1000000, nsteps=500, seed=1234, log_interval=5)
+        model = learn(network=network, env=vec_env, total_timesteps=1000000, nsteps=500, seed=1234, log_interval=5,
+                      save_interval=0)
 
         vec_env.close()
 
