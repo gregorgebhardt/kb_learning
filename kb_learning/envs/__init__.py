@@ -1,5 +1,6 @@
 from ._object_env import ObjectEnv
 from ._eval_env import EvalEnv
+from ._env_wrapper import NormalizeActionWrapper
 
 from .sampler import SARSSampler, ParallelSARSSampler
 
