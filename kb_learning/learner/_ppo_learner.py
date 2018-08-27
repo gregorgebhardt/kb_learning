@@ -26,7 +26,8 @@ from kb_learning.policy_networks.me_mlp import me_mlp
 from kb_learning.tools import swap_flatten_01, const_fn, safe_mean
 
 # TODO change to cluster_work logger
-logger.configure(format_strs=['stdout'])
+import logging
+logger = logging.getLogger('ppo')
 
 
 class PPOLearner(ClusterWork):
@@ -61,6 +62,8 @@ class PPOLearner(ClusterWork):
 
     def __init__(self):
         super().__init__()
+        self.session = None
+
         self.learning_rate = None
         self.clip_range = None
 
@@ -84,6 +87,9 @@ class PPOLearner(ClusterWork):
         self.timer = .0
 
     def reset(self, config: dict, rep: int):
+        self.session = tf_util.single_threaded_session()
+        self.session.__enter__()
+
         # get seed from cluster work
         tf.set_random_seed(self._seed)
         np.random.seed(self._seed)
@@ -180,19 +186,20 @@ class PPOLearner(ClusterWork):
                     slices = (arr[mb_indices] for arr in (obs, returns, masks, actions, values, neglogpacs))
                     mb_loss_values.append(self.model.train(_learning_rate, _clip_range, *slices))
 
-            loss_values[i_update] = np.mean(mb_loss_values, axis=0)
+            # TODO fix this
+            # loss_values[i_update] = np.mean(mb_loss_values, axis=0)
 
         time_elapsed = time.time() - time_update_start
         frames_per_second = int(self.steps_per_batch * self.updates_per_iteration / time_elapsed)
         self.timer += time_elapsed
 
-        return {
+        return_values = {
             # compute elapsed number of steps
             'serial_steps':        (n + 1) * self.updates_per_iteration * self.steps_per_worker,
             # compute total number of steps, i.e., the number of simulated steps
             'total_steps':         (n + 1) * self.updates_per_iteration * self.steps_per_batch,
             # compute performed update iterations
-            'num_updates':         (n + 1) * self.steps_per_batch,
+            'num_updates':         (n + 1) * self.updates_per_iteration,
             # fps in this iteration
             'frames_per_second':   frames_per_second,
             'explained_variance':  float(explained_variance(values, returns)),
@@ -205,6 +212,11 @@ class PPOLearner(ClusterWork):
             # elapsed time since starting the experiment
             'total_time_elapsed':  self.timer
         }
+
+        for k, v in return_values.items():
+            logger.info("{}: {}".format(k, v))
+
+        return return_values
 
     def finalize(self):
         if self.env:

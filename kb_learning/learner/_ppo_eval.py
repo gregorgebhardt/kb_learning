@@ -4,14 +4,14 @@ from kb_learning.envs import register_object_env, NormalizeActionWrapper
 
 
 def main():
-    with open('/tmp/make_model.pkl', 'rb') as fh:
+    with open('make_model.pkl', 'rb') as fh:
         make_model = cloudpickle.load(fh)
 
     model = make_model()
 
-    model.load('/tmp/00100')
+    model.load('00400')
 
-    env_id = register_object_env(.0, 15, 'quad', .15, .15, 'circular', .3)
+    env_id = register_object_env(1., 10, 'quad', .15, .15, 'circular', .15)
     env = NormalizeActionWrapper(gym.make(env_id))
 
     obs = env.reset()

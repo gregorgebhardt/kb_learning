@@ -2,11 +2,13 @@
 # DEFAULT
 name: "DEFAULT"
 repetitions: 1
-iterations: 200
+iterations: 40
 path: "data/ppo"
 gui: false
 
-params: {}
+params:
+  sampling:
+    num_workers: 20
 ---
 name: "test"
 list:
