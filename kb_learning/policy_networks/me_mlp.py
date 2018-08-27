@@ -4,7 +4,8 @@ import numpy as np
 import tensorflow as tf
 
 
-def me_mlp(layers=(2, 2), num_hidden=((64, 64), (64, 64)), activation=tf.nn.relu):
+def me_mlp(num_me_inputs, dim_me_inputs, layers=(2, 2), num_hidden=((128, 128), (128, 128)),
+           activation=tf.nn.leaky_relu):
     """
     MLP mean embedding followed by another MLP to be used in a policy / q-function approximator
 
@@ -27,9 +28,9 @@ def me_mlp(layers=(2, 2), num_hidden=((64, 64), (64, 64)), activation=tf.nn.relu
         num_mlp_layers = layers[1]
         num_me_hidden = num_hidden[0]
         num_mlp_hidden = num_hidden[1]
-        num_kilobots = 15  # env._num_kilobots
-        kilobot_states = 30  # env._kilobot_space.shape
-        kb_single_state = kilobot_states / num_kilobots
+        num_kilobots = num_me_inputs  # env._num_kilobots
+        kb_single_state = dim_me_inputs
+        kilobot_states = num_kilobots * kb_single_state  # env._kilobot_space.shape
         # env_states = env.observation_space.shape - kilobot_states
 
         kilobot_states_input_layer = tf.slice(X, [0, 0], [-1, kilobot_states])

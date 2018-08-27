@@ -1,0 +1,14 @@
+---
+# DEFAULT
+name: "DEFAULT"
+repetitions: 1
+iterations: 200
+path: "data/ppo"
+gui: false
+
+params: {}
+---
+name: "test"
+list:
+    sampling:
+      w_factor: [.0, .5, 1.]

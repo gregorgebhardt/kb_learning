@@ -32,3 +32,22 @@ def chunks(iterable, n):
 def np_chunks(array: np.ndarray, n):
     for chunk in chunks(array, n):
         yield np.array(chunk)
+
+
+def swap_flatten_01(arr):
+    """
+    swap and then flatten axes 0 and 1
+    """
+    s = arr.shape
+    return arr.swapaxes(0, 1).reshape(s[0] * s[1], *s[2:])
+
+
+def const_fn(val):
+    def f(_):
+        return val
+
+    return f
+
+
+def safe_mean(xs):
+    return np.nan if len(xs) == 0 else np.mean(xs)

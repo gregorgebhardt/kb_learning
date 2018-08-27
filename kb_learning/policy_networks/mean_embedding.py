@@ -16,7 +16,7 @@ class MeanEmbedding:
                                            kernel_initializer=U.normc_initializer(1.0))
                 if layer_norm:
                     last_out = tfc.layers.layer_norm(last_out)
-                last_out = tf.nn.relu(last_out)
+                last_out = tf.nn.leaky_relu(last_out)
 
             fc_out = last_out
 
