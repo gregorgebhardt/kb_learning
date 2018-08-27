@@ -45,7 +45,7 @@ class ObjectEnv(KilobotsEnv):
         self._max_spawn_std = .3 * self._light_radius
 
         # scaling of the differences in x-, y-position and rotation, respectively
-        self._scale_vector = np.array([2., 2., .2])
+        self._scale_vector = np.array([2., 2., .5])
         # cost for translational movements into x, y direction and rotational movements, respectively
         self._cost_vector = np.array([.02, 2., .002])
 
@@ -85,7 +85,10 @@ class ObjectEnv(KilobotsEnv):
 
         # punish distance of swarm to object
         swarm_mean = compute_robust_mean_swarm_position(state[:2*self._num_kilobots])
-        sq_dist = (swarm_mean**2).sum()
+        sq_dist_swarm_object = (swarm_mean**2).sum()
+
+        # punish distance of light to swarm
+        sq_dist_swarm_light = ((swarm_mean - state[-2:])**2).sum()
 
         # compute diff between last and current pose
         obj_pose_diff = obj_pose_new - obj_pose
@@ -99,16 +102,16 @@ class ObjectEnv(KilobotsEnv):
 
         r_trans = reward[0] - cost[2]
         r_rot = reward[2] - cost[0]
-        return w * r_rot + (1 - w) * r_trans - cost[1] - .001 * sq_dist
+        return w * r_rot + (1 - w) * r_trans - cost[1] - .001 * sq_dist_swarm_object - .001 * sq_dist_swarm_light
 
     def has_finished(self, state, action):
         # check if body is in contact with table
         if self.get_objects()[0].collides_with(self.table):
-            print('collision with table')
+            # print('collision with table')
             return True
 
         if np.abs(self._objects[0].get_orientation()) > np.pi/2:
-            print('more than quarter rotation')
+            # print('more than quarter rotation')
             return True
 
         if self._sim_steps >= 2500:
@@ -220,8 +223,8 @@ class ObjectEnv(KilobotsEnv):
             # otherwise, the light starts above the object
             light_init = self._object_init[:2]
 
-        light_init = np.maximum(light_init, self.world_bounds[0] * .98)
-        light_init = np.minimum(light_init, self.world_bounds[1] * .98)
+        light_init = np.maximum(light_init, self.world_bounds[0] * .95)
+        light_init = np.minimum(light_init, self.world_bounds[1] * .95)
 
         light_bounds = np.array(self.world_bounds) * 1.2
         action_bounds = np.array([-1, -1]) * .01, np.array([1, 1]) * .01
@@ -272,8 +275,8 @@ class ObjectEnv(KilobotsEnv):
 
         # assert for each kilobot that it is within the world bounds and add kilobot to the world
         for position, orientation in zip(kilobot_positions, orientations):
-            position = np.maximum(position, self.world_bounds[0] + 0.02)
-            position = np.minimum(position, self.world_bounds[1] - 0.02)
+            position = np.maximum(position, self.world_bounds[0] * .95)
+            position = np.minimum(position, self.world_bounds[1] * .95)
             self._add_kilobot(SimplePhototaxisKilobot(self.world, position=position, orientation=orientation,
                                                       light=self._light))
 
