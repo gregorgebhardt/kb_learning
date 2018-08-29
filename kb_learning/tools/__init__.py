@@ -51,3 +51,8 @@ def const_fn(val):
 
 def safe_mean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
+
+
+def rot_matrix(alpha):
+    return np.array([[np.cos(alpha), -np.sin(alpha)],
+                     [np.sin(alpha), np.cos(alpha)]])

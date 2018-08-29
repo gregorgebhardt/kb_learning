@@ -7,12 +7,14 @@ from collections import deque
 import cloudpickle
 import gym
 import numpy as np
+
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
 import tensorflow as tf
-from baselines import logger
 from baselines.bench.monitor import Monitor
 from baselines.common import explained_variance
 from baselines.common import tf_util
-from baselines.common.mpi_util import sync_from_root
 from baselines.common.policies import build_policy
 from baselines.common.runners import AbstractEnvRunner
 from baselines.common.tf_util import get_session, save_variables, load_variables
@@ -21,16 +23,16 @@ from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.ppo2.ppo2 import learn
 from cluster_work import ClusterWork
 
-from kb_learning.envs import register_object_env, NormalizeActionWrapper
-from kb_learning.policy_networks.me_mlp import me_mlp
+from kb_learning.envs import register_object_relative_env, NormalizeActionWrapper
+from kb_learning.policy_networks import mlp, me_mlp
 from kb_learning.tools import swap_flatten_01, const_fn, safe_mean
 
-# TODO change to cluster_work logger
 import logging
 logger = logging.getLogger('ppo')
 
 
 class PPOLearner(ClusterWork):
+    # TODO set this to true and test restoring of repetitions
     _restore_supported = False
     _default_params = {
         'sampling':              {
@@ -43,7 +45,7 @@ class PPOLearner(ClusterWork):
             'object_width':     .15,
             'object_height':    .15,
             'light_type':       'circular',
-            'light_radius':     .15
+            'light_radius':     .2
         },
         'ppo':                   {
             'learning_rate':        3e-4,
@@ -55,6 +57,11 @@ class PPOLearner(ClusterWork):
             'max_grad_norm':        0.5,
             'num_train_epochs':     4
         },
+        'policy': {
+            'use_mean_embedding': True,
+            'me_size': (128, 128),
+            'mlp_size': (128, 128)
+        },
         'updates_per_iteration': 5,
         'episode_info_length':   100,
     }
@@ -62,7 +69,9 @@ class PPOLearner(ClusterWork):
 
     def __init__(self):
         super().__init__()
-        self.session = None
+        self.session: tf.Session = None
+        self.file_writer = None
+        self.merged_summary = None
 
         self.learning_rate = None
         self.clip_range = None
@@ -83,6 +92,8 @@ class PPOLearner(ClusterWork):
         self.num_train_epochs = None
 
         self.ep_info_buffer = None
+
+        self._default_tf_graph = None
 
         self.timer = .0
 
@@ -112,18 +123,18 @@ class PPOLearner(ClusterWork):
         self.num_updates = config['iterations'] * self.updates_per_iteration
 
         # create environment
-        env_id = register_object_env(weight=self._params['sampling']['w_factor'],
-                                     num_kilobots=self._params['sampling']['num_kilobots'],
-                                     object_shape=self._params['sampling']['object_shape'],
-                                     object_width=self._params['sampling']['object_width'],
-                                     object_height=self._params['sampling']['object_height'],
-                                     light_type=self._params['sampling']['light_type'],
-                                     light_radius=self._params['sampling']['light_radius'])
+        env_id = register_object_relative_env(weight=self._params['sampling']['w_factor'],
+                                              num_kilobots=self._params['sampling']['num_kilobots'],
+                                              object_shape=self._params['sampling']['object_shape'],
+                                              object_width=self._params['sampling']['object_width'],
+                                              object_height=self._params['sampling']['object_height'],
+                                              light_type=self._params['sampling']['light_type'],
+                                              light_radius=self._params['sampling']['light_radius'])
 
         def _make_env(i):
             def _make_env_i():
                 np.random.seed(self._seed + 10000 * i)
-                env = Monitor(NormalizeActionWrapper(gym.make(env_id)), 'env_{}_monitor.csv'.format(i), True)
+                env = Monitor(NormalizeActionWrapper(gym.make(env_id)), None, True)
                 return env
 
             return _make_env_i
@@ -137,8 +148,14 @@ class PPOLearner(ClusterWork):
         ac_space = self.env.action_space
 
         # create network
-        # TODO move network structure into parameters
-        network = me_mlp(num_me_inputs=self._params['sampling']['num_kilobots'], dim_me_inputs=2)
+        if self._params['policy']['use_mean_embedding']:
+            logger.debug('using mean embedding policy')
+            network = me_mlp(num_me_inputs=self._params['sampling']['num_kilobots'], dim_me_inputs=2,
+                             me_size=self._params['policy']['me_size'], mlp_size=self._params['policy']['mlp_size'])
+        else:
+            logger.debug('using plain mlp policy')
+            network = mlp(size=self._params['policy']['mlp_size'])
+
         policy = build_policy(ob_space, ac_space, network)
 
         self.make_model = lambda: Model(policy=policy, ob_space=ob_space, ac_space=ac_space,
@@ -149,7 +166,10 @@ class PPOLearner(ClusterWork):
                                         vf_coef=self._params['ppo']['value_fn_coefficient'],
                                         max_grad_norm=self._params['ppo']['max_grad_norm'])
 
-        self.model = self.make_model()
+        with tf.variable_scope(config['name'] + '_rep_{}'.format(rep)) as base_scope:
+            self.model = self.make_model()
+
+            # self.merged_summary = tf.summary.merge_all()
 
         self.runner = Runner(env=self.env, model=self.model, nsteps=self.steps_per_worker,
                              gamma=self._params['ppo']['gamma'], lam=self._params['ppo']['lambda'])
@@ -178,7 +198,7 @@ class PPOLearner(ClusterWork):
 
             # train the model in mini-batches
             indices = np.arange(self.steps_per_batch)
-            for _ in range(self.num_train_epochs):
+            for i_epoch in range(self.num_train_epochs):
                 np.random.shuffle(indices)
                 for start in range(0, self.steps_per_batch, self.steps_per_minibatch):
                     end = start + self.steps_per_minibatch
@@ -186,12 +206,15 @@ class PPOLearner(ClusterWork):
                     slices = (arr[mb_indices] for arr in (obs, returns, masks, actions, values, neglogpacs))
                     mb_loss_values.append(self.model.train(_learning_rate, _clip_range, *slices))
 
+            # summary = self.session.run([self.merged_summary, self.model])
+            # self.file_writer.add_summary(summary, i_update + n * self.updates_per_iteration)
+
             # TODO fix this
             # loss_values[i_update] = np.mean(mb_loss_values, axis=0)
 
-        time_elapsed = time.time() - time_update_start
-        frames_per_second = int(self.steps_per_batch * self.updates_per_iteration / time_elapsed)
-        self.timer += time_elapsed
+            time_elapsed = time.time() - time_update_start
+            frames_per_second = int(self.steps_per_batch * self.updates_per_iteration / time_elapsed)
+            self.timer += time_elapsed
 
         return_values = {
             # compute elapsed number of steps
@@ -221,6 +244,7 @@ class PPOLearner(ClusterWork):
     def finalize(self):
         if self.env:
             self.env.close()
+        self.session.close()
 
     def save_state(self, config: dict, rep: int, n: int):
         # dump model only after the first iteration
@@ -257,7 +281,7 @@ class Model(object):
                  nsteps, ent_coef, vf_coef, max_grad_norm):
         sess = get_session()
 
-        with tf.variable_scope('ppo2_model', reuse=tf.AUTO_REUSE):
+        with tf.variable_scope('ppo2_model', reuse=tf.AUTO_REUSE) as ppo_scope:
             act_model = policy(nbatch_act, 1, sess)
             train_model = policy(nbatch_train, nsteps, sess)
             eval_model = policy(1, 1, sess)
@@ -285,8 +309,13 @@ class Model(object):
         approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - OLDNEGLOGPAC))
         clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
         loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
-        params = tf.trainable_variables('ppo2_model')
+        # tf.summary.scalar('ppo loss', loss)
+
+        params = tf.trainable_variables(ppo_scope.name)
         trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
+        # from baselines.common.mpi_adam_optimizer import MpiAdamOptimizer
+        # from mpi4py import MPI
+        # trainer = MpiAdamOptimizer(MPI.COMM_WORLD, learning_rate=LR, epsilon=1e-5)
         grads_and_var = trainer.compute_gradients(loss, params)
         grads, var = zip(*grads_and_var)
 
@@ -324,8 +353,8 @@ class Model(object):
         self.load = functools.partial(load_variables, sess=sess)
 
         initialize()
-        global_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="")
-        sync_from_root(sess, global_variables)  # pylint: disable=E1101
+        # global_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="")
+        # sync_from_root(sess, global_variables)  # pylint: disable=E1101
 
 
 class Runner(AbstractEnvRunner):
@@ -382,7 +411,7 @@ def train(num_envs):
     with sess:
         # create env here
         # TODO add wrapper for gym to reset in case object close to env boundaries or num time steps too large
-        env_id = register_object_env(1., 10, 'quad', .15, .15, 'circular', .20)
+        env_id = register_object_relative_env(1., 10, 'quad', .15, .15, 'circular', .20)
 
         def _make_env(i):
             def _make_env_i():

@@ -1,6 +1,6 @@
 import cloudpickle
 import gym
-from kb_learning.envs import register_object_env, NormalizeActionWrapper
+from kb_learning.envs import register_object_relative_env, NormalizeActionWrapper
 
 
 def main():
@@ -11,7 +11,7 @@ def main():
 
     model.load('00400')
 
-    env_id = register_object_env(1., 10, 'quad', .15, .15, 'circular', .15)
+    env_id = register_object_relative_env(1., 10, 'quad', .15, .15, 'circular', .15)
     env = NormalizeActionWrapper(gym.make(env_id))
 
     obs = env.reset()

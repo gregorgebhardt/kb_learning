@@ -4,8 +4,7 @@ import numpy as np
 import tensorflow as tf
 
 
-def me_mlp(num_me_inputs, dim_me_inputs, layers=(2, 2), num_hidden=((128, 128), (128, 128)),
-           activation=tf.nn.leaky_relu):
+def me_mlp(num_me_inputs, dim_me_inputs, me_size=(128, 128), mlp_size=(128, 128), activation=tf.nn.leaky_relu):
     """
     MLP mean embedding followed by another MLP to be used in a policy / q-function approximator
 
@@ -24,10 +23,6 @@ def me_mlp(num_me_inputs, dim_me_inputs, layers=(2, 2), num_hidden=((128, 128), 
     function that builds MLP mean embedding network with a given input tensor / placeholder
     """
     def network_fn(X):
-        num_me_layers = layers[0]
-        num_mlp_layers = layers[1]
-        num_me_hidden = num_hidden[0]
-        num_mlp_hidden = num_hidden[1]
         num_kilobots = num_me_inputs  # env._num_kilobots
         kb_single_state = dim_me_inputs
         kilobot_states = num_kilobots * kb_single_state  # env._kilobot_space.shape
@@ -37,13 +32,13 @@ def me_mlp(num_me_inputs, dim_me_inputs, layers=(2, 2), num_hidden=((128, 128), 
         env_states_input_layer = tf.slice(X, [0, kilobot_states], [-1, -1])
 
         with tf.variable_scope('me'):
-            mean_embedding = me.MeanEmbedding(kilobot_states_input_layer, num_me_layers, num_me_hidden,
-                                              num_kilobots, kb_single_state)
+            mean_embedding = me.MeanEmbedding(kilobot_states_input_layer, me_size, num_kilobots, kb_single_state)
 
         h = tf.concat([mean_embedding.me_out, env_states_input_layer], axis=1)
-        for i in range(num_mlp_layers):
-            h = tf.layers.dense(h, num_mlp_hidden[i], name="fc%i" % (i + 1),
+        for i, layer_size in enumerate(mlp_size):
+            h = tf.layers.dense(h, layer_size, name="fc%i" % (i + 1),
                                 kernel_initializer=U.normc_initializer(1.0), activation=activation)
+            # tf.summary.histogram(h.name + '_hist', h)
 
         return h, None
 

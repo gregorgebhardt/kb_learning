@@ -18,7 +18,7 @@ from kb_learning.ac_reps.spwgp import SparseWeightedGP
 from kb_learning.ac_reps.gpy_spwgp import SparseWeightedGPyWrapper
 
 from kb_learning.envs.sampler import ParallelSARSSampler, SARSSampler
-from kb_learning.envs import register_object_env
+from kb_learning.envs import register_object_relative_env
 
 # import matplotlib
 # matplotlib.use('Agg')
@@ -416,7 +416,7 @@ class ACRepsLearner(KilobotLearner):
                                  object_height=sampling_params['object_height'],
                                  light_type=sampling_params['light_type'],
                                  light_radius=sampling_params['light_radius'],
-                                 registration_function=register_object_env,
+                                 registration_function=register_object_relative_env,
                                  num_episodes=sampling_params['num_episodes'],
                                  num_steps_per_episode=sampling_params['num_steps_per_episode'],
                                  num_kilobots=sampling_params['num_kilobots'],

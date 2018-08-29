@@ -1,16 +1,29 @@
 ---
 # DEFAULT
 name: "DEFAULT"
-repetitions: 1
+repetitions: 3
 iterations: 40
 path: "data/ppo"
 gui: false
 
 params:
   sampling:
+    num_kilobots: 10
     num_workers: 20
 ---
-name: "test"
-list:
-    sampling:
-      w_factor: [.0, .5, 1.]
+name: "eval_num_kilobots"
+grid:
+  sampling:
+    num_kilobots: [5, 10, 15]
+    w_factor: [.0, .5, 1.]
+---
+name: "eval_direct_input"
+
+params:
+  policy:
+    use_mean_embedding: False
+    mlp_size: [128, 128, 128, 128]
+
+grid:
+  sampling:
+    num_kilobots: [5, 10, 15]
