@@ -3,13 +3,14 @@ import os
 import random
 import time
 from collections import deque
+from typing import Generator
 
 import cloudpickle
 import gym
 import numpy as np
 
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+# import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 import tensorflow as tf
 from baselines.bench.monitor import Monitor
@@ -21,9 +22,9 @@ from baselines.common.tf_util import get_session, save_variables, load_variables
 from baselines.common.tf_util import initialize
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 from baselines.ppo2.ppo2 import learn
-from cluster_work import ClusterWork
+from cluster_work import ClusterWork, InvalidParameterArgument
 
-from kb_learning.envs import register_object_relative_env, NormalizeActionWrapper
+from kb_learning.envs import register_object_relative_env, register_object_absolute_env, NormalizeActionWrapper
 from kb_learning.policy_networks import mlp, me_mlp
 from kb_learning.tools import swap_flatten_01, const_fn, safe_mean
 
@@ -45,7 +46,8 @@ class PPOLearner(ClusterWork):
             'object_width':     .15,
             'object_height':    .15,
             'light_type':       'circular',
-            'light_radius':     .2
+            'light_radius':     .2,
+            'environment':      'relative'
         },
         'ppo':                   {
             'learning_rate':        3e-4,
@@ -65,11 +67,11 @@ class PPOLearner(ClusterWork):
         'updates_per_iteration': 5,
         'episode_info_length':   100,
     }
-    pass
 
     def __init__(self):
         super().__init__()
         self.session: tf.Session = None
+        self.graph: tf.Graph = None
         self.file_writer = None
         self.merged_summary = None
 
@@ -93,14 +95,9 @@ class PPOLearner(ClusterWork):
 
         self.ep_info_buffer = None
 
-        self._default_tf_graph = None
-
         self.timer = .0
 
     def reset(self, config: dict, rep: int):
-        self.session = tf_util.single_threaded_session()
-        self.session.__enter__()
-
         # get seed from cluster work
         tf.set_random_seed(self._seed)
         np.random.seed(self._seed)
@@ -123,13 +120,26 @@ class PPOLearner(ClusterWork):
         self.num_updates = config['iterations'] * self.updates_per_iteration
 
         # create environment
-        env_id = register_object_relative_env(weight=self._params['sampling']['w_factor'],
-                                              num_kilobots=self._params['sampling']['num_kilobots'],
-                                              object_shape=self._params['sampling']['object_shape'],
-                                              object_width=self._params['sampling']['object_width'],
-                                              object_height=self._params['sampling']['object_height'],
-                                              light_type=self._params['sampling']['light_type'],
-                                              light_radius=self._params['sampling']['light_radius'])
+        if self._params['sampling']['environment'] == 'relative':
+            logger.debug('using object relative environment')
+            env_id = register_object_relative_env(weight=self._params['sampling']['w_factor'],
+                                                  num_kilobots=self._params['sampling']['num_kilobots'],
+                                                  object_shape=self._params['sampling']['object_shape'],
+                                                  object_width=self._params['sampling']['object_width'],
+                                                  object_height=self._params['sampling']['object_height'],
+                                                  light_type=self._params['sampling']['light_type'],
+                                                  light_radius=self._params['sampling']['light_radius'])
+        elif self._params['sampling']['environment'] == 'absolute':
+            logger.debug('using object absolute environment')
+            env_id = register_object_absolute_env(num_kilobots=self._params['sampling']['num_kilobots'],
+                                                  object_shape=self._params['sampling']['object_shape'],
+                                                  object_width=self._params['sampling']['object_width'],
+                                                  object_height=self._params['sampling']['object_height'],
+                                                  light_type=self._params['sampling']['light_type'],
+                                                  light_radius=self._params['sampling']['light_radius'])
+        else:
+            raise InvalidParameterArgument('Unknown argument for parameter sampling.environment: {}'.format(
+                self._params['sampling']['environment']))
 
         def _make_env(i):
             def _make_env_i():
@@ -166,13 +176,19 @@ class PPOLearner(ClusterWork):
                                         vf_coef=self._params['ppo']['value_fn_coefficient'],
                                         max_grad_norm=self._params['ppo']['max_grad_norm'])
 
-        with tf.variable_scope(config['name'] + '_rep_{}'.format(rep)) as base_scope:
+        self.graph = tf.Graph()
+        with self.graph.as_default():
+            self.session = tf_util.make_session(num_cpu=4, graph=self.graph)
+            self.session.__enter__()
+            # with tf.variable_scope(config['name'] + '_rep_{}'.format(rep)) as base_scope:
             self.model = self.make_model()
 
             # self.merged_summary = tf.summary.merge_all()
 
-        self.runner = Runner(env=self.env, model=self.model, nsteps=self.steps_per_worker,
-                             gamma=self._params['ppo']['gamma'], lam=self._params['ppo']['lambda'])
+            self.runner = Runner(env=self.env, model=self.model, nsteps=self.steps_per_worker,
+                                 gamma=self._params['ppo']['gamma'], lam=self._params['ppo']['lambda'])
+
+            self.graph.finalize()
 
         self.ep_info_buffer = deque(maxlen=self._params['episode_info_length'])
 
@@ -181,6 +197,8 @@ class PPOLearner(ClusterWork):
         returns = None
         loss_values = np.zeros(self.updates_per_iteration)
         time_update_start = time.time()
+        frames_per_second = None
+        time_elapsed = None
 
         for i_update in range(self.updates_per_iteration):
             _finished_updates = n * self._params['updates_per_iteration'] + i_update
@@ -275,7 +293,28 @@ class PPOLearner(ClusterWork):
             self.timer = d['timer']
             np.random.seed(d['np_seed'])
 
+    @classmethod
+    def plot_results(cls, configs_results: Generator):
+        import matplotlib.pyplot as plt
+        fig = plt.figure()
+        axes = fig.add_subplot(111)
 
+        for config, results in configs_results:
+            if 'w_factor0.5' in config['name'] or 'w_factor1.0' in config['name']:
+                continue
+            mean_ep_reward = results.groupby(level=1).episode_reward_mean.mean()
+            std_ep_reward = results.groupby(level=1).episode_reward_mean.std()
+
+            axes.fill_between(mean_ep_reward.index, mean_ep_reward - 2 * std_ep_reward,
+                              mean_ep_reward + 2 * std_ep_reward, alpha=.5)
+            axes.plot(mean_ep_reward.index, mean_ep_reward, label=config['name'])
+
+        axes.legend()
+        plt.show(block=True)
+        # fig.show()
+
+
+# Classes from baseline ppo
 class Model(object):
     def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
                  nsteps, ent_coef, vf_coef, max_grad_norm):
@@ -437,7 +476,3 @@ def train(num_envs):
                       save_interval=5)
 
         vec_env.close()
-
-
-if __name__ == '__main__':
-    train(num_envs=10)

@@ -89,26 +89,31 @@ class ObjectRelativeEnv(ObjectEnv):
         obj_pose = state[-3:]
         obj_pose_new = new_state[-3:]
 
-        # punish distance of swarm to object
-        swarm_mean = compute_robust_mean_swarm_position(state[:2*self._num_kilobots])
-        sq_dist_swarm_object = (swarm_mean**2).sum()
-
-        # punish distance of light to swarm
-        sq_dist_swarm_light = ((swarm_mean - state[-2:])**2).sum()
-
         # compute diff between last and current pose
         obj_pose_diff = obj_pose_new - obj_pose
 
         # scale diff
-        reward = obj_pose_diff * self._scale_vector
+        obj_reward = obj_pose_diff * self._scale_vector
 
-        cost = np.abs(obj_pose_diff) * self._cost_vector
+        obj_cost = np.abs(obj_pose_diff) * self._cost_vector
 
         w = self._weight
 
-        r_trans = reward[0] - cost[2]
-        r_rot = reward[2] - cost[0]
-        return w * r_rot + (1 - w) * r_trans - cost[1] - .001 * sq_dist_swarm_object - .001 * sq_dist_swarm_light
+        r_trans = obj_reward[0] - obj_cost[2]
+        r_rot = obj_reward[2] - obj_cost[0]
+
+        reward = w * r_rot + (1 - w) * r_trans - obj_cost[1]
+
+        # # punish distance of swarm to object
+        # swarm_mean = compute_robust_mean_swarm_position(state[:2*self._num_kilobots])
+        # sq_dist_swarm_object = (swarm_mean**2).sum()
+        # reward -= .001 * sq_dist_swarm_object
+
+        # # punish distance of light to swarm
+        # sq_dist_swarm_light = ((swarm_mean - state[-2:])**2).sum()
+        # reward -= .001 * sq_dist_swarm_light
+
+        return reward
 
     def has_finished(self, state, action):
         # check if body is in contact with table

@@ -11,6 +11,9 @@ class ObjectEnv(KilobotsEnv):
     world_size = world_width, world_height = .8, .8
     screen_size = screen_width, screen_height = 500, 500
 
+    _observe_objects = False
+    _observe_light = True
+
     # _light_max_dist = .4
     # _spawn_angle_mean = np.pi
     # _spawn_angle_variance = .5 * np.pi
@@ -113,6 +116,8 @@ class ObjectEnv(KilobotsEnv):
         objects_low = np.array([self.world_x_range[0], self.world_y_range[0], -np.inf] * len(self._objects))
         objects_high = np.array([self.world_x_range[1], self.world_y_range[1], np.inf] * len(self._objects))
         self._object_state_space = spaces.Box(low=objects_low, high=objects_high, dtype=np.float64)
+        if self._observe_objects:
+            self._object_observation_space = self._object_state_space
 
     def _init_light(self):
         # determine sampling mode for this episode
@@ -147,8 +152,9 @@ class ObjectEnv(KilobotsEnv):
         self._light = CircularGradientLight(position=light_init, radius=self._light_radius,
                                             bounds=light_bounds, action_bounds=action_bounds)
 
-        self._light_observation_space = self._light.observation_space
         self._light_state_space = self._light.observation_space
+        if self._observe_light:
+            self._light_observation_space = self._light.observation_space
 
     def _init_linear_light(self):
         # sample initial angle from a uniform between -pi and pi

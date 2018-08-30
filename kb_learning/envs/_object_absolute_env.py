@@ -1,10 +1,13 @@
 import numpy as np
 
 from kb_learning.envs import ObjectEnv
-from kb_learning.tools import compute_robust_mean_swarm_position, rot_matrix
+from kb_learning.tools import rot_matrix
+
+from gym import spaces
 
 
 class ObjectAbsoluteEnv(ObjectEnv):
+    _observe_objects = True
 
     def __init__(self,
                  num_kilobots=None,
@@ -14,6 +17,7 @@ class ObjectAbsoluteEnv(ObjectEnv):
                  object_init=None,
                  light_type='circular',
                  light_radius=.2):
+
         super(ObjectAbsoluteEnv, self).__init__(num_kilobots=num_kilobots,
                                                 object_shape=object_shape,
                                                 object_width=object_width,
@@ -23,6 +27,29 @@ class ObjectAbsoluteEnv(ObjectEnv):
                                                 light_radius=light_radius)
 
         self._object_desired = None
+
+        _state_space_low = self._kilobots_space.low
+        _state_space_high = self._kilobots_space.high
+        if self._light_state_space:
+            _state_space_low = np.concatenate((_state_space_low, self._light_state_space.low))
+            _state_space_high = np.concatenate((_state_space_high, self._light_state_space.high))
+        if self._object_state_space:
+            _state_space_low = np.concatenate((_state_space_low, self._object_state_space.low))
+            _state_space_high = np.concatenate((_state_space_high, self._object_state_space.high))
+
+        self.state_space = spaces.Box(low=_state_space_low, high=_state_space_high, dtype=np.float32)
+
+        _observation_spaces_low = self._kilobots_space.low
+        _observation_spaces_high = self._kilobots_space.high
+        if self._light_observation_space:
+            _observation_spaces_low = np.concatenate((_observation_spaces_low, self._light_observation_space.low))
+            _observation_spaces_high = np.concatenate((_observation_spaces_high, self._light_observation_space.high))
+        if self._object_observation_space:
+            _observation_spaces_low = np.concatenate((_observation_spaces_low, self._object_observation_space.low))
+            _observation_spaces_high = np.concatenate((_observation_spaces_high, self._object_observation_space.high))
+
+        self.observation_space = spaces.Box(low=_observation_spaces_low, high=_observation_spaces_high,
+                                            dtype=np.float32)
 
     def get_state(self):
         return np.concatenate(tuple(k.get_position() for k in self._kilobots)
@@ -34,41 +61,51 @@ class ObjectAbsoluteEnv(ObjectEnv):
 
     def get_observation(self):
         if self._light_type == 'circular':
-            _light_position = (self._transform_position(self._light.get_state()),)
-        else:
+            _light_position = (self._light.get_state(),)
             _light_position = tuple()
 
-        return np.concatenate(tuple(self._transform_position(k.get_position()) for k in self._kilobots)
+        return np.concatenate(tuple(k.get_position() for k in self._kilobots)
                               + _light_position
                               + tuple(o.get_pose() for o in self._objects))
 
     def get_reward(self, state, *args):
         obj_pose = state[-3:]
+        reward = .0
 
-        # punish distance of swarm to object
-        swarm_mean = compute_robust_mean_swarm_position(state[:2 * self._num_kilobots])
-        swarm_object_L2 = (swarm_mean ** 2).sum()
-
-        # punish distance of light to swarm
-        swarm_light_L2 = ((swarm_mean - self.get_light().get_state()) ** 2).sum()
+        # swarm_mean = compute_robust_mean_swarm_position(state[:2 * self._num_kilobots])
+        #
+        # # punish distance of swarm to object
+        # reward += ((swarm_mean - self.get_objects()[0].get_position()) ** 2).sum()
+        #
+        # # punish distance of light to swarm
+        # reward += ((swarm_mean - self.get_light().get_state()) ** 2).sum()
 
         # compute diff between desired and current pose
         dist_obj_pose = self._object_desired - obj_pose
-        obj_L2 = dist_obj_pose.dot(dist_obj_pose)
+        dist_obj_pose[2] = np.abs(np.sin(dist_obj_pose[2] / 2))
+        reward -= .01 * dist_obj_pose.dot(dist_obj_pose)
 
-        # print('reward: {}'.format((swarm_object_L2, swarm_light_L2, obj_L2)))
+        # print('{} reward: {}'.format(dist_obj_pose[2], reward))
 
-        return swarm_object_L2 + swarm_light_L2 + .01 * obj_L2
+        return reward
 
     def has_finished(self, state, action):
         # has finished if object reached goal pose with certain ε
         obj_pose = state[-3:]
-        obj_pose_diff = self._object_desired - obj_pose
+        dist_obj_pose = self._object_desired - obj_pose
+        dist_obj_pose[2] = np.abs(np.sin(dist_obj_pose[2] / 2))
 
-        sq_error_norm = obj_pose_diff.dot(obj_pose_diff)
+        sq_error_norm = dist_obj_pose.dot(dist_obj_pose)
         # print('sq_error_norm: {}'.format(sq_error_norm))
 
-        return sq_error_norm < .001
+        if sq_error_norm < .005:
+            return True
+
+        if self._sim_steps >= 3500:
+            # print('maximum number of sim steps.')
+            return True
+
+        return False
 
     def _configure_environment(self):
         # sample the initial position uniformly from [-w/4, w/4] and [-h/4, h/4] (w = width, h = height)

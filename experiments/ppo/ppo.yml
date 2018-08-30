@@ -2,7 +2,7 @@
 # DEFAULT
 name: "DEFAULT"
 repetitions: 3
-iterations: 40
+iterations: 80
 path: "data/ppo"
 gui: false
 
@@ -10,6 +10,18 @@ params:
   sampling:
     num_kilobots: 10
     num_workers: 20
+---
+name: "test"
+---
+name: "eval_with_target_pose"
+iterations: 100
+
+params:
+  sampling:
+    num_workers: 24
+    num_worker_steps: 700
+    environment: 'absolute'
+
 ---
 name: "eval_num_kilobots"
 grid:

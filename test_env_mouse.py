@@ -4,8 +4,8 @@ from kb_learning.envs import ObjectRelativeEnv, register_object_relative_env, re
 
 import gym
 
-env_id = register_object_absolute_env(10, 'corner_quad', .15, .15, 'circular', .15)
-# env_id = register_object_relative_env(1., 10, 'quad', .15, .15, 'circular', .15)
+# env_id = register_object_absolute_env(10, 'corner_quad', .15, .15, 'circular', .2)
+env_id = register_object_relative_env(.0, 10, 'quad', .15, .15, 'circular', .2)
 env: ObjectRelativeEnv = gym.make(env_id)
 
 _reward = 0
