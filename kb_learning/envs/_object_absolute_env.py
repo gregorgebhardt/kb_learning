@@ -1,7 +1,7 @@
 import numpy as np
 
 from kb_learning.envs import ObjectEnv
-from kb_learning.tools import rot_matrix
+from kb_learning.tools import rot_matrix, compute_robust_mean_swarm_position
 
 from gym import spaces
 
@@ -45,8 +45,14 @@ class ObjectAbsoluteEnv(ObjectEnv):
             _observation_spaces_low = np.concatenate((_observation_spaces_low, self._light_observation_space.low))
             _observation_spaces_high = np.concatenate((_observation_spaces_high, self._light_observation_space.high))
         if self._object_observation_space:
-            _observation_spaces_low = np.concatenate((_observation_spaces_low, self._object_observation_space.low))
-            _observation_spaces_high = np.concatenate((_observation_spaces_high, self._object_observation_space.high))
+            # the objects are observed as x, y, sin(theta), cos(theta)
+            objects_low = np.array([self.world_x_range[0], self.world_y_range[0], -1., -1.] * len(self._objects))
+            objects_high = np.array([self.world_x_range[1], self.world_y_range[1], 1., 1.] * len(self._objects))
+            _observation_spaces_low = np.concatenate((_observation_spaces_low, objects_low))
+            _observation_spaces_high = np.concatenate((_observation_spaces_high, objects_high))
+            # # for the desired pose
+            # _observation_spaces_low = np.concatenate((_observation_spaces_low, self._object_observation_space.low))
+            # _observation_spaces_high = np.concatenate((_observation_spaces_high, self._object_observation_space.high))
 
         self.observation_space = spaces.Box(low=_observation_spaces_low, high=_observation_spaces_high,
                                             dtype=np.float32)
@@ -62,23 +68,30 @@ class ObjectAbsoluteEnv(ObjectEnv):
     def get_observation(self):
         if self._light_type == 'circular':
             _light_position = (self._light.get_state(),)
+        else:
             _light_position = tuple()
+
+        _object_orientation = self._objects[0].get_orientation()
+        _object_sin_cos = ((np.sin(_object_orientation), np.cos(_object_orientation)),)
 
         return np.concatenate(tuple(k.get_position() for k in self._kilobots)
                               + _light_position
-                              + tuple(o.get_pose() for o in self._objects))
+                              + (self._objects[0].get_position(),)
+                              + _object_sin_cos
+                              # + (self._object_desired,)
+                              )
 
     def get_reward(self, state, *args):
         obj_pose = state[-3:]
         reward = .0
 
         # swarm_mean = compute_robust_mean_swarm_position(state[:2 * self._num_kilobots])
-        #
-        # # punish distance of swarm to object
-        # reward += ((swarm_mean - self.get_objects()[0].get_position()) ** 2).sum()
-        #
+
+        # punish distance of swarm to object
+        # reward -= .01 * ((swarm_mean - self.get_objects()[0].get_position()) ** 2).sum()
+
         # # punish distance of light to swarm
-        # reward += ((swarm_mean - self.get_light().get_state()) ** 2).sum()
+        # reward -= ((swarm_mean - self.get_light().get_state()) ** 2).sum()
 
         # compute diff between desired and current pose
         dist_obj_pose = self._object_desired - obj_pose
@@ -109,19 +122,22 @@ class ObjectAbsoluteEnv(ObjectEnv):
 
     def _configure_environment(self):
         # sample the initial position uniformly from [-w/4, w/4] and [-h/4, h/4] (w = width, h = height)
-        _object_init_position = np.random.rand(2) * np.array(self.world_size) / 2 + np.array(self.world_bounds[0]) / 2
-        # sample the initial orientation uniformly from [.0, 2π]
-        _object_init_orientation = np.random.rand() * 2 * np.pi
+        # TODO make area larger?
+        _object_init_position = np.random.rand(2) * np.array(self.world_size) / 4 + np.array(self.world_bounds[0]) / 2
+        # sample the initial orientation uniformly from [-π, +π] TODO revert to full 2π range
+        _object_init_orientation = np.random.rand() * np.pi - np.pi/2
         self._object_init = np.concatenate((_object_init_position, [_object_init_orientation]))
 
-        # sample the desired position uniformly between [-w/2+ow, w/2-ow] and [-h/2+oh, h/2-oh] (w = width, h = height)
-        _object_desired_position = np.random.rand(2) * self.world_size + np.array(self.world_bounds[0])
-        _object_size = np.array([self._object_width, self._object_height])
-        _object_desired_position = np.maximum(_object_desired_position, self.world_bounds[0] + _object_size)
-        _object_desired_position = np.minimum(_object_desired_position, self.world_bounds[1] - _object_size)
-        # sample the desired orientation uniformly from [.0, 2π]
-        _object_desired_orientation = np.random.rand() * 2 * np.pi
-        self._object_desired = np.concatenate((_object_desired_position, [_object_desired_orientation]))
+        # # sample the desired position uniformly between [-w/2+ow, w/2-ow] and [-h/2+oh, h/2-oh] (w = width, h = height)
+        # _object_desired_position = np.random.rand(2) * self.world_size + np.array(self.world_bounds[0])
+        # _object_size = np.array([self._object_width, self._object_height])
+        # _object_desired_position = np.maximum(_object_desired_position, self.world_bounds[0] + _object_size)
+        # _object_desired_position = np.minimum(_object_desired_position, self.world_bounds[1] - _object_size)
+        # # sample the desired orientation uniformly from [-π, +π]
+        # _object_desired_orientation = np.random.rand() * 2 * np.pi - np.pi
+        # self._object_desired = np.concatenate((_object_desired_position, [_object_desired_orientation]))
+
+        self._object_desired = np.zeros(3)
 
         super(ObjectAbsoluteEnv, self)._configure_environment()
 

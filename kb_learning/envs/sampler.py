@@ -101,7 +101,7 @@ class SARSSampler(ObjectEnvSampler):
 
         observation_dims = states.shape[1]
         action_dims = sum(self.env.action_space.shape)
-        state_dims = sum(sum(s.shape) for s in self.envs[0].state_space.spaces)
+        state_dims = sum(self.env.state_space.shape)
 
         it_sars_data = np.empty((num_episodes * num_steps_per_episode, 2 * observation_dims + action_dims + 1))
         it_info_data = np.empty((num_episodes * num_steps_per_episode, state_dims))
@@ -155,7 +155,7 @@ def _do_work(policy_dict, num_episodes, num_steps, seed, work_seed):
 
     observation_dims = states.shape[1]
     action_dims = sum(envs[0].action_space.shape)
-    state_dims = sum(sum(s.shape) for s in envs[0].state_space.spaces)
+    state_dims = sum(envs[0].state_space.shape)
 
     it_sars_data = np.empty((num_episodes * num_steps, 2 * observation_dims + action_dims + 1))
     it_info_data = np.empty((num_episodes * num_steps, state_dims))
@@ -188,7 +188,7 @@ def _do_work(policy_dict, num_episodes, num_steps, seed, work_seed):
         # collect samples into matrix
         it_sars_data[step::num_steps, observation_dims:] = np.c_[actions, reward, states]
         # collect environment information into matrix
-        it_info_data[step::num_steps, :] = np.array(info)
+        it_info_data[step::num_steps, :] = np.array(list(i['state'] for i in info))
 
     return it_sars_data, it_info_data
 
@@ -208,6 +208,10 @@ class ParallelSARSSampler(SARSSampler):
         self._mp_context = mp_context
 
     def __del__(self):
+        global envs
+        del envs[:]
+        envs = []
+
         del self._num_workers
         if self.__pool is not None:
             self.__pool.terminate()
@@ -218,6 +222,9 @@ class ParallelSARSSampler(SARSSampler):
             del self._episodes_per_worker
 
     def _create_pool(self) -> multiprocessing.Pool:
+        # for the cluster it is necessary to use the context forkserver here, using a forkserver prevents the
+        # forked processes from taking over handles to files and similar stuff
+        self._context = multiprocessing.get_context(self._mp_context)
         return self._context.Pool(processes=self._num_workers, initializer=_init_worker,
                                   initargs=[self.registration_function, self._episodes_per_worker, self.w_factor,
                                             self.num_kilobots, self.object_shape, self.object_width,
@@ -229,10 +236,6 @@ class ParallelSARSSampler(SARSSampler):
         else:
             if self.__pool is None:
                 self._episodes_per_worker = (self.max_episodes // self._num_workers) + 1
-
-                # for the cluster it is necessary to use the context forkserver here, using a forkserver prevents the
-                # forked processes from taking over handles to files and similar stuff
-                self._context = multiprocessing.get_context(self._mp_context)
                 self.__pool = self._create_pool()
             episodes_per_work = [num_episodes // self._num_workers] * self._num_workers
             for i in range(num_episodes % self._num_workers):
