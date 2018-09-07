@@ -10,7 +10,7 @@ logger = logging.getLogger('kb_learning.reps')
 class ActorCriticReps:
     def __init__(self):
         # upper bound on the KL between the old and new state-action distribution
-        self.epsilon_action = 0.5
+        self.epsilon = 0.5
 
         # regularization of parameters theta in dual function
         self.alpha = 0.0
@@ -21,7 +21,7 @@ class ActorCriticReps:
         self.tolerance_f = 1e-12
 
     def _dual_function(self, Q, phi, phi_hat, theta, eta, num_features):
-        epsilon = self.epsilon_action
+        epsilon = self.epsilon
 
         v = phi.dot(theta)
         v_hat = phi_hat.dot(theta)
@@ -110,9 +110,8 @@ class ActorCriticReps:
         num_features = phi.shape[1]
 
         # test gradient
-        if False:
-            g_dot, g_dot_numeric = self._numerical_dual_gradient(Q=Q, phi=phi, phi_hat=phi_hat, theta=theta, eta=eta)
-            logger.info('Gradient error: {:f}'.format(abs(g_dot - g_dot_numeric).max()))
+        # g_dot, g_dot_numeric = self._numerical_dual_gradient(Q=Q, phi=phi, phi_hat=phi_hat, theta=theta, eta=eta)
+        # logger.info('Gradient error: {:f}'.format(abs(g_dot - g_dot_numeric).max()))
 
         def optim_func(params):
             return self._dual_function(Q=Q, phi=phi, phi_hat=phi_hat,
@@ -165,7 +164,7 @@ class ActorCriticReps:
                 logger.info('No improvement within the last 3 iterations.')
                 break
 
-            if abs(kl_divergence - self.epsilon_action) < 0.05 \
+            if abs(kl_divergence - self.epsilon) < 0.05 \
                     and feature_error < 0.01 \
                     and feature_error < best_feature_error:
 
@@ -175,7 +174,7 @@ class ActorCriticReps:
 
                 best_feature_error = feature_error
 
-                if abs(kl_divergence - self.epsilon_action) < 0.05 \
+                if abs(kl_divergence - self.epsilon) < 0.05 \
                         and feature_error < 0.001:
                     logger.info('Found sufficient solutions.')
                     break

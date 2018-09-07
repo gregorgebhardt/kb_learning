@@ -79,9 +79,11 @@ class ObjectRelativeEnv(ObjectEnv):
     def get_observation(self):
         if self._light_type == 'circular':
             light_observation = (self._transform_position(self._light.get_state()),)
+            # light_observation = (self._light.get_state(),)
         else:
             light_observation = tuple()
         return np.concatenate(tuple(self._transform_position(k.get_position()) for k in self._kilobots)
+        # return np.concatenate(tuple(k.get_position() for k in self._kilobots)
                               + light_observation
                               + (([self._weight],) if self._sampled_weight else tuple()))
 
@@ -90,7 +92,8 @@ class ObjectRelativeEnv(ObjectEnv):
         obj_pose_new = new_state[-3:]
 
         # compute diff between last and current pose
-        obj_pose_diff = obj_pose_new - obj_pose
+        # obj_pose_diff = obj_pose_new - obj_pose
+        obj_pose_diff = obj_pose_new
 
         # scale diff
         obj_reward = obj_pose_diff * self._scale_vector

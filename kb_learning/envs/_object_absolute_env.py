@@ -26,7 +26,7 @@ class ObjectAbsoluteEnv(ObjectEnv):
                                                 light_type=light_type,
                                                 light_radius=light_radius)
 
-        self._object_desired = None
+        self._desired_pose = None
 
         _state_space_low = self._kilobots_space.low
         _state_space_high = self._kilobots_space.high
@@ -57,13 +57,16 @@ class ObjectAbsoluteEnv(ObjectEnv):
         self.observation_space = spaces.Box(low=_observation_spaces_low, high=_observation_spaces_high,
                                             dtype=np.float32)
 
+    def get_desired_pose(self):
+        return self._desired_pose
+
     def get_state(self):
         return np.concatenate(tuple(k.get_position() for k in self._kilobots)
                               + (self._light.get_state(),)
                               + tuple(o.get_pose() for o in self._objects))
 
     def get_info(self, state, action):
-        return {'desired_pose': self._object_desired}
+        return {'desired_pose': self._desired_pose}
 
     def get_observation(self):
         if self._light_type == 'circular':
@@ -76,6 +79,7 @@ class ObjectAbsoluteEnv(ObjectEnv):
 
         return np.concatenate(tuple(k.get_position() for k in self._kilobots)
                               + _light_position
+                              # + (self._objects[0].get_pose(),)
                               + (self._objects[0].get_position(),)
                               + _object_sin_cos
                               # + (self._object_desired,)
@@ -94,7 +98,7 @@ class ObjectAbsoluteEnv(ObjectEnv):
         # reward -= ((swarm_mean - self.get_light().get_state()) ** 2).sum()
 
         # compute diff between desired and current pose
-        dist_obj_pose = self._object_desired - obj_pose
+        dist_obj_pose = self._desired_pose - obj_pose
         dist_obj_pose[2] = np.abs(np.sin(dist_obj_pose[2] / 2))
         reward -= .01 * dist_obj_pose.dot(dist_obj_pose)
 
@@ -105,7 +109,7 @@ class ObjectAbsoluteEnv(ObjectEnv):
     def has_finished(self, state, action):
         # has finished if object reached goal pose with certain ε
         obj_pose = state[-3:]
-        dist_obj_pose = self._object_desired - obj_pose
+        dist_obj_pose = self._desired_pose - obj_pose
         dist_obj_pose[2] = np.abs(np.sin(dist_obj_pose[2] / 2))
 
         sq_error_norm = dist_obj_pose.dot(dist_obj_pose)
@@ -120,14 +124,17 @@ class ObjectAbsoluteEnv(ObjectEnv):
 
         return False
 
-    def _configure_environment(self):
+    def _get_init_object_pose(self):
         # sample the initial position uniformly from [-w/4, w/4] and [-h/4, h/4] (w = width, h = height)
         # TODO make area larger?
         _object_init_position = np.random.rand(2) * np.array(self.world_size) / 4 + np.array(self.world_bounds[0]) / 2
         # sample the initial orientation uniformly from [-π, +π] TODO revert to full 2π range
-        _object_init_orientation = np.random.rand() * np.pi - np.pi/2
+        _object_init_orientation = np.random.rand() * np.pi - np.pi / 2
         self._object_init = np.concatenate((_object_init_position, [_object_init_orientation]))
+        
+        return self._object_init
 
+    def _get_desired_object_pose(self):
         # # sample the desired position uniformly between [-w/2+ow, w/2-ow] and [-h/2+oh, h/2-oh] (w = width, h = height)
         # _object_desired_position = np.random.rand(2) * self.world_size + np.array(self.world_bounds[0])
         # _object_size = np.array([self._object_width, self._object_height])
@@ -137,7 +144,10 @@ class ObjectAbsoluteEnv(ObjectEnv):
         # _object_desired_orientation = np.random.rand() * 2 * np.pi - np.pi
         # self._object_desired = np.concatenate((_object_desired_position, [_object_desired_orientation]))
 
-        self._object_desired = np.zeros(3)
+        return np.zeros(3)
+
+    def _configure_environment(self):
+        self._desired_pose = self._get_desired_object_pose()
 
         super(ObjectAbsoluteEnv, self)._configure_environment()
 
@@ -147,10 +157,10 @@ class ObjectAbsoluteEnv(ObjectEnv):
         vertices *= np.array([[self._object_width, self._object_height]]) / 2.
 
         # rotate vertices
-        vertices = rot_matrix(self._object_desired[2]).dot(vertices.T).T
+        vertices = rot_matrix(self._desired_pose[2]).dot(vertices.T).T
 
         # translate vertices
-        vertices += self._object_desired[None, :2]
+        vertices += self._desired_pose[None, :2]
 
         screen.draw_polygon(vertices=vertices, color=(200, 200, 200), filled=True, width=.005)
         screen.draw_polygon(vertices=vertices[0:3], color=(220, 200, 200), width=.005)

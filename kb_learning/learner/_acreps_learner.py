@@ -67,7 +67,8 @@ class ACRepsLearner(KilobotLearner):
             'num_policy_samples': 5,
         },
         'ac_reps':          {
-            'epsilon': .3
+            'epsilon': .3,
+            'alpha': .0
         },
         'gp':               {
             'prior_variance':          7e-5,
@@ -233,7 +234,8 @@ class ACRepsLearner(KilobotLearner):
             # compute sample weights using AC-REPS
             logger.info('learning weights [AC-REPS]')
             ac_reps = ActorCriticReps()
-            ac_reps.epsilon_action = self._params['ac_reps']['epsilon']
+            ac_reps.epsilon = self._params['ac_reps']['epsilon']
+            ac_reps.alpha = self._params['ac_reps']['alpha']
             weights = ac_reps.compute_weights(q_fct, phi_S)
 
             # get subset for sparse GP
@@ -422,8 +424,8 @@ class ACRepsLearner(KilobotLearner):
                                  w_factor=sampling_params['w_factor'],
                                  num_workers=sampling_params['num_workers'],
                                  seed=self._seed,
-                                 mp_context='spawn')
-                                 # mp_context=self._MP_CONTEXT)
+                                 # mp_context='spawn')
+                                 mp_context=self._MP_CONTEXT)
 
     def save_state(self, config: dict, rep: int, n: int) -> None:
         # save policy
@@ -519,18 +521,37 @@ class ACRepsLearner(KilobotLearner):
     # TODO move to notebooks
     @classmethod
     def plot_results(cls, results_config: Generator):
-        fig = plt.figure()
-        axes = fig.add_subplot(111)
+        from pathlib import Path
+
+        figure_dict = dict()
+        path = None
 
         for config, results in results_config:
+            if not path:
+                path = Path(config['_config_path']).relative_to('data')
+                path = Path('plots').joinpath(path)
+                if not path.exists():
+                    path.mkdir(parents=True, exist_ok=True)
+
+            if config['experiment_name'] not in figure_dict:
+                _f = plt.figure()
+                _a = _f.add_subplot(111)
+                figure_dict[config['experiment_name']] = (_f, _a)
+            else:
+                _f, _a = figure_dict[config['experiment_name']]
+
             mean_sum_R = results['mean_sum_R']
 
             mean = mean_sum_R.groupby(level=1).mean()
             std = mean_sum_R.groupby(level=1).std()
 
-            axes.fill_between(mean.index, mean - 2 * std, mean + 2 * std, alpha=.5)
-            axes.plot(mean.index, mean, label=config['name'])
+            _a.fill_between(mean.index, mean - 2 * std, mean + 2 * std, alpha=.5)
+            _a.plot(mean.index, mean, label=config['name'])
 
-        axes.legend()
-        plt.show(block=True)
-        # fig.show()
+        for name, (_f, _a) in figure_dict.items():
+            _a.legend()
+            save_path = path.joinpath(name + '_plot.png')
+            _f.savefig(save_path)
+            # plt.savefig('plot.png')
+
+            # plt.show(block=True)

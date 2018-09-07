@@ -76,37 +76,41 @@ class ObjectEnv(KilobotsEnv):
         # step world once to resolve collisions
         self._step_world()
 
+    def _get_init_object_pose(self):
+        return self._object_init
+
     def _init_object(self):
         object_shape = self._object_shape.lower()
 
         # TODO limit object initial position to world bounds reflecting object size
+        object_init_pose = self._get_init_object_pose()
 
         if object_shape in ['quad', 'rect']:
             obj = Quad(width=self._object_width, height=self._object_height,
-                       position=self._object_init[:2], orientation=self._object_init[2],
+                       position=object_init_pose[:2], orientation=object_init_pose[2],
                        world=self.world)
-        elif object_shape in ['corner_quad']:
+        elif object_shape in ['corner_quad', 'corner-quad']:
             obj = CornerQuad(width=self._object_width, height=self._object_height,
-                       position=self._object_init[:2], orientation=self._object_init[2],
+                       position=object_init_pose[:2], orientation=object_init_pose[2],
                        world=self.world)
         elif object_shape == 'triangle':
             obj = Triangle(width=self._object_width, height=self._object_height,
-                           position=self._object_init[:2], orientation=self._object_init[2],
+                           position=object_init_pose[:2], orientation=object_init_pose[2],
                            world=self.world)
         elif object_shape == 'circle':
-            obj = Circle(radius=self._object_width, position=self._object_init[:2],
-                         orientation=self._object_init[2], world=self.world)
+            obj = Circle(radius=self._object_width, position=object_init_pose[:2],
+                         orientation=object_init_pose[2], world=self.world)
         elif object_shape == 'l_shape':
             obj = LForm(width=self._object_width, height=self._object_height,
-                        position=self._object_init[:2], orientation=self._object_init[2],
+                        position=object_init_pose[:2], orientation=object_init_pose[2],
                         world=self.world)
         elif object_shape == 't_shape':
             obj = TForm(width=self._object_width, height=self._object_height,
-                        position=self._object_init[:2], orientation=self._object_init[2],
+                        position=object_init_pose[:2], orientation=object_init_pose[2],
                         world=self.world)
         elif object_shape == 'c_shape':
             obj = CForm(width=self._object_width, height=self._object_height,
-                        position=self._object_init[:2], orientation=self._object_init[2],
+                        position=object_init_pose[:2], orientation=object_init_pose[2],
                         world=self.world)
         else:
             raise UnknownObjectException('Shape of form {} not known.'.format(self._object_shape))
@@ -132,8 +136,10 @@ class ObjectEnv(KilobotsEnv):
 
         self.action_space = self._light.action_space
 
-    def _init_circular_light(self):
-        if self.__spawn_randomly:
+    def _get_init_pos(self):
+        spawn_randomly = np.random.rand() < np.abs(self._spawn_type_ratio)
+
+        if spawn_randomly:
             # select light init position randomly as polar coordinates between .25π and 1.75π
             light_init_direction = np.random.rand() * np.pi * 1.5 + np.pi * .25
             light_init_radius = np.abs(np.random.normal() * max(self.world_size) / 2)
@@ -142,6 +148,11 @@ class ObjectEnv(KilobotsEnv):
         else:
             # otherwise, the light starts above the object
             light_init = self._object_init[:2]
+
+        return light_init
+
+    def _init_circular_light(self):
+        light_init = self._get_init_pos()
 
         light_init = np.maximum(light_init, self.world_bounds[0] * .95)
         light_init = np.minimum(light_init, self.world_bounds[1] * .95)
@@ -174,11 +185,7 @@ class ObjectEnv(KilobotsEnv):
             orientations = 2 * np.pi * np.random.rand(self._num_kilobots)
 
         elif self._light_type == 'linear':
-            # select spawn mean position randomly as polar coordinates between .25π and 1.75π
-            spawn_direction = np.random.rand() * np.pi * 1.5 + np.pi * .25
-            spawn_radius = np.abs(np.random.normal() * max(self.world_size) / 2)
-
-            spawn_mean = spawn_radius * np.array([np.cos(spawn_direction), np.sin(spawn_direction)])
+            spawn_mean = self._get_init_pos()
             spawn_mean = np.maximum(spawn_mean, self.world_bounds[0])
             spawn_mean = np.minimum(spawn_mean, self.world_bounds[1])
 
