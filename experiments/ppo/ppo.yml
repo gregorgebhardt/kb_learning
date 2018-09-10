@@ -2,23 +2,53 @@
 # DEFAULT
 name: "DEFAULT"
 repetitions: 3
-iterations: 80
+iterations: 150
 path: "data/ppo"
 gui: false
 
 params:
   sampling:
     num_kilobots: 10
-    num_workers: 20
+    num_workers: 24
 ---
 name: "test"
+iterations: 80
+
+params:
+  sampling:
+    num_kilobots: 10
+    num_worker_steps: 500
+    environment: 'relative'
+  policy:
+    mlp_size: [128, 128]
+  ppo:
+    learning_rate: 6.e-4
+
+list:
+  sampling:
+    w_factor: [.0, .5, 1.]
 ---
-name: "eval_with_target_pose"
+name: "eval_relative_env"
+
+params:
+  sampling:
+    num_kilobots: 10
+    num_worker_steps: 500
+    environment: 'relative'
+  policy:
+    mlp_size: [128, 128]
+  ppo:
+    learning_rate: 6.e-4
+
+list:
+  sampling:
+    w_factor: [.0, .5, 1.]
+---
+name: "eval_absolute_env"
 iterations: 100
 
 params:
   sampling:
-    num_workers: 24
     num_worker_steps: 700
     environment: 'absolute'
 

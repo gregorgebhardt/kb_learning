@@ -15,15 +15,18 @@ class ObjectRelativeEnv(ObjectEnv):
                  object_height=.15,
                  object_init=None,
                  light_type='circular',
-                 light_radius=.2):
+                 light_radius=.2,
+                 done_after_steps=125):
 
         self._weight = weight
         self._sampled_weight = self._weight is None
 
         # scaling of the differences in x-, y-position and rotation, respectively
-        self._scale_vector = np.array([2., 2., .5])
+        self._scale_vector = np.array([250., 1., 60.])
         # cost for translational movements into x, y direction and rotational movements, respectively
-        self._cost_vector = np.array([.02, 2., .002])
+        self._cost_vector = np.array([150, 150., 5.])
+
+        self._done_after_steps = done_after_steps
 
         super(ObjectRelativeEnv, self).__init__(num_kilobots=num_kilobots,
                                                 object_shape=object_shape,
@@ -92,8 +95,8 @@ class ObjectRelativeEnv(ObjectEnv):
         obj_pose_new = new_state[-3:]
 
         # compute diff between last and current pose
-        # obj_pose_diff = obj_pose_new - obj_pose
-        obj_pose_diff = obj_pose_new
+        obj_pose_diff = obj_pose_new - obj_pose
+        # obj_pose_diff = obj_pose_new
 
         # scale diff
         obj_reward = obj_pose_diff * self._scale_vector
@@ -128,7 +131,7 @@ class ObjectRelativeEnv(ObjectEnv):
             # print('more than quarter rotation')
             return True
 
-        if self._sim_steps >= 2500:
+        if self._sim_steps >= self._done_after_steps * self._steps_per_action:
             # print('maximum number of sim steps.')
             return True
 

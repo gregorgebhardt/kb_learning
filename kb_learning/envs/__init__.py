@@ -30,7 +30,8 @@ def register_object_relative_env(weight: float, num_kilobots: int, object_shape:
                                  object_height: float, light_type: str, light_radius: float = None):
     from gym.envs.registration import register, registry
 
-    _check_parameters(weight, num_kilobots, object_shape, object_width, object_height, light_type, light_radius)
+    _check_parameters(weight=weight, num_kilobots=num_kilobots, object_shape=object_shape, object_width=object_width,
+                      object_height=object_height, light_type=light_type, light_radius=light_radius)
 
     weight_str = '{:03}'.format(int(weight * 100)) if weight is not None else 'RND'
     light_radius_str = '{:03}'.format(int(light_radius * 100)) if light_radius else ''
@@ -52,7 +53,8 @@ def register_object_absolute_env(num_kilobots: int, object_shape: str, object_wi
                                  object_height: float, light_type: str, light_radius: float = None):
     from gym.envs.registration import register, registry
 
-    _check_parameters(None, num_kilobots, object_shape, object_width, object_height, light_type, light_radius)
+    _check_parameters(num_kilobots=num_kilobots, object_shape=object_shape, object_width=object_width,
+                      object_height=object_height, light_type=light_type, light_radius=light_radius)
 
     light_radius_str = '{:03}'.format(int(light_radius * 100)) if light_radius else ''
     _id = 'ObjectAbsoluteEnv_kb{}_{}_{:03}x{:03}_{}{}-v0'.format(num_kilobots, object_shape,

@@ -1,18 +1,15 @@
 import functools
+import logging
 import os
 import random
 import time
 from collections import deque
 from typing import Generator
 
+import tensorflow as tf
 import cloudpickle
 import gym
 import numpy as np
-
-# import os
-# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
-import tensorflow as tf
 from baselines.bench.monitor import Monitor
 from baselines.common import explained_variance
 from baselines.common import tf_util
@@ -21,20 +18,19 @@ from baselines.common.runners import AbstractEnvRunner
 from baselines.common.tf_util import get_session, save_variables, load_variables
 from baselines.common.tf_util import initialize
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
-from baselines.ppo2.ppo2 import learn
+
 from cluster_work import ClusterWork, InvalidParameterArgument
 
-from kb_learning.envs import register_object_relative_env, register_object_absolute_env, NormalizeActionWrapper
+from kb_learning.envs import register_object_env, NormalizeActionWrapper
 from kb_learning.policy_networks import mlp, me_mlp
 from kb_learning.tools import swap_flatten_01, const_fn, safe_mean
 
-import logging
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 logger = logging.getLogger('ppo')
 
 
 class PPOLearner(ClusterWork):
-    # TODO set this to true and test restoring of repetitions
-    _restore_supported = False
+    _restore_supported = True
     _default_params = {
         'sampling':              {
             'num_kilobots':     15,
@@ -47,7 +43,8 @@ class PPOLearner(ClusterWork):
             'object_height':    .15,
             'light_type':       'circular',
             'light_radius':     .2,
-            'environment':      'relative'
+            'environment':      'relative',
+            'done_after_steps': 125
         },
         'ppo':                   {
             'learning_rate':        3e-4,
@@ -60,7 +57,7 @@ class PPOLearner(ClusterWork):
             'num_train_epochs':     4
         },
         'policy': {
-            'use_mean_embedding': True,
+            'type': 'me_mlp',
             'me_size': (128, 128),
             'mlp_size': (128, 128)
         },
@@ -121,25 +118,26 @@ class PPOLearner(ClusterWork):
 
         # create environment
         if self._params['sampling']['environment'] == 'relative':
-            logger.debug('using object relative environment')
-            env_id = register_object_relative_env(weight=self._params['sampling']['w_factor'],
-                                                  num_kilobots=self._params['sampling']['num_kilobots'],
-                                                  object_shape=self._params['sampling']['object_shape'],
-                                                  object_width=self._params['sampling']['object_width'],
-                                                  object_height=self._params['sampling']['object_height'],
-                                                  light_type=self._params['sampling']['light_type'],
-                                                  light_radius=self._params['sampling']['light_radius'])
+            logger.info('using object relative environment')
+            env_class = 'ObjectRelativeEnv'
+            extra_kw_args = dict(weight=self._params['sampling']['w_factor'])
         elif self._params['sampling']['environment'] == 'absolute':
-            logger.debug('using object absolute environment')
-            env_id = register_object_absolute_env(num_kilobots=self._params['sampling']['num_kilobots'],
-                                                  object_shape=self._params['sampling']['object_shape'],
-                                                  object_width=self._params['sampling']['object_width'],
-                                                  object_height=self._params['sampling']['object_height'],
-                                                  light_type=self._params['sampling']['light_type'],
-                                                  light_radius=self._params['sampling']['light_radius'])
+            logger.info('using object absolute environment')
+            env_class = 'ObjectAbsoluteEnv'
+            extra_kw_args = dict()
         else:
-            raise InvalidParameterArgument('Unknown argument for parameter sampling.environment: {}'.format(
+            raise InvalidParameterArgument("Invalid argument for parameter 'sampling.environment: {}'".format(
                 self._params['sampling']['environment']))
+
+        env_id = register_object_env(entry_point='kb_learning.envs:' + env_class,
+                                     num_kilobots=self._params['sampling']['num_kilobots'],
+                                     object_shape=self._params['sampling']['object_shape'],
+                                     object_width=self._params['sampling']['object_width'],
+                                     object_height=self._params['sampling']['object_height'],
+                                     light_type=self._params['sampling']['light_type'],
+                                     light_radius=self._params['sampling']['light_radius'],
+                                     done_after_steps=self._params['sampling']['done_after_steps'],
+                                     **extra_kw_args)
 
         def _make_env(i):
             def _make_env_i():
@@ -158,29 +156,41 @@ class PPOLearner(ClusterWork):
         ac_space = self.env.action_space
 
         # create network
-        if self._params['policy']['use_mean_embedding']:
-            logger.debug('using mean embedding policy')
+        if self._params['policy']['type'] == 'me_mlp':
+            logger.info('using mean embedding policy')
             network = me_mlp(num_me_inputs=self._params['sampling']['num_kilobots'], dim_me_inputs=2,
                              me_size=self._params['policy']['me_size'], mlp_size=self._params['policy']['mlp_size'])
-        else:
-            logger.debug('using plain mlp policy')
+        elif self._params['policy']['type'] == 'mlp':
+            logger.info('using plain mlp policy')
             network = mlp(size=self._params['policy']['mlp_size'])
+        elif self._params['policy']['type'] == 'mean_mlp':
+            logger.info('using plain mlp policy with mean wrapper')
+            from kb_learning.policy_networks.policy_decorator import compute_mean
+            network = compute_mean(mlp(size=self._params['policy']['mlp_size']),
+                                   num_kilobots=self._params['sampling']['num_kilobots'])
+        elif self._params['policy']['type'] == 'mean_var_mlp':
+            logger.info('using plain mlp policy with mean-variance wrapper')
+            from kb_learning.policy_networks.policy_decorator import compute_mean_var
+            network = compute_mean_var(mlp(size=self._params['policy']['mlp_size']),
+                                       num_kilobots=self._params['sampling']['num_kilobots'])
+        else:
+            raise InvalidParameterArgument("Invalid argument for parameter 'policy.type': {}".format(
+                self._params['policy']['type']))
 
         policy = build_policy(ob_space, ac_space, network)
 
-        self.make_model = lambda: Model(policy=policy, ob_space=ob_space, ac_space=ac_space,
-                                        nbatch_act=self.num_workers,
-                                        nbatch_train=self.steps_per_minibatch,
-                                        nsteps=self.steps_per_worker,
-                                        ent_coef=self._params['ppo']['entropy_coefficient'],
-                                        vf_coef=self._params['ppo']['value_fn_coefficient'],
-                                        max_grad_norm=self._params['ppo']['max_grad_norm'])
+        self.make_model = model_lambda(policy=policy, ob_space=ob_space, ac_space=ac_space,
+                                       num_workers=self.num_workers, steps_per_minibatch=self.steps_per_minibatch,
+                                       steps_per_worker=self.steps_per_worker,
+                                       entropy_coefficient=self._params['ppo']['entropy_coefficient'],
+                                       value_fn_coefficient=self._params['ppo']['value_fn_coefficient'],
+                                       max_grad_norm=self._params['ppo']['max_grad_norm'])
 
         self.graph = tf.Graph()
         with self.graph.as_default():
-            self.session = tf_util.make_session(num_cpu=4, graph=self.graph)
+            self.session = tf_util.make_session(num_cpu=1, graph=self.graph)
             self.session.__enter__()
-            # with tf.variable_scope(config['name'] + '_rep_{}'.format(rep)) as base_scope:
+            # with tf.variable_scope(self._name + '_rep_{}'.format(rep)) as base_scope:
             self.model = self.make_model()
 
             # self.merged_summary = tf.summary.merge_all()
@@ -188,17 +198,18 @@ class PPOLearner(ClusterWork):
             self.runner = Runner(env=self.env, model=self.model, nsteps=self.steps_per_worker,
                                  gamma=self._params['ppo']['gamma'], lam=self._params['ppo']['lambda'])
 
-            self.graph.finalize()
-
         self.ep_info_buffer = deque(maxlen=self._params['episode_info_length'])
 
     def iterate(self, config: dict, rep: int, n: int):
+        if not self.graph.finalized:
+            self.graph.finalize()
+
         values = None
         returns = None
-        loss_values = np.zeros(self.updates_per_iteration)
+        # loss_values = np.zeros(self.updates_per_iteration)
         time_update_start = time.time()
-        frames_per_second = None
-        time_elapsed = None
+        # frames_per_second = None
+        # time_elapsed = .0
 
         for i_update in range(self.updates_per_iteration):
             _finished_updates = n * self._params['updates_per_iteration'] + i_update
@@ -230,9 +241,9 @@ class PPOLearner(ClusterWork):
             # TODO fix this
             # loss_values[i_update] = np.mean(mb_loss_values, axis=0)
 
-            time_elapsed = time.time() - time_update_start
-            frames_per_second = int(self.steps_per_batch * self.updates_per_iteration / time_elapsed)
-            self.timer += time_elapsed
+        time_elapsed = time.time() - time_update_start
+        frames_per_second = int(self.steps_per_batch * self.updates_per_iteration / time_elapsed)
+        self.timer += time_elapsed
 
         return_values = {
             # compute elapsed number of steps
@@ -267,31 +278,41 @@ class PPOLearner(ClusterWork):
     def save_state(self, config: dict, rep: int, n: int):
         # dump model only after the first iteration
         if n == 0:
-            with open(os.path.join(self._log_path_rep, 'make_model.pkl'), 'wb') as fh:
+            model_path = os.path.join(self._log_path_rep, 'make_model.pkl')
+            logger.info('Saving model to to {}'.format(model_path))
+            with open(model_path, 'wb') as fh:
                 fh.write(cloudpickle.dumps(self.make_model))
 
-        save_path = os.path.join(self._log_path_it, 'model_parameters')
-        logger.info('Saving to {}'.format(save_path))
-        self.model.save(save_path)
+        parameters_path = os.path.join(self._log_path_it, 'model_parameters')
+        logger.info('Saving parameters to {}'.format(parameters_path))
+        self.model.save(parameters_path)
 
         # save seed and time information
-        np_seed = np.random.seed()
-        with open(os.path.join(self._log_path_it, 'seed_time'), 'wb') as fh:
-            cloudpickle.dump(dict(np_seed=np_seed, timer=self.timer), fh)
+        seed_time_path = os.path.join(self._log_path_it, 'seed_time')
+        logger.info('Saving seed and timer information to {}'.format(seed_time_path))
+        np_random_state = np.random.get_state()
+        with open(seed_time_path, 'wb') as fh:
+            cloudpickle.dump(dict(np_random_state=np_random_state, timer=self.timer), fh)
 
     def restore_state(self, config: dict, rep: int, n: int):
         # we do not need to restore the model as it is reconstructed from the parameters
 
         # restore model parameters
-        save_path = os.path.join(self._log_path_it, 'model_parameters')
-        logger.info('Saving to {}'.format(save_path))
-        self.model.load(save_path)
+        parameters_path = os.path.join(self._log_path_it, 'model_parameters')
+        logger.info('Restoring parameters from {}'.format(parameters_path))
+        self.model.load(parameters_path)
 
         # restore seed and time
-        with open(os.path.join(self._log_path_it, 'seed_time'), 'rb') as fh:
+        seed_time_path = os.path.join(self._log_path_it, 'seed_time')
+        logger.info('Restoring seed and timer information to {}'.format(seed_time_path))
+        with open(seed_time_path, 'rb') as fh:
             d = cloudpickle.load(fh)
+            if 'timer' not in d or 'np_random_state' not in d:
+                return False
             self.timer = d['timer']
-            np.random.seed(d['np_seed'])
+            np.random.set_state(d['np_random_state'])
+
+        return True
 
     @classmethod
     def plot_results(cls, configs_results: Generator):
@@ -312,6 +333,13 @@ class PPOLearner(ClusterWork):
         axes.legend()
         plt.show(block=True)
         # fig.show()
+
+
+def model_lambda(policy, ob_space, ac_space, num_workers, steps_per_minibatch, steps_per_worker, entropy_coefficient,
+                 value_fn_coefficient, max_grad_norm):
+    return lambda: Model(policy=policy, ob_space=ob_space, ac_space=ac_space, nbatch_act=num_workers,
+                         nbatch_train=steps_per_minibatch, nsteps=steps_per_worker, ent_coef=entropy_coefficient,
+                         vf_coef=value_fn_coefficient, max_grad_norm=max_grad_norm)
 
 
 # Classes from baseline ppo
@@ -444,35 +472,35 @@ class Runner(AbstractEnvRunner):
                 mb_states, epinfos)
 
 
-def train(num_envs):
-    sess = tf_util.single_threaded_session()
-
-    with sess:
-        # create env here
-        # TODO add wrapper for gym to reset in case object close to env boundaries or num time steps too large
-        env_id = register_object_relative_env(1., 10, 'quad', .15, .15, 'circular', .20)
-
-        def _make_env(i):
-            def _make_env_i():
-                import numpy as np
-                np.random.seed(1234 * i + 7809)
-                env = Monitor(NormalizeActionWrapper(gym.make(env_id)), 'env_{}_monitor.csv'.format(i), True)
-                return env
-
-            return _make_env_i
-
-        envs = [_make_env(i) for i in range(num_envs)]
-
-        # wrap env in SubprocVecEnv
-        vec_env = SubprocVecEnv(envs)
-
-        network = me_mlp(num_me_inputs=10, dim_me_inputs=2)
-
-        # def policy_fn(name):
-        #     return mlp_policy.MlpPolicy(name=name, ob_space=vec_env.observation_space, ac_space=vec_env.action_space,
-        #         hid_size=256, num_hid_layers=3)
-
-        model = learn(network=network, env=vec_env, total_timesteps=2000000, nsteps=500, seed=1234, log_interval=5,
-                      save_interval=5)
-
-        vec_env.close()
+# def train(num_envs):
+#     sess = tf_util.single_threaded_session()
+#
+#     with sess:
+#         # create env here
+#         # TODO add wrapper for gym to reset in case object close to env boundaries or num time steps too large
+#         env_id = register_object_relative_env(1., 10, 'quad', .15, .15, 'circular', .20)
+#
+#         def _make_env(i):
+#             def _make_env_i():
+#                 import numpy as np
+#                 np.random.seed(1234 * i + 7809)
+#                 env = Monitor(NormalizeActionWrapper(gym.make(env_id)), 'env_{}_monitor.csv'.format(i), True)
+#                 return env
+#
+#             return _make_env_i
+#
+#         envs = [_make_env(i) for i in range(num_envs)]
+#
+#         # wrap env in SubprocVecEnv
+#         vec_env = SubprocVecEnv(envs)
+#
+#         network = me_mlp(num_me_inputs=10, dim_me_inputs=2)
+#
+#         # def policy_fn(name):
+#         #     return mlp_policy.MlpPolicy(name=name, ob_space=vec_env.observation_space, ac_space=vec_env.action_space,
+#         #         hid_size=256, num_hid_layers=3)
+#
+#         model = learn(network=network, env=vec_env, total_timesteps=2000000, nsteps=500, seed=1234, log_interval=5,
+#                       save_interval=5)
+#
+#         vec_env.close()

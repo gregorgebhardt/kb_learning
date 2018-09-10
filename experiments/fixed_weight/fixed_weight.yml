@@ -2,20 +2,20 @@
 # DEFAULT
 name: "DEFAULT"
 repetitions: 5 # 20
-iterations: 25
+iterations: 50
 path: "data/fixed_weight"
 gui: false
 
 params:
   sampling:
     num_episodes: 200 # 100
-    num_steps_per_episode: 40 # 125
+    num_steps_per_episode: 60 # 125
     num_SARS_samples: 10000 # 10000
     num_workers: 10
     num_kilobots: 10
   kernel:
-    bandwidth_factor_kb: .1 # .05
-    bandwidth_factor_light: .2 #.8 # .05
+    bandwidth_factor_kb: .05 # .05
+    bandwidth_factor_light: .1 #.8 # .05
     bandwidth_factor_action: .5
     rho: .5
     variance: 1.
@@ -23,16 +23,19 @@ params:
     num_features: 1000 # 1000
     discount_factor: .99
   ac_reps:
-    epsilon: .05
-    alpha: 1.e-6
+    epsilon: .1
+    alpha: .0
   gp:
     num_sparse_states: 1000 # 1000
-    bandwidth_factor_kb: .1 #[.05, .05]
-    bandwidth_factor_light: .2 #[.05, .05]
+    bandwidth_factor_kb: .05 #[.05, .05]
+    bandwidth_factor_light: .1 #[.05, .05]
     rho: .5
-    prior_variance: .0004
-    noise_variance: .00002
-  learn_iterations: 2
+    prior_variance: .0001
+    noise_variance: .00001
+  eval:
+    num_episodes: 50
+    num_steps_per_episode: 125
+  learn_iterations: 1
 ---
 name: 'eval_bandwidth'
 params:
@@ -46,15 +49,18 @@ grid:
 #    bandwidth_factor_kb: [.1, .2, .3]
     bandwidth_factor_light: [.1, .3, .5, .8]
     type: ['kilobot', 'mean']
---- # square
+
+---
 name: 'square'
-iterations: 25
+repetitions: 3
 
 params:
   sampling:
     object_shape: 'quad'
     object_width: .15
     object_height: .15
+  gp:
+    use_prior_mean: False
 grid:
   sampling:
     # w_factor: [.0, .25, .5, .75, 1.]

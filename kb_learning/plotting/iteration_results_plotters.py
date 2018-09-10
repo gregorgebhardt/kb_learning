@@ -21,7 +21,7 @@ def value_function_plot(V: np.ndarray, x_range, y_range, axes: Axes, cm_axes: Ax
     im = axes.matshow(V, extent=x_range + y_range, **kwargs)  # norm=Normalize(-0.05, 0.05)
 
     if S is not None:
-        axes.scatter(S[:, 0], S[:, 1], marker='+', s=2, c=(.0, .0, .0, .5))
+        axes.scatter(S[:, 0], S[:, 1], marker='+', s=5, c=(.0, .0, .0, .5))
 
     if cm_axes is not None:
         Colorbar(cm_axes, im)

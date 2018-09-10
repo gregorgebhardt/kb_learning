@@ -81,6 +81,7 @@ class ACRepsLearner(KilobotLearner):
             'bandwidth_factor_light':  .55,
             'bandwidth_factor_weight': .3,
             'rho':                     .5,
+            'use_prior_mean':          True
         },
         'eval':             {
             'num_episodes':          50,
@@ -262,12 +263,12 @@ class ACRepsLearner(KilobotLearner):
         # evaluate policy
         logger.info('evaluating policy')
         self.sampler.seed = 5555
-        self.policy.eval_mode = True
+        # self.policy.eval_mode = True
         self.eval_sars, self.eval_info = self.sampler(self.policy,
                                                       num_episodes=self._params['eval']['num_episodes'],
                                                       num_steps_per_episode=self._params['eval'][
                                                           'num_steps_per_episode'])
-        self.policy.eval_mode = False
+        # self.policy.eval_mode = False
 
         sum_R = self.eval_sars['R'].groupby(level=0).sum()
 
@@ -356,13 +357,16 @@ class ACRepsLearner(KilobotLearner):
                                      weight_dist_class=kernel_params['w_dist'])
         gp_kernel.variance.fix()
 
-        if sampling_params['light_type'] == 'circular':
-            mean_function = step_towards_center([-2, -1])
-        elif sampling_params['light_type'] == 'linear':
-            mean_function = angle_from_swarm_mean(range(sampling_params['num_kilobots'] * 2))
+        if self._params['gp']['use_prior_mean']:
+            if sampling_params['light_type'] == 'circular':
+                mean_function = step_towards_center([-2, -1])
+            elif sampling_params['light_type'] == 'linear':
+                mean_function = angle_from_swarm_mean(range(sampling_params['num_kilobots'] * 2))
+            else:
+                raise InvalidParameterArgument('Unknown argument for parameter \'sampling.light_type\': \'{}\''.format(
+                    sampling_params['light_type']))
         else:
-            raise InvalidParameterArgument('Unknown argument for parameter \'sampling.light_type\': \'{}\''.format(
-                sampling_params['light_type']))
+            mean_function = None
 
         policy = SparseWeightedGP(kernel=gp_kernel, noise_variance=self._params['gp']['noise_variance'],
                                   mean_function=mean_function, output_bounds=output_bounds,

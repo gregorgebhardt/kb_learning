@@ -142,7 +142,7 @@ class ObjectEnv(KilobotsEnv):
         if spawn_randomly:
             # select light init position randomly as polar coordinates between .25π and 1.75π
             light_init_direction = np.random.rand() * np.pi * 1.5 + np.pi * .25
-            light_init_radius = np.abs(np.random.normal() * max(self.world_size) / 2)
+            light_init_radius = np.abs(np.random.normal() * max(self.world_size) / 3)
 
             light_init = light_init_radius * np.array([np.cos(light_init_direction), np.sin(light_init_direction)])
         else:

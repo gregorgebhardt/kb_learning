@@ -212,7 +212,7 @@ class ParallelSARSSampler(SARSSampler):
         del envs[:]
         envs = []
 
-        del self._num_workers
+        # del self._num_workers
         if self.__pool is not None:
             self.__pool.terminate()
             self.__pool.join()

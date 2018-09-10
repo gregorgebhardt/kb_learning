@@ -8,6 +8,8 @@ from IPython.display import display, clear_output
 import ipywidgets as widgets
 import traitlets
 
+import pandas as pd
+
 # import os
 # import mpld3
 
@@ -283,3 +285,13 @@ def plot_fixed_weight_iteration(learner: ACRepsLearner, args=None):
 
     # save and show plot
     return box
+
+
+@plot_work.register_results_plot_function('mean_2std')
+def plot_mean_2std(name: str, results_df: pd.DataFrame, axes: plt.Axes):
+    mean = results_df.groupby(level=1).mean()
+    std = results_df.groupby(level=1).std()
+
+    axes.fill_between(mean.index, mean - 2 * std, mean + 2 * std, alpha=.5)
+    axes.plot(mean.index, mean, label=name)
+    axes.legend()
