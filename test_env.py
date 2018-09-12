@@ -1,89 +1,36 @@
 import numpy as np
 
-import yaml
+from kb_learning.envs import ObjectRelativeEnv, register_object_relative_env, register_object_absolute_env
 
-from kb_learning.envs import EvalEnv
+import gym
 
-center = np.array([-.5, .5])
-angles = np.linspace(1.5 * np.pi, 2 * np.pi, 10)
-waypts = np.hstack((np.array([np.cos(angles), np.sin(angles)]).T + center,
-                    (angles - 1.5 * np.pi).reshape(-1, 1)))
+# env_id = register_object_absolute_env(10, 'corner_quad', .15, .15, 'circular', .2)
+env_id = register_object_relative_env(.5, 10, 'quad', .15, .15, 'circular', .2)
+env: ObjectRelativeEnv = gym.make(env_id)
 
+n_episodes = 10
 
-class EvalEnvConfiguration(yaml.YAMLObject):
-    yaml_tag = '!EvalEnv'
-
-    class ObjectConfiguration(yaml.YAMLObject):
-        yaml_tag = '!ObjectConf'
-
-        def __init__(self, shape, width, height, init):
-            self.shape = shape
-            self.width = width
-            self.height = height
-            self.init = init
-
-    class LightConfiguration(yaml.YAMLObject):
-        yaml_tag = '!LightConf'
-
-        def __init__(self, type, init, radius=None):
-            self.type = type
-            self.init = init
-            self.radius = radius
-
-    class KilobotsConfiguration(yaml.YAMLObject):
-        yaml_tag = '!KilobotsConf'
-
-        def __init__(self, num, mean, std):
-            self.num = num
-            self.mean = mean
-            self.std = std
-
-    def __init__(self, width, height, resolution, objects, light, kilobots):
-        self.width = width
-        self.height = height
-        self.resolution = resolution
-        self.objects = [self.ObjectConfiguration(**obj) for obj in objects]
-        self.light = self.LightConfiguration(**light)
-        self.kilobots = self.KilobotsConfiguration(**kilobots)
-
-
-configuration = '''
-!EvalEnv
-width: 1.5
-height: 1.5
-resolution: 500
-
-objects:
-  - !ObjectConf
-    shape: quad
-    width: .15
-    height: .15
-    init: [-0.5, -0.5, .0]
-
-light: !LightConf
-  type: circular
-  radius: .3
-  init: [.0, .0]
-  
-kilobots: !KilobotsConf
-  num: 15
-  mean: [.0, .0]
-  std: .1
-'''
-
-conf = yaml.load(configuration)
-
-env = EvalEnv(conf)
-
-for i in range(500):
+_reward = 0
+for j in range(n_episodes):
+    obs = env.reset()
+    last_pose = np.array(env.get_objects()[0].get_pose())
+    pose_diff = []
     env.render()
-    env.step(env.action_space.sample())
+    ep_r = 0
+    while True:
+        m_pos = env._screen.get_mouse_position()
+        # print(m_pos)
+        l_pos = env.get_light().get_state()
+        obs, r, done, info = env.step(np.array(m_pos) - l_pos)
+        pose_diff.append(env.get_objects()[0].get_pose() - last_pose)
 
-# sampler = SARSSampler(register_object_env, num_episodes=1, num_steps_per_episode=1, weight=weight,
-#                       num_kilobots=num_kilobots, object_shape=object_shape,
-#                       object_width=object_width, object_height=object_height,
-#                       light_type=light_type, light_radius=light_radius)
-# kernel = KilobotEnvKernel(30)
-# policy = SparseWeightedGP(kernel, output_dim=1)
-#
-# sars = sampler(policy, 1, 1)
+        last_pose = np.array(env.get_objects()[0].get_pose())
+        ep_r += r
+        if done:
+            print('done!')
+            break
+
+    print(ep_r)
+    _reward += ep_r
+
+print('mean reward/episode: {}'.format(_reward / n_episodes))

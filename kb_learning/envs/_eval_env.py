@@ -1,11 +1,14 @@
+import yaml
 from gym_kilobots.envs import KilobotsEnv
 from gym_kilobots.lib import CircularGradientLight, GradientLight, SimplePhototaxisKilobot
 
-from gym_kilobots.lib import Quad, Circle, Triangle, LForm, TForm, CForm
+from gym_kilobots.lib import Quad, CornerQuad, Circle, Triangle, LForm, TForm, CForm
 
 from gym import spaces
 
 import numpy as np
+
+from kb_learning.tools import rot_matrix
 
 
 class EvalEnv(KilobotsEnv):
@@ -22,7 +25,21 @@ class EvalEnv(KilobotsEnv):
 
     def __init__(self, configuration):
         self.conf = configuration
+        self.num_kilobots = self.conf.kilobots.num
+
+        self.assembly_policy = None
+        self.path = None
+
         super().__init__()
+
+    def transform_world_to_object_point(self, point, object_idx=0):
+        return self._objects[object_idx].get_local_point(point)
+
+    def transform_world_to_object_pose(self, pose, object_idx=0):
+        return self._objects[object_idx].get_local_pose(pose)
+
+    def transform_object_to_world_point(self, point, object_idx=0):
+        return self._objects[object_idx].get_world_point(point)
 
     def _configure_environment(self):
         for o in self.conf.objects:
@@ -59,6 +76,10 @@ class EvalEnv(KilobotsEnv):
             obj = Quad(width=object_width, height=object_height,
                 position=object_init[:2], orientation=object_init[2],
                 world=self.world)
+        elif object_shape in ['corner_quad', 'corner-quad']:
+            obj = CornerQuad(width=object_width, height=object_height,
+                             position=object_init[:2], orientation=object_init[2],
+                             world=self.world)
         elif object_shape == 'triangle':
             obj = Triangle(width=object_width, height=object_height,
                 position=object_init[:2], orientation=object_init[2],
@@ -96,6 +117,79 @@ class EvalEnv(KilobotsEnv):
 
     def get_reward(self, state, action, new_state):
         return .0
+
+    def _draw_on_table(self, screen):
+        if self.assembly_policy:
+            way_points = self.assembly_policy.way_points
+            for i in range(self.assembly_policy.idx, len(way_points)):
+                self._draw_object_ghost(screen, self.assembly_policy.way_points[i].pose)
+            self._draw_path(screen, [wp.position for wp in way_points[self.assembly_policy.idx:]])
+
+    def _draw_on_top(self, screen):
+        if self.path:
+            trajectory_points = self.path.trajectory_points[self.path.idx:]
+            self._draw_path(screen, trajectory_points, color=(150, 0, 150))
+
+    def _draw_object_ghost(self, screen, pose, width=.15, height=.15):
+        # draw the desired pose as grey square
+        vertices = np.array([[1, 1], [1, -1], [-1, -1], [-1, 1]], dtype=np.float64)
+        vertices *= np.array([[width, height]]) / 2.
+
+        # rotate vertices
+        vertices = rot_matrix(pose[2]).dot(vertices.T).T
+
+        # translate vertices
+        vertices += pose[None, :2]
+
+        screen.draw_polygon(vertices=vertices, color=(150, 150, 150), filled=True, width=.005)
+        screen.draw_polygon(vertices=vertices[0:3], color=(170, 170, 170), width=.005)
+
+    def _draw_path(self, screen, path, color=(150, 150, 150)):
+        for p in path:
+            screen.draw_circle(position=p, radius=.006, color=color)
+        if len(path) < 2:
+            return
+        start = path[0]
+        for p in path[1:]:
+            screen.draw_line(start, p, color, width=.003)
+            start = p
+
+
+class EvalEnvConfiguration(yaml.YAMLObject):
+    yaml_tag = '!EvalEnv'
+
+    class ObjectConfiguration(yaml.YAMLObject):
+        yaml_tag = '!ObjectConf'
+
+        def __init__(self, shape, width, height, init):
+            self.shape = shape
+            self.width = width
+            self.height = height
+            self.init = init
+
+    class LightConfiguration(yaml.YAMLObject):
+        yaml_tag = '!LightConf'
+
+        def __init__(self, obj_type, init, radius=None):
+            self.type = obj_type
+            self.init = init
+            self.radius = radius
+
+    class KilobotsConfiguration(yaml.YAMLObject):
+        yaml_tag = '!KilobotsConf'
+
+        def __init__(self, num, mean, std):
+            self.num = num
+            self.mean = mean
+            self.std = std
+
+    def __init__(self, width, height, resolution, objects, light, kilobots):
+        self.width = width
+        self.height = height
+        self.resolution = resolution
+        self.objects = [self.ObjectConfiguration(**obj) for obj in objects]
+        self.light = self.LightConfiguration(**light)
+        self.kilobots = self.KilobotsConfiguration(**kilobots)
 
 
 class UnknownObjectException(Exception):

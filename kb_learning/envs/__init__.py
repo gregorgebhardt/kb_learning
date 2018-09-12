@@ -2,7 +2,7 @@ from ._object_env import ObjectEnv
 from ._object_relative_env import ObjectRelativeEnv
 from ._object_absolute_env import ObjectAbsoluteEnv
 from ._pose_control_env import PoseControlEnv
-from ._eval_env import EvalEnv
+from ._eval_env import EvalEnv, EvalEnvConfiguration
 from ._env_wrapper import NormalizeActionWrapper
 
 from .sampler import SARSSampler, ParallelSARSSampler
@@ -86,7 +86,7 @@ def register_object_env(*, entry_point: str, num_kilobots, object_shape, object_
         weight_str = '{:03}'.format(int(kwargs['weight'] * 100)) if kwargs['weight'] is not None else 'RND'
         _id += '_w{}'.format(weight_str)
 
-    _id = '_kb{}_{}_{:03}x{:03}_{}'.format(num_kilobots, object_shape, int(object_width * 100),
+    _id += '_kb{}_{}_{:03}x{:03}_{}'.format(num_kilobots, object_shape, int(object_width * 100),
                                            int(object_height * 100), light_type)
 
     if light_type == 'circular':

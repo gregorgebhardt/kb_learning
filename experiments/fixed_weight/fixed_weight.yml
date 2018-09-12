@@ -2,7 +2,7 @@
 # DEFAULT
 name: "DEFAULT"
 repetitions: 5 # 20
-iterations: 50
+iterations: 40
 path: "data/fixed_weight"
 gui: false
 
@@ -12,7 +12,7 @@ params:
     num_steps_per_episode: 60 # 125
     num_SARS_samples: 10000 # 10000
     num_workers: 10
-    num_kilobots: 10
+    num_kilobots: 15
   kernel:
     bandwidth_factor_kb: .05 # .05
     bandwidth_factor_light: .1 #.8 # .05
@@ -32,6 +32,7 @@ params:
     rho: .5
     prior_variance: .0001
     noise_variance: .00001
+    use_prior_mean: False
   eval:
     num_episodes: 50
     num_steps_per_episode: 125
@@ -63,20 +64,24 @@ params:
     use_prior_mean: False
 grid:
   sampling:
-    # w_factor: [.0, .25, .5, .75, 1.]
-    w_factor: [.0, .5, 1.]
+     w_factor: [.0, .25, .5, .75, 1.]
+#    w_factor: [.0, .5, 1.]
 ---
 name: 'rect'
+repetitions: 1
+
 params:
   sampling:
     object_shape: 'rect'
     object_width: .05
     object_height: .6
     num_kilobots: 15
+
 grid:
   sampling:
 #    w_factor: [.0, .25, .5, .75, 1.]
-    w_factor: [.0, .5, 1.]
+    object_height: [.2, .3, .4]
+    w_factor: [.0, 1.]
   kernel:
     type: ['kilobot', 'mean', 'mean-cov']
 ---
@@ -93,11 +98,14 @@ grid:
     type: ['kilobot', 'mean', 'mean-cov']
 ---
 name: 'triangle'
+repetitions: 3
+
 params:
   sampling:
     object_shape: 'triangle'
     object_width: .15
     object_height: .45
+
 grid:
   sampling:
     # w_factor: [.0, .25, .5, .75, 1.]
