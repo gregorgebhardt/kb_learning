@@ -2,35 +2,48 @@
 # DEFAULT
 name: "DEFAULT"
 repetitions: 5 # 20
-iterations: 25
+iterations: 80
 path: "data/gradient_light"
 gui: false
 
 params:
   sampling:
     num_episodes: 200 # 100
-    num_steps_per_episode: 40 # 125
-    num_SARS_samples: 10000 # 10000
-    num_workers: 8
+    num_steps_per_episode: 60 # 125
+    num_SARS_samples: 5000 # 10000
+    num_workers: 6
     num_kilobots: 15
     light_type: 'linear'
-#    w_factor: null
+    observe_object: 'orientation'
   kernel:
     a_dist: 'periodic'
-    bandwidth_factor_kb: .1
+    bandwidth_factor_kb: .05
     bandwidth_factor_action: .5
 #    bandwidth_factor_weight: .1
     rho: .5
+    variance: 1.
   lstd:
-    num_features: 1000 # 1000
+    num_features: 750 # 1000
     discount_factor: .99
+  ac_reps:
+    epsilon: .3
+    alpha: 1.0e-10
   gp:
-    num_sparse_states: 1000 # 1000
+    num_sparse_states: 750 # 1000
+    bandwidth_factor_kb: .05
     prior_variance: 2.
     noise_variance: .5
-    bandwidth_factor_kb: .1
-#    bandwidth_factor_weight: .1
+    use_prior_mean: True
+  eval:
+    num_episodes: 50
+    num_steps_per_episode: 125
 #  learn_iterations: 3
+---
+name: 'test'
+
+grid:
+  sampling:
+    w_factor: [.0, .5, 1.]
 ---
 name: 'eval_height'
 params:
@@ -46,17 +59,17 @@ grid:
     type: ['kilobot', 'mean']
 ---
 name: 'square'
+
 params:
   sampling:
     object_shape: 'quad'
     object_width: .15
     object_height: .15
+
 grid:
   sampling:
-    # w_factor: [.0, .25, .5, .75, 1.]
-    w_factor: [.0, .5, 1.]
-  kernel:
-    type: ['kilobot', 'mean', 'mean-cov']
+    w_factor: [.0, .25, .5, .75, 1.]
+#    w_factor: [.0, .5, 1.]
 ---
 name: 'rect'
 params:

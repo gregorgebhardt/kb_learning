@@ -1,7 +1,12 @@
+import gym_kilobots
 import numpy as np
+from matplotlib.axes import Axes
+
+import kb_learning
 
 
-def compute_value_function_grid(state_action_features, policy, theta, num_kilobots, x_range, y_range, resolution=40):
+def compute_value_function_grid(state_action_features, policy, theta, num_kilobots, x_range, y_range, resolution=40,
+                                extra_dims=None):
     if type(resolution) is not tuple:
         resolution = (resolution, resolution)
 
@@ -13,6 +18,8 @@ def compute_value_function_grid(state_action_features, policy, theta, num_kilobo
 
     # kilobots at light position
     states = np.tile(np.c_[X, Y], [1, num_kilobots + 1])
+    if extra_dims is not None:
+        states = np.c_[states, np.tile(extra_dims, (states.shape[0], 1))]
 
     # get mean actions
     actions = policy.get_mean(states)
@@ -22,7 +29,7 @@ def compute_value_function_grid(state_action_features, policy, theta, num_kilobo
     return value_function
 
 
-def compute_policy_quivers(policy, num_kilobots, x_range, y_range, resolution=40):
+def compute_policy_quivers(policy, num_kilobots, x_range, y_range, resolution=40, extra_dims=None):
     if type(resolution) is not tuple:
         resolution = (resolution, resolution)
 
@@ -32,6 +39,8 @@ def compute_policy_quivers(policy, num_kilobots, x_range, y_range, resolution=40
 
     # kilobots at light position
     states = np.tile(np.c_[X, Y], [1, num_kilobots + 1])
+    if extra_dims is not None:
+        states = np.c_[states, np.tile(extra_dims, (states.shape[0], 1))]
 
     # get mean actions
     mean_actions, sigma_actions = policy.get_mean_sigma(states)
@@ -39,34 +48,3 @@ def compute_policy_quivers(policy, num_kilobots, x_range, y_range, resolution=40
     sigma_actions = sigma_actions.reshape((resolution[1], resolution[0]))
 
     return mean_actions, sigma_actions
-
-
-def get_object(object_shape, object_width, object_height, object_init):
-    from gym_kilobots.lib import Quad, Triangle, Circle, LForm, TForm, CForm
-    from Box2D import b2World
-
-    fake_world = b2World()
-
-    if object_shape in ['quad', 'rect']:
-        return Quad(width=object_width, height=object_height,
-                    position=object_init[:2], orientation=object_init[2],
-                    world=fake_world)
-    elif object_shape == 'triangle':
-        return Triangle(width=object_width, height=object_height,
-                        position=object_init[:2], orientation=object_init[2],
-                        world=fake_world)
-    elif object_shape == 'circle':
-        return Circle(radius=object_width, position=object_init[:2],
-                      orientation=object_init[2], world=fake_world)
-    elif object_shape == 'l_shape':
-        return LForm(width=object_width, height=object_height,
-                     position=object_init[:2], orientation=object_init[2],
-                     world=fake_world)
-    elif object_shape == 't_shape':
-        return TForm(width=object_width, height=object_height,
-                     position=object_init[:2], orientation=object_init[2],
-                     world=fake_world)
-    elif object_shape == 'c_shape':
-        return CForm(width=object_width, height=object_height,
-                     position=object_init[:2], orientation=object_init[2],
-                     world=fake_world)

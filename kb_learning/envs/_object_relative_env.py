@@ -14,6 +14,7 @@ class ObjectRelativeEnv(ObjectEnv):
                  object_width=.15,
                  object_height=.15,
                  object_init=None,
+                 observe_object=False,
                  light_type='circular',
                  light_radius=.2,
                  done_after_steps=125):
@@ -22,9 +23,9 @@ class ObjectRelativeEnv(ObjectEnv):
         self._sampled_weight = self._weight is None
 
         # scaling of the differences in x-, y-position and rotation, respectively
-        self._scale_vector = np.array([250., 1., 60.])
+        self._scale_vector = np.array([500., 1., 60.])  # TODO check how the reward behaves for 120/250???
         # cost for translational movements into x, y direction and rotational movements, respectively
-        self._cost_vector = np.array([150, 150., 5.])
+        self._cost_vector = np.array([100, 150., 5.])
 
         self._done_after_steps = done_after_steps
 
@@ -33,6 +34,7 @@ class ObjectRelativeEnv(ObjectEnv):
                                                 object_width=object_width,
                                                 object_height=object_height,
                                                 object_init=object_init,
+                                                observe_object=observe_object,
                                                 light_type=light_type,
                                                 light_radius=light_radius)
 
@@ -41,31 +43,31 @@ class ObjectRelativeEnv(ObjectEnv):
             self._weight_observation_space = spaces.Box(np.array([.0]), np.array([1.]), dtype=np.float32)
             self._weight = np.random.rand()
 
-        _state_space_low = self._kilobots_space.low
-        _state_space_high = self._kilobots_space.high
-        if self._light_state_space:
-            _state_space_low = np.concatenate((_state_space_low, self._light_state_space.low))
-            _state_space_high = np.concatenate((_state_space_high, self._light_state_space.high))
+        _state_space_low = self.kilobots_space.low
+        _state_space_high = self.kilobots_space.high
+        if self.light_state_space:
+            _state_space_low = np.concatenate((_state_space_low, self.light_state_space.low))
+            _state_space_high = np.concatenate((_state_space_high, self.light_state_space.high))
         if self._weight_state_space:
             _state_space_low = np.concatenate((_state_space_low, self._weight_state_space.low))
             _state_space_high = np.concatenate((_state_space_high, self._weight_state_space.high))
-        if self._object_state_space:
-            _state_space_low = np.concatenate((_state_space_low, self._object_state_space.low))
-            _state_space_high = np.concatenate((_state_space_high, self._object_state_space.high))
+        if self.object_state_space:
+            _state_space_low = np.concatenate((_state_space_low, self.object_state_space.low))
+            _state_space_high = np.concatenate((_state_space_high, self.object_state_space.high))
 
         self.state_space = spaces.Box(low=_state_space_low, high=_state_space_high, dtype=np.float32)
 
-        _observation_spaces_low = self._kilobots_space.low
-        _observation_spaces_high = self._kilobots_space.high
-        if self._light_observation_space:
-            _observation_spaces_low = np.concatenate((_observation_spaces_low, self._light_observation_space.low))
-            _observation_spaces_high = np.concatenate((_observation_spaces_high, self._light_observation_space.high))
+        _observation_spaces_low = self.kilobots_space.low
+        _observation_spaces_high = self.kilobots_space.high
+        if self.light_observation_space:
+            _observation_spaces_low = np.concatenate((_observation_spaces_low, self.light_observation_space.low))
+            _observation_spaces_high = np.concatenate((_observation_spaces_high, self.light_observation_space.high))
         if self._weight_observation_space:
             _observation_spaces_low = np.concatenate((_observation_spaces_low, self._weight_observation_space.low))
             _observation_spaces_high = np.concatenate((_observation_spaces_high, self._weight_observation_space.high))
-        if self._object_observation_space:
-            _observation_spaces_low = np.concatenate((_observation_spaces_low, self._object_observation_space.low))
-            _observation_spaces_high = np.concatenate((_observation_spaces_high, self._object_observation_space.high))
+        if self.object_observation_space:
+            _observation_spaces_low = np.concatenate((_observation_spaces_low, self.object_observation_space.low))
+            _observation_spaces_high = np.concatenate((_observation_spaces_high, self.object_observation_space.high))
 
         self.observation_space = spaces.Box(low=_observation_spaces_low, high=_observation_spaces_high,
                                             dtype=np.float32)
@@ -80,15 +82,30 @@ class ObjectRelativeEnv(ObjectEnv):
         return {'state': self.get_state()}
 
     def get_observation(self):
-        if self._light_type == 'circular':
-            light_observation = (self._transform_position(self._light.get_state()),)
-            # light_observation = (self._light.get_state(),)
+        if self._observe_light:
+            # light_observation = tuple(self._transform_position(l) for l in self._light.get_state().reshape(-1, 2))
+            light_observation = tuple(self._translate_position(l) for l in self._light.get_state().reshape(-1, 2))
         else:
             light_observation = tuple()
-        return np.concatenate(tuple(self._transform_position(k.get_position()) for k in self._kilobots)
-        # return np.concatenate(tuple(k.get_position() for k in self._kilobots)
+
+        if self._observe_objects:
+            if self._observe_objects == 'orientation':
+                object_observation = tuple((np.sin(o.get_orientation()), np.cos(o.get_orientation())) for o in
+                                            self._objects)
+            elif self._observe_objects == 'position':
+                object_observation = tuple(o.get_position() for o in self._objects)
+            elif self._observe_objects == 'pose' or self._observe_objects is True:
+                object_observation = tuple(np.r_[o.get_position(), (np.sin(o.get_orientation()), np.cos(o.get_orientation()))] for o in self._objects)
+            else:
+                object_observation = tuple()
+        else:
+            object_observation = tuple()
+
+        # return np.concatenate(tuple(self._transform_position(k.get_position()) for k in self._kilobots)
+        return np.concatenate(tuple(self._translate_position(k.get_position()) for k in self._kilobots)
                               + light_observation
-                              + (([self._weight],) if self._sampled_weight else tuple()))
+                              + (([self._weight],) if self._sampled_weight else tuple())
+                              + object_observation)
 
     def get_reward(self, state, _, new_state):
         obj_pose = state[-3:]
@@ -136,3 +153,8 @@ class ObjectRelativeEnv(ObjectEnv):
             return True
 
         return False
+
+    def _get_init_object_pose(self):
+        _object_init = self._object_init.copy()
+        _object_init[2] = np.random.rand() * 2 * np.pi - np.pi
+        return _object_init

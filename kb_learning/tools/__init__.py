@@ -19,6 +19,12 @@ def compute_robust_mean_swarm_position(state, percentage=.8):
     return np.mean(state[index[:num_included], :], axis=0)
 
 
+def compute_swarm_mean_in_light(kilobots, light, light_radius):
+    light_relative_kilobots = kilobots - light
+    dist_to_light = (light_relative_kilobots ** 2).sum(axis=1)
+    return kilobots[dist_to_light <= light_radius, :].mean(axis=0)
+
+
 def chunks(iterable, n):
     it = iter(iterable)
 

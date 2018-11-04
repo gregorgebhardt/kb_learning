@@ -46,7 +46,8 @@ class ACRepsLearner(KilobotLearner):
             'object_height':         .15,
             'save_trajectories':     True,
             'light_type':            'circular',
-            'light_radius':          .2
+            'light_radius':          .2,
+            'observe_object':        False
         },
         'kernel':           {
             'kb_dist':                 'embedded',
@@ -56,7 +57,7 @@ class ACRepsLearner(KilobotLearner):
             'bandwidth_factor_kb':     .3,
             'bandwidth_factor_light':  .55,
             'bandwidth_factor_action': .8,
-            'bandwidth_factor_weight': .3,
+            'bandwidth_factor_extra':  .3,
             'rho':                     .5,
             'variance':                1.,
         },
@@ -79,7 +80,7 @@ class ACRepsLearner(KilobotLearner):
             'w_dist':                  'maha',
             'bandwidth_factor_kb':     .3,
             'bandwidth_factor_light':  .55,
-            'bandwidth_factor_weight': .3,
+            'bandwidth_factor_extra':  .3,
             'rho':                     .5,
             'use_prior_mean':          True
         },
@@ -114,7 +115,7 @@ class ACRepsLearner(KilobotLearner):
         self.kilobots_columns = None
         self.light_columns = None
         self.object_columns = None
-        self.weight_columns = None
+        self.extra_columns = None
         self.action_columns = None
         self.reward_columns = None
         self.state_columns = None
@@ -133,22 +134,18 @@ class ACRepsLearner(KilobotLearner):
         self.sampler.seed = self._seed + 123
         self.it_sars, self.it_info = self.sampler(self.policy)
 
-        sum_R = self.it_sars['R'].groupby(level=0).sum()
-
-        mean_sum_R = sum_R.mean()
-        sum_sum_R = sum_R.sum()
-        std_sum_R = sum_R.std()
-        max_sum_R = sum_R.max()
-        min_sum_R = sum_R.min()
-
-        logger.info('statistics on sum R -- mean: {:.6f} sum: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
-            mean_sum_R, sum_sum_R, std_sum_R, max_sum_R, min_sum_R))
+        samples_episode_reward = self.it_sars['R'].groupby(level=0).sum()
+        samples_episode_reward_mean = samples_episode_reward.mean()
+        logger.info('samples episode reward mean: {:.6f}'.format(samples_episode_reward_mean))
 
         # add samples to data set and select subset
         _extended_sars = self.sars.append(self.it_sars, ignore_index=True)
         # _extended_sars.reset_index(drop=True)
 
         if n == 0:
+            kernel_params = self._params['kernel']
+            gp_params = self._params['gp']
+
             # compute kernel parameters
             logger.debug('computing kernel bandwidths.')
             if self.state_preprocessor:
@@ -156,31 +153,35 @@ class ACRepsLearner(KilobotLearner):
                                                         preprocessor=self.state_preprocessor)
             else:
                 bandwidth_kb = compute_median_bandwidth_kilobots(_extended_sars[self.kilobots_columns], sample_size=500)
-            self.state_kernel.kilobots_bandwidth = bandwidth_kb * self._params['kernel']['bandwidth_factor_kb']
-            self.state_action_kernel.kilobots_bandwidth = bandwidth_kb * self._params['kernel']['bandwidth_factor_kb']
-            self.policy.kernel.kilobots_bandwidth = bandwidth_kb * self._params['gp']['bandwidth_factor_kb']
+            self.state_kernel.kilobots_bandwidth = bandwidth_kb * kernel_params['bandwidth_factor_kb']
+            self.state_action_kernel.kilobots_bandwidth = bandwidth_kb * kernel_params['bandwidth_factor_kb']
+            self.policy.kernel.kilobots_bandwidth = bandwidth_kb * gp_params['bandwidth_factor_kb']
 
             if self._light_dimensions:
                 bandwidth_l = compute_median_bandwidth(_extended_sars[self.light_columns], sample_size=500)
-                self.state_kernel.light_bandwidth = bandwidth_l * self._params['kernel']['bandwidth_factor_light']
-                self.state_action_kernel.light_bandwidth = bandwidth_l * self._params['kernel']['bandwidth_factor_light']
-                self.policy.kernel.light_bandwidth = bandwidth_l * self._params['gp']['bandwidth_factor_light']
+                self.state_kernel.light_bandwidth = bandwidth_l * kernel_params['bandwidth_factor_light']
+                self.state_action_kernel.light_bandwidth = bandwidth_l * kernel_params['bandwidth_factor_light']
+                self.policy.kernel.light_bandwidth = bandwidth_l * gp_params['bandwidth_factor_light']
 
-            if self.weight_columns is not None:
-                bandwidth_w = compute_median_bandwidth(_extended_sars[self.weight_columns], sample_size=500)
-                self.state_kernel.weight_bandwidth = bandwidth_w * self._params['kernel']['bandwidth_factor_weight']
-                self.state_action_kernel.weight_bandwidth = bandwidth_w * self._params['kernel']['bandwidth_factor_weight']
-                self.policy.kernel.weight_bandwidth = bandwidth_w * self._params['gp']['bandwidth_factor_weight']
+            if self.extra_columns is not None:
+                bandwidth_extra = compute_median_bandwidth(_extended_sars[self.extra_columns], sample_size=500)
+                self.state_kernel.extra_dim_bandwidth = bandwidth_extra * kernel_params['bandwidth_factor_extra']
+                self.state_action_kernel.extra_dim_bandwidth = bandwidth_extra * kernel_params['bandwidth_factor_extra']
+                self.policy.kernel.extra_dim_bandwidth = bandwidth_extra * gp_params['bandwidth_factor_extra']
+                # self.state_kernel.extra_dim_bandwidth = kernel_params['bandwidth_factor_extra']
+                # self.state_action_kernel.extra_dim_bandwidth = kernel_params['bandwidth_factor_extra']
+                # self.policy.kernel.extra_dim_bandwidth = gp_params['bandwidth_factor_extra']
 
             bandwidth_a = compute_median_bandwidth(_extended_sars['A'], sample_size=500)
-            bandwidth_a *= self._params['kernel']['bandwidth_factor_action']
+            bandwidth_a *= kernel_params['bandwidth_factor_action']
             self.state_action_kernel.action_bandwidth = bandwidth_a
 
         logger.debug('selecting SARS samples.')
         if _extended_sars.shape[0] <= sampling_params['num_SARS_samples']:
             self.sars = _extended_sars
         else:
-            self.sars = _extended_sars.sample(sampling_params['num_SARS_samples'])
+            # _sampling_weights = _extended_sars.R.values - _extended_sars.R.min()
+            self.sars = _extended_sars.sample(sampling_params['num_SARS_samples'])  # , weights=_sampling_weights)
         self.sars.reset_index(drop=True, inplace=True)
         del _extended_sars
 
@@ -198,6 +199,7 @@ class ACRepsLearner(KilobotLearner):
             if state.ndim == 1:
                 state = state.reshape((1, -1))
             return self.state_kernel(state, self.lstd_samples['S'].values)
+        self._old_state_features = state_features
 
         def state_action_features(state, action):
             if state.ndim == 1:
@@ -205,6 +207,7 @@ class ACRepsLearner(KilobotLearner):
             if action.ndim == 1:
                 action = action.reshape((1, -1))
             return self.state_action_kernel(np.c_[state, action], self.lstd_samples.values)
+        self._old_state_action_features = state_action_features
 
         # compute state-action features
         logger.info('compute state-action features')
@@ -218,8 +221,8 @@ class ACRepsLearner(KilobotLearner):
             # compute next state-action features
             logger.info('compute next state-action features')
             policy_samples = self._params['lstd']['num_policy_samples']
-            next_actions = np.array([self.policy(self.sars['S_'].values) for _ in range(policy_samples)]).mean(axis=0)
-            # next_actions = self.policy.get_mean(self.sars['S_'].values)
+            # next_actions = np.array([self.policy(self.sars['S_'].values) for _ in range(policy_samples)]).mean(axis=0)
+            next_actions = self.policy.get_mean(self.sars['S_'].values)
             phi_SA_next = state_action_features(self.sars['S_'].values, next_actions)
 
             # learn theta (parameters of Q-function) using lstd
@@ -231,13 +234,15 @@ class ACRepsLearner(KilobotLearner):
             # compute q-function
             logger.debug('compute q-function')
             q_fct = phi_SA.dot(self.theta)
+            # TODO add generalized advantage here
+
 
             # compute sample weights using AC-REPS
             logger.info('learning weights [AC-REPS]')
             ac_reps = ActorCriticReps()
             ac_reps.epsilon = self._params['ac_reps']['epsilon']
             ac_reps.alpha = self._params['ac_reps']['alpha']
-            weights = ac_reps.compute_weights(q_fct, phi_S)
+            weights, self.theta = ac_reps.compute_weights(q_fct, phi_S, return_theta=True)
 
             # get subset for sparse GP
             logger.debug('select samples for GP')
@@ -263,26 +268,19 @@ class ACRepsLearner(KilobotLearner):
         # evaluate policy
         logger.info('evaluating policy')
         self.sampler.seed = 5555
-        # self.policy.eval_mode = True
+        self.policy.eval_mode = True
         self.eval_sars, self.eval_info = self.sampler(self.policy,
                                                       num_episodes=self._params['eval']['num_episodes'],
                                                       num_steps_per_episode=self._params['eval'][
                                                           'num_steps_per_episode'])
-        # self.policy.eval_mode = False
+        self.policy.eval_mode = False
 
-        sum_R = self.eval_sars['R'].groupby(level=0).sum()
+        eval_episode_reward = self.eval_sars['R'].groupby(level=0).sum()
+        eval_episode_reward_mean = eval_episode_reward.mean()
+        logger.info('eval mean episode reward: {:.6f}'.format(eval_episode_reward_mean))
 
-        mean_sum_R = sum_R.mean()
-        sum_sum_R = sum_R.sum()
-        std_sum_R = sum_R.std()
-        max_sum_R = sum_R.max()
-        min_sum_R = sum_R.min()
-
-        logger.info('statistics on sum R -- mean: {:.6f} sum: {:.6f} std: {:.6f} max: {:.6f} min: {:.6f}'.format(
-            mean_sum_R, sum_sum_R, std_sum_R, max_sum_R, min_sum_R))
-
-        return_dict = dict(mean_sum_R=mean_sum_R, sum_sum_R=sum_sum_R, std_sum_R=std_sum_R,
-                           max_sum_R=max_sum_R, min_sum_R=min_sum_R)
+        return_dict = dict(samples_episode_reward_mean=samples_episode_reward_mean,
+                           eval_episode_reward_mean=eval_episode_reward_mean)
 
         gc.collect()
 
@@ -319,25 +317,39 @@ class ACRepsLearner(KilobotLearner):
         elif sampling_params['light_type'] == 'linear':
             self._light_dimensions = 0
             self._action_dimensions = 1
+        elif sampling_params['light_type'] == 'dual':
+            self._light_dimensions = 4
+            self._action_dimensions = 4
+
+        extra_dim = 0
+        if sampling_params['w_factor'] is None:
+            extra_dim += 1
+        if sampling_params['observe_object']:
+            if sampling_params['observe_object'] == 'orientation':
+                extra_dim += 2
+            elif sampling_params['observe_object'] == 'position':
+                extra_dim += 2
+            elif sampling_params['observe_object'] == 'pose' or sampling_params['observe_object'] is True:
+                extra_dim += 4
 
         state_kernel = KilobotEnvKernel(rho=kernel_params['rho'],
                                         variance=kernel_params['variance'],
                                         kilobots_dim=sampling_params['num_kilobots'] * 2,
                                         light_dim=self._light_dimensions,
-                                        weight_dim=1 if sampling_params['w_factor'] is None else 0,
+                                        extra_dim=extra_dim,
                                         kilobots_dist_class=kernel_params['kb_dist'],
                                         light_dist_class=kernel_params['l_dist'],
-                                        weight_dist_class=kernel_params['w_dist'])
+                                        extra_dim_dist_class=kernel_params['w_dist'])
 
         state_action_kernel = KilobotEnvKernel(rho=kernel_params['rho'],
                                                variance=kernel_params['variance'],
                                                kilobots_dim=sampling_params['num_kilobots'] * 2,
                                                light_dim=self._light_dimensions,
-                                               weight_dim=1 if sampling_params['w_factor'] is None else 0,
+                                               extra_dim=extra_dim,
                                                action_dim=self._action_dimensions,
                                                kilobots_dist_class=kernel_params['kb_dist'],
                                                light_dist_class=kernel_params['l_dist'],
-                                               weight_dist_class=kernel_params['w_dist'],
+                                               extra_dim_dist_class=kernel_params['w_dist'],
                                                action_dist_class=kernel_params['a_dist'])
 
         return state_kernel, state_action_kernel
@@ -347,14 +359,25 @@ class ACRepsLearner(KilobotLearner):
         gp_params = self._params['gp']
         sampling_params = self._params['sampling']
 
+        extra_dim = 0
+        if sampling_params['w_factor'] is None:
+            extra_dim += 1
+        if sampling_params['observe_object']:
+            if sampling_params['observe_object'] == 'orientation':
+                extra_dim += 2
+            elif sampling_params['observe_object'] == 'position':
+                extra_dim += 2
+            elif sampling_params['observe_object'] == 'pose' or sampling_params['observe_object'] is True:
+                extra_dim += 4
+
         gp_kernel = KilobotEnvKernel(rho=gp_params['rho'],
                                      variance=gp_params['prior_variance'],
                                      kilobots_dim=sampling_params['num_kilobots'] * 2,
                                      light_dim=self._light_dimensions,
-                                     weight_dim=1 if sampling_params['w_factor'] is None else 0,
+                                     extra_dim=extra_dim,
                                      kilobots_dist_class=kernel_params['kb_dist'],
                                      light_dist_class=kernel_params['l_dist'],
-                                     weight_dist_class=kernel_params['w_dist'])
+                                     extra_dim_dist_class=kernel_params['w_dist'])
         gp_kernel.variance.fix()
 
         if self._params['gp']['use_prior_mean']:
@@ -387,16 +410,38 @@ class ACRepsLearner(KilobotLearner):
             self.light_columns = pd.MultiIndex.from_product([['S'], ['light'], ['x', 'y']])
             self.action_columns = pd.MultiIndex.from_product([['A'], ['x', 'y'], ['']])
             self.state_columns = self.state_columns.append(self.light_columns)
-        else:
+        elif sampling_params['light_type'] == 'linear':
             self.light_columns = pd.MultiIndex.from_product([['S'], ['light'], ['theta']])
             self.action_columns = pd.MultiIndex.from_product([['A'], ['theta'], ['']])
+        elif sampling_params['light_type'] == 'dual':
+            self.light_columns = pd.MultiIndex.from_product([['S'], ['light1', 'light2'], ['x', 'y']])
+            self.action_columns = pd.MultiIndex.from_product([['A'], ['light1', 'light2'], ['x', 'y']])
+            self.state_columns = self.state_columns.append(self.light_columns)
 
         self.state_object_columns = self.state_object_columns.append(self.light_columns)
 
+        self.extra_columns = None
         if sampling_params['w_factor'] is None:
-            self.weight_columns = pd.MultiIndex.from_product([['S'], ['weight'], ['']])
-            self.state_columns = self.state_columns.append(self.weight_columns)
-            self.state_object_columns = self.state_object_columns.append(self.weight_columns)
+            weight_columns = pd.MultiIndex.from_product([['S'], ['extra'], ['w']])
+            self.extra_columns = weight_columns
+            self.state_object_columns = self.state_object_columns.append(weight_columns)
+        if sampling_params['observe_object']:
+            object_observation_columns = None
+            if sampling_params['observe_object'] == 'orientation':
+                object_observation_columns = pd.MultiIndex.from_product([['S'], ['extra'], ['sin_o_t', 'cos_o_t']])
+            elif sampling_params['observe_object'] == 'position':
+                object_observation_columns = pd.MultiIndex.from_product([['S'], ['extra'], ['o_x', 'o_y']])
+            elif sampling_params['observe_object'] == 'pose' or sampling_params['observe_object'] is True:
+                object_observation_columns = pd.MultiIndex.from_product([['S'], ['extra'], ['o_x', 'o_y', 'sin_o_t', 'cos_o_t']])
+
+            if self.extra_columns is None:
+                self.extra_columns = object_observation_columns
+            else:
+                self.extra_columns = self.extra_columns.append(object_observation_columns)
+
+        if self.extra_columns is not None:
+            self.state_columns = self.state_columns.append(self.extra_columns)
+        # self.state_object_columns = self.state_object_columns.append(self.extra_columns)
 
         self.state_object_columns = self.state_object_columns.append(self.object_columns)
 
@@ -417,6 +462,7 @@ class ACRepsLearner(KilobotLearner):
         return self.SamplerClass(object_shape=sampling_params['object_shape'],
                                  object_width=sampling_params['object_width'],
                                  object_height=sampling_params['object_height'],
+                                 observe_object=sampling_params['observe_object'],
                                  light_type=sampling_params['light_type'],
                                  light_radius=sampling_params['light_radius'],
                                  registration_function=register_object_relative_env,

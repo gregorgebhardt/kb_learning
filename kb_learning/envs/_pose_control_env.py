@@ -17,7 +17,7 @@ class PoseControlEnv(ObjectAbsoluteEnv):
                               + _light_position
                               + (self._objects[0].get_pose(),))
 
-    def _get_init_pos(self):
+    def _sample_init_pos(self):
         _init_position = np.random.rand(2) * self.world_size * [.5, 1.] + [self.world_x_range[0], self.world_y_range[0]]
         _init_position = np.maximum(_init_position, self.world_bounds[0] + self._light_radius)
         _init_position = np.minimum(_init_position, self.world_bounds[1] - self._light_radius)

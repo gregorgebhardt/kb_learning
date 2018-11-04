@@ -16,7 +16,8 @@ class ObjectAbsoluteEnv(ObjectEnv):
                  object_height=.15,
                  object_init=None,
                  light_type='circular',
-                 light_radius=.2):
+                 light_radius=.2,
+                 done_after_steps=350):
 
         super(ObjectAbsoluteEnv, self).__init__(num_kilobots=num_kilobots,
                                                 object_shape=object_shape,
@@ -28,23 +29,25 @@ class ObjectAbsoluteEnv(ObjectEnv):
 
         self._desired_pose = None
 
-        _state_space_low = self._kilobots_space.low
-        _state_space_high = self._kilobots_space.high
-        if self._light_state_space:
-            _state_space_low = np.concatenate((_state_space_low, self._light_state_space.low))
-            _state_space_high = np.concatenate((_state_space_high, self._light_state_space.high))
-        if self._object_state_space:
-            _state_space_low = np.concatenate((_state_space_low, self._object_state_space.low))
-            _state_space_high = np.concatenate((_state_space_high, self._object_state_space.high))
+        self._done_after_steps = done_after_steps
+
+        _state_space_low = self.kilobots_space.low
+        _state_space_high = self.kilobots_space.high
+        if self.light_state_space:
+            _state_space_low = np.concatenate((_state_space_low, self.light_state_space.low))
+            _state_space_high = np.concatenate((_state_space_high, self.light_state_space.high))
+        if self.object_state_space:
+            _state_space_low = np.concatenate((_state_space_low, self.object_state_space.low))
+            _state_space_high = np.concatenate((_state_space_high, self.object_state_space.high))
 
         self.state_space = spaces.Box(low=_state_space_low, high=_state_space_high, dtype=np.float32)
 
-        _observation_spaces_low = self._kilobots_space.low
-        _observation_spaces_high = self._kilobots_space.high
-        if self._light_observation_space:
-            _observation_spaces_low = np.concatenate((_observation_spaces_low, self._light_observation_space.low))
-            _observation_spaces_high = np.concatenate((_observation_spaces_high, self._light_observation_space.high))
-        if self._object_observation_space:
+        _observation_spaces_low = self.kilobots_space.low
+        _observation_spaces_high = self.kilobots_space.high
+        if self.light_observation_space:
+            _observation_spaces_low = np.concatenate((_observation_spaces_low, self.light_observation_space.low))
+            _observation_spaces_high = np.concatenate((_observation_spaces_high, self.light_observation_space.high))
+        if self.object_observation_space:
             # the objects are observed as x, y, sin(theta), cos(theta)
             objects_low = np.array([self.world_x_range[0], self.world_y_range[0], -1., -1.] * len(self._objects))
             objects_high = np.array([self.world_x_range[1], self.world_y_range[1], 1., 1.] * len(self._objects))
@@ -69,7 +72,7 @@ class ObjectAbsoluteEnv(ObjectEnv):
         return {'desired_pose': self._desired_pose}
 
     def get_observation(self):
-        if self._light_type == 'circular':
+        if self._light_type in ['circular', 'dual']:
             _light_position = (self._light.get_state(),)
         else:
             _light_position = tuple()
@@ -85,8 +88,10 @@ class ObjectAbsoluteEnv(ObjectEnv):
                               # + (self._object_desired,)
                               )
 
-    def get_reward(self, state, *args):
-        obj_pose = state[-3:]
+    def get_reward(self, old_state, action, new_state):
+        # obj pose in frame of desired pose
+        old_obj_pose = old_state[-3:] - self._desired_pose
+        new_obj_pose = new_state[-3:] - self._desired_pose
         reward = .0
 
         # swarm_mean = compute_robust_mean_swarm_position(state[:2 * self._num_kilobots])
@@ -97,10 +102,22 @@ class ObjectAbsoluteEnv(ObjectEnv):
         # # punish distance of light to swarm
         # reward -= ((swarm_mean - self.get_light().get_state()) ** 2).sum()
 
+        # compute diff between old and new pose in the frame of the desired pose
+        # obj_diff = (old_obj_pose - new_obj_pose) - self._desired_pose
+        # reward += obj_diff.sum()
+
+        # compute polar coordinates of object positions
+        r_old = np.linalg.norm(old_obj_pose[:2])
+        r_new = np.linalg.norm(new_obj_pose[:2])
+        reward += 10 * np.exp(-(new_obj_pose[:2] ** 2).sum() / 2) * (r_old - r_new)
+
+        # compute differences between absolute orientations
+        reward += 10 * np.exp(-(new_obj_pose[:2] ** 2).sum() / .5) * (np.abs(old_obj_pose[2]) - np.abs(new_obj_pose[2]))
+
         # compute diff between desired and current pose
-        dist_obj_pose = self._desired_pose - obj_pose
-        dist_obj_pose[2] = np.abs(np.sin(dist_obj_pose[2] / 2))
-        reward -= .01 * dist_obj_pose.dot(dist_obj_pose)
+        # dist_obj_pose = self._desired_pose - obj_pose
+        # dist_obj_pose[2] = np.abs(np.sin(dist_obj_pose[2] / 2))
+        # reward -= dist_obj_pose.dot(dist_obj_pose)
 
         # print('{} reward: {}'.format(dist_obj_pose[2], reward))
 
@@ -118,7 +135,7 @@ class ObjectAbsoluteEnv(ObjectEnv):
         if sq_error_norm < .005:
             return True
 
-        if self._sim_steps >= 3500:
+        if self._sim_steps >= self._done_after_steps * self._steps_per_action:
             # print('maximum number of sim steps.')
             return True
 

@@ -1,0 +1,167 @@
+base_env_configuration: &env_base_config
+  !EvalEnv
+  width: 1.0
+  height: 0.6
+  resolution: 600
+
+  light: !LightConf
+    type: circular
+    radius: .15
+    init: [-0.45, 0.0]
+
+  kilobots: !KilobotsConf
+    num: 10
+    mean: [-0.45, 0.0]
+    std: .03
+
+
+null_pushing_policy: &null_pushing_policy
+  - object_type: null
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/square_w_factor{w_factor}.pkl'
+
+pushing_policies: &pushing_policies
+  - object_type: 'square'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/square_w_factor{w_factor}.pkl'
+  - object_type: 'rect'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/rect_w_factor{w_factor}.pkl'
+  - object_type: 'triangle'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/triangle_w_factor{w_factor}.pkl'
+  - object_type: 'l_shape'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/l_shape_w_factor{w_factor}.pkl'
+  - object_type: 't_shape'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/t_shape_w_factor{w_factor}.pkl'
+  - object_type: 'c_shape'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/c_shape_w_factor{w_factor}.pkl'
+
+eval_configurations:
+  square:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - &obj0 !ObjectConf
+          idx: 0
+          shape: square
+          width: .15
+          height: .15
+          init: [-0.3, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points:
+        - !AssemblyWayPoint {obj_conf: *obj0, x: 0.4, y: 0.0, theta: 0.0,
+                             orientation_accuracy: 0.75, position_accuracy: [0.02, 0.3]}
+    pushing_policies: *pushing_policies
+
+  rect: &rect_eval
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - &obj1 !ObjectConf
+          idx: 0
+          shape: rect
+          width: .1
+          height: .3
+          init: [-0.3, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points:
+        - !AssemblyWayPoint {obj_conf: *obj1, x: 0.4, y: 0.0, theta: 0.0,
+                             orientation_accuracy: 0.75, position_accuracy: [0.02, 0.3]}
+    pushing_policies: *pushing_policies
+  rect_null:
+    <<: *rect_eval
+    pushing_policies: *null_pushing_policy
+
+  triangle: &triangle_eval
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - &obj2 !ObjectConf
+          idx: 0
+          shape: triangle
+          width: .14
+          height: .21
+          init: [-0.3, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points:
+        - !AssemblyWayPoint {obj_conf: *obj2, x: 0.4, y: 0.0, theta: 0.0,
+                             orientation_accuracy: 0.75, position_accuracy: [0.02, 0.3]}
+    pushing_policies: *pushing_policies
+  triangle_null:
+    <<: *triangle_eval
+    pushing_policies: *null_pushing_policy
+
+  l_shape: &l_shape_eval
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - &obj3 !ObjectConf
+          idx: 0
+          shape: l_shape
+          width: .14
+          height: .21
+          init: [-0.3, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points:
+        - !AssemblyWayPoint {obj_conf: *obj3, x: 0.4, y: 0.0, theta: 0.0,
+                             orientation_accuracy: 0.75, position_accuracy: [0.02, 0.3]}
+    pushing_policies: *pushing_policies
+  l_shape_null:
+    <<: *l_shape_eval
+    pushing_policies: *null_pushing_policy
+
+  c_shape: &c_shape_eval
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - &obj4 !ObjectConf
+          idx: 0
+          shape: c_shape
+          width: .14
+          height: .21
+          init: [-0.3, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points:
+        - !AssemblyWayPoint {obj_conf: *obj4, x: 0.4, y: 0.0, theta: 0.0,
+                             orientation_accuracy: 0.75, position_accuracy: [0.02, 0.3]}
+    pushing_policies: *pushing_policies
+  c_shape_null:
+    <<: *c_shape_eval
+    pushing_policies: *null_pushing_policy
+
+  t_shape: &t_shape_eval
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - &obj5 !ObjectConf
+          idx: 0
+          shape: t_shape
+          width: .14
+          height: .21
+          init: [-0.3, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points:
+        - !AssemblyWayPoint {obj_conf: *obj5, x: 0.4, y: 0.0, theta: 0.0,
+                             orientation_accuracy: 0.75, position_accuracy: [0.02, 0.3]}
+    pushing_policies: *pushing_policies
+  t_shape_null:
+    <<: *t_shape_eval
+    pushing_policies: *null_pushing_policy
+
+max_eval_steps: 1000

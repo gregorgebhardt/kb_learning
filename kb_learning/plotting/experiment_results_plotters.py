@@ -9,6 +9,8 @@ def plot_results(results_config: Generator):
         mean = mean_sum_R.groupby(level=1).mean()
         std = mean_sum_R.groupby(level=1).std()
 
+        mean_sum_R.groupby(level=1).plot(ax=axes, c='grey', ls='-')
+
         axes.fill_between(mean.index, mean - 2 * std, mean + 2 * std, alpha=.5)
         axes.plot(mean.index, mean, label=config['name'])
 

@@ -17,18 +17,20 @@ def reward_distribution_plot(R, R_axes: Axes):
     R_axes.plot(x, R_mean)
 
 
-def value_function_plot(V: np.ndarray, x_range, y_range, axes: Axes, cm_axes: Axes = None, S=None, **kwargs):
+def value_function_plot(V: np.ndarray, x_range, y_range, axes: Axes, cm_axes: Axes = None, S=None,
+                        cb_label=None, **kwargs):
     im = axes.matshow(V, extent=x_range + y_range, **kwargs)  # norm=Normalize(-0.05, 0.05)
 
     if S is not None:
-        axes.scatter(S[:, 0], S[:, 1], marker='+', s=5, c=(.0, .0, .0, .5))
+        axes.scatter(S[:, 0], S[:, 1], marker='+', s=10, c=np.array([[.0, .0, .0, .5]]))
 
     if cm_axes is not None:
-        Colorbar(cm_axes, im)
+        Colorbar(cm_axes, im, label=cb_label)
     return im
 
 
-def trajectories_plot(T, x_range, y_range, axes: Axes, cm_axes=None, cmap='RdYlGn', color=None, **kwargs):
+def trajectories_plot(T, x_range, y_range, axes: Axes, cb_axes=None, cb_label=None, cmap='RdYlGn', color=None,
+                      **kwargs):
     # light_states.index.shape
     num_episodes, num_steps, _ = T.shape
 
@@ -54,8 +56,8 @@ def trajectories_plot(T, x_range, y_range, axes: Axes, cm_axes=None, cmap='RdYlG
 
         axes.add_collection(lc)
 
-    if cm_axes is not None:
-        Colorbar(cm_axes, line_collections[0])
+    if cb_axes is not None:
+        Colorbar(cb_axes, line_collections[0], label=cb_label)
 
     return line_collections
 
@@ -71,11 +73,12 @@ def policy_plot(P, x_range, y_range, P_axes, cm_axes=None, **kwargs):
 
     [X, Y] = np.meshgrid(np.linspace(*x_range, A.shape[1]), np.linspace(*y_range, A.shape[0]))
     if A.shape[2] == 2:
-        quivers = P_axes.quiver(X, Y, A[..., 0], A[..., 1], color, angles='xy', **kwargs)
+        quivers = P_axes.quiver(X, Y, A[..., 0], A[..., 1], color, angles='xy', scale_units='xy', scale=.2,
+                                width=0.005, **kwargs)
     else:
         A_cos = np.cos(A.squeeze())
         A_sin = np.sin(A.squeeze())
         quivers = P_axes.quiver(X, Y, A_cos, A_sin, color, angles='xy', **kwargs)
 
-    if cm_axes is not None:
-        Colorbar(cm_axes, quivers)
+    if cm_axes is not None and type(P) is tuple:
+        Colorbar(cm_axes, quivers, label='sigma')

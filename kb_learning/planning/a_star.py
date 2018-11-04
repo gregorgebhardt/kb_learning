@@ -7,11 +7,14 @@ from numpy.linalg import linalg
 
 
 class SquareGrid:
-    def __init__(self, width, height, resolution=1):
-        self.width = int(width * resolution)
-        self.height = int(height * resolution)
+    def __init__(self, width, height, resolution=1, offset=None):
+        self.width = int(width * resolution) - 2
+        self.height = int(height * resolution) - 2
         self.walls = []
         self.resolution = resolution
+        if offset is None:
+            offset = np.array([.0, .0])
+        self.offset = offset
 
     def in_bounds(self, coords):
         (x, y) = coords
@@ -42,29 +45,52 @@ class SquareGrid:
         return results
 
     def cost(self, from_node, to_node):
-        dist = linalg.norm(np.asarray(to_node) - np.asarray(from_node)) / self.resolution
-        cost = dist
-        return cost
+        return linalg.norm(np.asarray(to_node) - np.asarray(from_node))
+
+    def from_world(self, world_point):
+        return np.int32((world_point + self.offset) * self.resolution)
+
+    def to_world(self, grid_points):
+        return (np.float64(grid_points) / self.resolution) - self.offset
 
 
 class GridWithObstacles(SquareGrid):
-    def __init__(self, width, height, resolution=1):
-        super().__init__(width, height, resolution)
-        self.obstacles = []
-        self.potential_radius = 4.
-        self.potential_factor = 20
+    def __init__(self, width, height, resolution=1, offset=None):
+        super().__init__(width, height, resolution, offset)
+        self.__obstacles = []
+        self.potential_radius = 3. * resolution
+        self.potential_factor = 1000
+
+    def add_obstacle(self, obstacle):
+        self.__obstacles.append(self.from_world(obstacle))
+
+    def clear_obstacles(self):
+        self.__obstacles.clear()
+
+    def set_obstacles(self, obstacles):
+        self.__obstacles = [self.from_world(o) for o in obstacles]
 
     def cost(self, from_node, to_node):
-        q = self.potential_radius
-        dist = linalg.norm(np.asarray(to_node) - np.asarray(from_node)) / self.resolution
-        cost = dist
-        for obstacle in self.obstacles:
-            d = linalg.norm(np.asarray(to_node) / self.resolution - np.asarray(obstacle))
-            if d == 0.0:
-                cost += np.inf
-            elif d <= q:
-                cost += self.potential_factor * dist * (1 / d - 1 / q) ** 2
+        cost = super(GridWithObstacles, self).cost(from_node, to_node)
+        return cost + self._obstacle_cost(to_node)
+
+    def _obstacle_cost(self, point):
+        cost = .0
+        for obstacle in self.__obstacles:
+            dist_obstacle = linalg.norm(np.asarray(point) - np.asarray(obstacle), axis=-1)
+            cost += self.potential_factor * np.exp(-dist_obstacle ** 6 / (2 * self.potential_radius))
         return cost
+
+    def plot(self, axes):
+        x = np.linspace(0, self.width, self.resolution)
+        y = np.linspace(0, self.height, self.resolution)
+
+        xx, yy = np.meshgrid(x, y)
+        v = self._obstacle_cost(np.dstack((xx, yy)))
+
+        # from matplotlib.axes import Axes
+        # axes: Axes = axes
+        axes.imshow(v)
 
 
 class PriorityQueue:
@@ -82,29 +108,25 @@ class PriorityQueue:
 
 
 class AStar:
-    def __init__(self, grid, offset):
+    def __init__(self, grid: GridWithObstacles):
         self.grid = grid
-        self.offset = offset
 
     def enforce_bounds(self, pos):
         pos = np.minimum(pos, [self.grid.width-1, self.grid.height-1])
         pos = np.maximum(pos, [0, 0])
         return pos
 
-    def world_to_grid(self, world_point):
-        return np.int32((world_point + self.offset) * self.grid.resolution)
-
-    def grid_to_world(self, grid_points):
-        return (np.float64(grid_points) / self.grid.resolution) - self.offset
+    def set_obstacles(self, obstacles):
+        self.grid.set_obstacles([o[:2] for o in obstacles])
 
     def get_path(self, start, goal):
-        obj_rel_start = tuple(self.enforce_bounds(self.world_to_grid(start)))
-        obj_rel_goal = tuple(self.enforce_bounds(self.world_to_grid(goal)))
+        obj_rel_start = tuple(self.enforce_bounds(self.grid.from_world(start)))
+        obj_rel_goal = tuple(self.enforce_bounds(self.grid.from_world(goal)))
 
         exploration_graph, _ = self._a_star_search(self.grid, obj_rel_start, obj_rel_goal)
         path = self._extract_path(exploration_graph, obj_rel_start, obj_rel_goal)
 
-        world_path = np.concatenate([self.grid_to_world(path), [goal]])
+        world_path = np.concatenate([self.grid.to_world(path), [goal]])
 
         return world_path
 
@@ -119,7 +141,7 @@ class AStar:
     def _heuristic(self, a, b):
         (x1, y1) = a
         (x2, y2) = b
-        return np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2) / self.grid.resolution
+        return np.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
 
     def _a_star_search(self, world_graph, start, goal):
         start = tuple(start)
@@ -146,18 +168,3 @@ class AStar:
                     exploration_graph[next_node] = current
 
         return exploration_graph, exploration_costs
-
-# TODO check this file
-if __name__ == '__main__':
-    grid = SquareGrid(10, 10, 2)
-    astar = AStar(grid)
-    #  print(astar.get_path((5, 2), (5, 8)))
-
-    grid = GridWithObstacles(10, 10, 2)
-    astar = AStar(grid)
-    #  print(astar.get_path((5, 2), (5, 8)))
-    grid.obstacles = [[5, 5], [7, 7]]
-    grid.potential_radius = 5
-    grid.potential_factor = 100
-    astar = AStar(grid)
-    print(astar.get_path((5, 2), (5, 8)))

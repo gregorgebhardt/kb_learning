@@ -1,0 +1,60 @@
+base_env_configuration: &env_base_config
+  !EvalEnv
+  width: 1.5
+  height: 1.0
+  resolution: 600
+
+  objects:
+    - &obj0 !ObjectConf
+      idx: 0
+      shape: rect
+      width: .1
+      height: .3
+      init: [-0.5, 0.0, 0.0]
+
+  light: !LightConf
+    type: circular
+    radius: .15
+    init: [-0.7, -0.0]
+
+  kilobots: !KilobotsConf
+    num: 10
+    mean: [-0.7, -0.0]
+    std: .03
+
+pushing_policies: &pushing_policies
+  - object_type: null
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/square_w_factor{w_factor}.pkl'
+  - object_type: 'rect'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/rect_w_factor{w_factor}.pkl'
+
+
+eval_configurations:
+  rect_1:
+    env_configuration: *env_base_config
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points:
+        - !AssemblyWayPoint {obj_conf: *obj0, x: 0.4, y: -0.1, theta: -0.7,
+                             orientation_accuracy: 0.2, position_accuracy: 0.05}
+    pushing_policies: *pushing_policies
+#  rect_2:
+#    env_configuration: *env_base_config
+#    assembly_policy_config:
+#      !AssemblyPolicy
+#      way_points:
+#        - !AssemblyWayPoint {obj_conf: *obj0, x: 0.4, y: 0.1, theta: 0.3,
+#                             orientation_accuracy: 0.2, position_accuracy: 0.05}
+#    pushing_policies: *pushing_policies
+#  rect_3:
+#    env_configuration: *env_base_config
+#    assembly_policy_config:
+#      !AssemblyPolicy
+#      way_points:
+#        - !AssemblyWayPoint {obj_conf: *obj0, x: 0.4, y: 0.1, theta: -0.7,
+#                             orientation_accuracy: 0.2, position_accuracy: 0.05}
+#    pushing_policies: *pushing_policies
+
+max_eval_steps: 1000

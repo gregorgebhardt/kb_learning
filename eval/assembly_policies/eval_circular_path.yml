@@ -1,0 +1,495 @@
+base_env_configuration: &env_base_config
+  !EvalEnv
+  width: 1.4
+  height: 1.2
+  resolution: 600
+
+  light: !LightConf
+    type: circular
+    radius: .2
+    init: [-0.6, -0.2]
+
+  kilobots: !KilobotsConf
+    num: 10
+    mean: [-0.6, -0.2]
+    std: .03
+
+circ_02: &circ_02
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.0, x: -0.4, y: 0.2}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.17453292519943298, x: -0.36527036446661393, y: 0.2030384493975584}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.34906585039886595, x: -0.33159597133486624, y: 0.21206147584281834}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.5235987755982987, x: -0.30000000000000004, y: 0.22679491924311226}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.6981317007977318, x: -0.27144247806269217, y: 0.2467911113762044}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.8726646259971648, x: -0.24679111137620438, y: 0.27144247806269217}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.0471975511965976, x: -0.2267949192431123, y: 0.30000000000000004}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.2217304763960306, x: -0.21206147584281831, y: 0.3315959713348663}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.3962634015954636, x: -0.2030384493975584, y: 0.36527036446661393}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: [1., 0.05],
+                       theta: 1.5707963267948966, x: -0.2, y: 0.4}
+circ_04: &circ_04
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.0, x: -0.4, y: 0.0}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.17453292519943298, x: -0.33054072893322783, y: 0.006076898795116803}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.34906585039886595, x: -0.26319194266973245, y: 0.024122951685636662}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.5235987755982987, x: -0.20000000000000004, y: 0.053589838486224506}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.6981317007977318, x: -0.14288495612538427, y: 0.0935822227524088}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.8726646259971648, x: -0.09358222275240874, y: 0.14288495612538432}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.0471975511965976, x: -0.05358983848622456, y: 0.2}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.2217304763960306, x: -0.024122951685636607, y: 0.2631919426697325}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.3962634015954636, x: -0.006076898795116803, y: 0.3305407289332279}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: [1., 0.05],
+                       theta: 1.5707963267948966, x: 0.0, y: 0.4}
+circ_06: &circ_06
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.0, x: -0.39999999999999997, y: -0.19999999999999996}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.17453292519943298, x: -0.2958110933998418, y: -0.19088465180732472}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.34906585039886595, x: -0.19478791400459874, y: -0.163815572471545}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.5235987755982987, x: -0.10000000000000009, y: -0.11961524227066322}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.6981317007977318, x: -0.014327434188076416, y: -0.059626665871386764}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.8726646259971648, x: 0.05962666587138682, y: 0.014327434188076471}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.0471975511965976, x: 0.11961524227066311, y: 0.10000000000000003}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.2217304763960306, x: 0.163815572471545, y: 0.19478791400459877}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.3962634015954636, x: 0.19088465180732472, y: 0.2958110933998418}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: [1., 0.05],
+                       theta: 1.5707963267948966, x: 0.19999999999999996, y: 0.4}
+circ_08: &circ_08
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.0, x: -0.39999999999999997, y: -0.4}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.17453292519943298, x: -0.26108145786645565, y: -0.3878462024097664}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.34906585039886595, x: -0.12638388533946493, y: -0.3517540966287267}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.5235987755982987, x: -5.551115123125783e-17, y: -0.292820323027551}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.6981317007977318, x: 0.11423008774923149, y: -0.21283555449518243}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 0.8726646259971648, x: 0.21283555449518254, y: -0.11423008774923138}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.0471975511965976, x: 0.2928203230275509, y: 0.0}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.2217304763960306, x: 0.3517540966287268, y: 0.12638388533946499}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: 0.1,
+                       theta: 1.3962634015954636, x: 0.3878462024097664, y: 0.26108145786645576}
+  - !AssemblyWayPoint {obj_conf: null, orientation_accuracy: 1.5, position_accuracy: [1., 0.05],
+                       theta: 1.5707963267948966, x: 0.4, y: 0.4}
+
+null_pushing_policy: &null_pushing_policy
+  - object_type: null
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/square_w_factor{w_factor}.pkl'
+
+pushing_policies: &pushing_policies
+  - object_type: 'square'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/square_w_factor{w_factor}.pkl'
+  - object_type: 'rect'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/rect_w_factor{w_factor}.pkl'
+  - object_type: 'triangle'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/triangle_w_factor{w_factor}.pkl'
+  - object_type: 'l_shape'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/l_shape_w_factor{w_factor}.pkl'
+  - object_type: 't_shape'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/t_shape_w_factor{w_factor}.pkl'
+  - object_type: 'c_shape'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/c_shape_w_factor{w_factor}.pkl'
+
+eval_configurations:
+  square_08:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: square
+          width: .15
+          height: .15
+          init: [-0.4, -0.4, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_08
+    pushing_policies: *pushing_policies
+  square_06:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: square
+          width: .15
+          height: .15
+          init: [-0.4, -0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_06
+    pushing_policies: *pushing_policies
+  square_04:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: square
+          width: .15
+          height: .15
+          init: [-0.4, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_04
+    pushing_policies: *pushing_policies
+  square_02:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: square
+          width: .15
+          height: .15
+          init: [-0.4, 0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_02
+    pushing_policies: *pushing_policies
+
+  rect_08:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: rect
+          width: .1
+          height: .3
+          init: [-0.4, -0.4, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_08
+    pushing_policies: *pushing_policies
+  rect_06:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: rect
+          width: .1
+          height: .3
+          init: [-0.4, -0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_06
+    pushing_policies: *pushing_policies
+  rect_04:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: rect
+          width: .1
+          height: .3
+          init: [-0.4, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_04
+    pushing_policies: *pushing_policies
+  rect_02:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: rect
+          width: .1
+          height: .3
+          init: [-0.4, 0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_02
+    pushing_policies: *pushing_policies
+
+  triangle_08:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: triangle
+          width: .14
+          height: .21
+          init: [-0.4, -0.4, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_08
+    pushing_policies: *pushing_policies
+  triangle_06:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: triangle
+          width: .14
+          height: .21
+          init: [-0.4, -0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_06
+    pushing_policies: *pushing_policies
+  triangle_04:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: triangle
+          width: .14
+          height: .21
+          init: [-0.4, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_04
+    pushing_policies: *pushing_policies
+  triangle_02:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: triangle
+          width: .14
+          height: .21
+          init: [-0.4, 0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_02
+    pushing_policies: *pushing_policies
+
+  c_shape_08:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: c_shape
+          width: .14
+          height: .21
+          init: [-0.4, -0.4, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_08
+    pushing_policies: *pushing_policies
+  c_shape_06:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: c_shape
+          width: .14
+          height: .21
+          init: [-0.4, -0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_06
+    pushing_policies: *pushing_policies
+  c_shape_04:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: c_shape
+          width: .14
+          height: .21
+          init: [-0.4, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_04
+    pushing_policies: *pushing_policies
+  c_shape_02:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: c_shape
+          width: .14
+          height: .21
+          init: [-0.4, 0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_02
+    pushing_policies: *pushing_policies
+
+  l_shape_08:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: l_shape
+          width: .14
+          height: .21
+          init: [-0.4, -0.4, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_08
+    pushing_policies: *pushing_policies
+  l_shape_06:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: l_shape
+          width: .14
+          height: .21
+          init: [-0.4, -0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_06
+    pushing_policies: *pushing_policies
+  l_shape_04:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: l_shape
+          width: .14
+          height: .21
+          init: [-0.4, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_04
+    pushing_policies: *pushing_policies
+  l_shape_02:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: l_shape
+          width: .14
+          height: .21
+          init: [-0.4, 0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_02
+    pushing_policies: *pushing_policies
+
+  t_shape_08:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: t_shape
+          width: .14
+          height: .21
+          init: [-0.4, -0.4, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_08
+    pushing_policies: *pushing_policies
+  t_shape_06:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: t_shape
+          width: .14
+          height: .21
+          init: [-0.4, -0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_06
+    pushing_policies: *pushing_policies
+  t_shape_04:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: t_shape
+          width: .14
+          height: .21
+          init: [-0.4, 0.0, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_04
+    pushing_policies: *pushing_policies
+  t_shape_02:
+    env_configuration:
+      !EvalEnv
+      <<: *env_base_config
+      objects:
+        - !ObjectConf
+          idx: 0
+          shape: t_shape
+          width: .14
+          height: .21
+          init: [-0.4, 0.2, 0.0]
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *circ_02
+    pushing_policies: *pushing_policies
+
+
+max_eval_steps: 2000

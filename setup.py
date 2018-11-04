@@ -95,5 +95,5 @@ setup(
                       'PyYAML',
                       'baselines',
                       'tensorflow',
-                      'cloudpickle']
+                      'cloudpickle', 'mpi4py']
 )

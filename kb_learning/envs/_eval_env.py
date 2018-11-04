@@ -1,6 +1,8 @@
+import gym_kilobots
 import yaml
+
 from gym_kilobots.envs import KilobotsEnv
-from gym_kilobots.lib import CircularGradientLight, GradientLight, SimplePhototaxisKilobot
+from gym_kilobots.lib import CircularGradientLight, GradientLight
 
 from gym_kilobots.lib import Quad, CornerQuad, Circle, Triangle, LForm, TForm, CForm
 
@@ -72,7 +74,7 @@ class EvalEnv(KilobotsEnv):
         self._init_kilobots(self.conf.kilobots.num, self.conf.kilobots.mean, self.conf.kilobots.std)
 
     def _init_object(self, object_shape, object_width, object_height, object_init):
-        if object_shape in ['quad', 'rect']:
+        if object_shape in ['square', 'quad', 'rect']:
             obj = Quad(width=object_width, height=object_height,
                 position=object_init[:2], orientation=object_init[2],
                 world=self.world)
@@ -104,7 +106,7 @@ class EvalEnv(KilobotsEnv):
 
         self._add_object(obj)
 
-    def _init_kilobots(self, num_kilobots, spawn_mean, spawn_std):
+    def _init_kilobots(self, num_kilobots, spawn_mean, spawn_std, type='SimplePhototaxisKilobot'):
         # draw the kilobots positions from a normal with mean and variance selected above
         kilobot_positions = np.random.normal(scale=spawn_std, size=(num_kilobots, 2))
         kilobot_positions += spawn_mean
@@ -113,22 +115,25 @@ class EvalEnv(KilobotsEnv):
         for position in kilobot_positions:
             position = np.maximum(position, self.world_bounds[0] + 0.02)
             position = np.minimum(position, self.world_bounds[1] - 0.02)
-            self._add_kilobot(SimplePhototaxisKilobot(self.world, position=position, light=self._light))
+            kb_class = getattr(gym_kilobots.lib, type)
+            self._add_kilobot(kb_class(self.world, position=position, light=self._light))
 
     def get_reward(self, state, action, new_state):
         return .0
 
     def _draw_on_table(self, screen):
         if self.assembly_policy:
-            way_points = self.assembly_policy.way_points
-            for i in range(self.assembly_policy.idx, len(way_points)):
-                self._draw_object_ghost(screen, self.assembly_policy.way_points[i].pose)
-            self._draw_path(screen, [wp.position for wp in way_points[self.assembly_policy.idx:]])
+            for wp in self.assembly_policy.remaining:
+                from gym_kilobots.kb_plotting import get_body_from_shape
+                body = get_body_from_shape(wp.shape, wp.width, wp.height, wp.pose)
+                body.set_color((190, 190, 210))
+                body.set_highlight_color((210, 190, 190))
+                body.draw(screen)
+            self._draw_path(screen, [wp.position for wp in self.assembly_policy.remaining])
 
     def _draw_on_top(self, screen):
         if self.path:
-            trajectory_points = self.path.trajectory_points[self.path.idx:]
-            self._draw_path(screen, trajectory_points, color=(150, 0, 150))
+            self._draw_path(screen, [wp.position for wp in self.path.remaining], color=(150, 0, 150))
 
     def _draw_object_ghost(self, screen, pose, width=.15, height=.15):
         # draw the desired pose as grey square
@@ -153,48 +158,3 @@ class EvalEnv(KilobotsEnv):
         for p in path[1:]:
             screen.draw_line(start, p, color, width=.003)
             start = p
-
-
-class EvalEnvConfiguration(yaml.YAMLObject):
-    yaml_tag = '!EvalEnv'
-
-    class ObjectConfiguration(yaml.YAMLObject):
-        yaml_tag = '!ObjectConf'
-
-        def __init__(self, shape, width, height, init):
-            self.shape = shape
-            self.width = width
-            self.height = height
-            self.init = init
-
-    class LightConfiguration(yaml.YAMLObject):
-        yaml_tag = '!LightConf'
-
-        def __init__(self, obj_type, init, radius=None):
-            self.type = obj_type
-            self.init = init
-            self.radius = radius
-
-    class KilobotsConfiguration(yaml.YAMLObject):
-        yaml_tag = '!KilobotsConf'
-
-        def __init__(self, num, mean, std):
-            self.num = num
-            self.mean = mean
-            self.std = std
-
-    def __init__(self, width, height, resolution, objects, light, kilobots):
-        self.width = width
-        self.height = height
-        self.resolution = resolution
-        self.objects = [self.ObjectConfiguration(**obj) for obj in objects]
-        self.light = self.LightConfiguration(**light)
-        self.kilobots = self.KilobotsConfiguration(**kilobots)
-
-
-class UnknownObjectException(Exception):
-    pass
-
-
-class UnknownLightTypeException(Exception):
-    pass

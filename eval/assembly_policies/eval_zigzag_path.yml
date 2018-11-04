@@ -1,0 +1,64 @@
+env_configuration:
+  !EvalEnv
+  width: 2.0
+  height: 1.5
+  resolution: 500
+
+  objects:
+    - &obj0 !ObjectConf
+      idx: 0
+      shape: corner-quad
+      width: .15
+      height: .15
+      init: [-0.5, -0.5, .0]
+
+  light: !LightConf
+    type: circular
+    radius: .2
+    init: [-0.7, -0.5]
+
+  kilobots: !KilobotsConf
+    num: 15
+    mean: [-0.7, -0.5]
+    std: .03
+
+assembly_policy_config:
+  !AssemblyPolicy
+  way_points:
+    - !AssemblyWayPoint {object: *obj0, x: -0.5, y: -0.5, theta: 0.0,
+                         orientation_accuracy: 0.05, position_accuracy: 0.05}
+    - !AssemblyWayPoint {object: *obj0, x: -0.3, y: 0.5, theta: 1.576,
+                         orientation_accuracy: 0.05, position_accuracy: 0.05}
+    - !AssemblyWayPoint {object: *obj0, x: -0.1, y: -0.5, theta: 3.1415,
+                         orientation_accuracy: 0.05, position_accuracy: 0.05}
+    - !AssemblyWayPoint {object: *obj0, x: 0.1, y: 0.5, theta: 4.7124,
+                         orientation_accuracy: 0.05, position_accuracy: 0.05}
+    - !AssemblyWayPoint {object: *obj0, x: 0.3, y: -0.5, theta: 6.2831,
+                         orientation_accuracy: 0.05, position_accuracy: 0.05}
+    - !AssemblyWayPoint {object: *obj0, x: 0.5, y: 0.5, theta: 1.576,
+                         orientation_accuracy: 0.05, position_accuracy: 0.05}
+
+pushing_policies: &pushing_policies
+  - object_type: null
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/square_w_factor{w_factor}.pkl'
+  - object_type: 'square'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/square_w_factor{w_factor}.pkl'
+  - object_type: 'rect'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/rect_w_factor{w_factor}.pkl'
+  - object_type: 'triangle'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/triangle_w_factor{w_factor}.pkl'
+  - object_type: 'l_shape'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/l_shape_w_factor{w_factor}.pkl'
+  - object_type: 't_shape'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/t_shape_w_factor{w_factor}.pkl'
+  - object_type: 'c_shape'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/c_shape_w_factor{w_factor}.pkl'
+
+max_eval_steps: 5000

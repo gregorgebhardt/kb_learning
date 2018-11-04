@@ -69,8 +69,8 @@ class SparseWeightedGPyWrapper:
             logger.debug(self.kernel.kilobots_bandwidth)
             if self.kernel.light_dim:
                 logger.debug(self.kernel.light_bandwidth)
-            if self.kernel.weight_dim:
-                logger.debug(self.kernel.weight_bandwidth)
+            if self.kernel.extra_dim:
+                logger.debug(self.kernel.extra_dim_bandwidth)
             if self.kernel.action_dim:
                 logger.debug(self.kernel.action_bandwidth)
 

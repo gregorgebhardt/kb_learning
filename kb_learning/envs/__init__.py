@@ -2,10 +2,12 @@ from ._object_env import ObjectEnv
 from ._object_relative_env import ObjectRelativeEnv
 from ._object_absolute_env import ObjectAbsoluteEnv
 from ._pose_control_env import PoseControlEnv
-from ._eval_env import EvalEnv, EvalEnvConfiguration
+from ._eval_env import EvalEnv
 from ._env_wrapper import NormalizeActionWrapper
 
 from .sampler import SARSSampler, ParallelSARSSampler
+
+from typing import Union
 
 
 def _check_parameters(*, num_kilobots, object_width, object_height, light_type, **kwargs):
@@ -20,14 +22,16 @@ def _check_parameters(*, num_kilobots, object_width, object_height, light_type, 
 
     assert .0 < object_height, "`object_height` has to be a positive float"
 
-    assert light_type in ['circular', 'linear'], "`light_type` has to be in ['circular', 'linear']"
+    assert light_type in ['circular', 'linear', 'dual'], "`light_type` has to be in ['circular', 'linear', 'dual']"
     if light_type == 'circular':
         assert 'light_radius' in kwargs, '`light_radius` is required parameter if `light_type` is `circular`'
         assert kwargs['light_radius'] > .0, "`light_radius` has to be positive."
 
 
 def register_object_relative_env(weight: float, num_kilobots: int, object_shape: str, object_width: float,
-                                 object_height: float, light_type: str, light_radius: float = None):
+                                 object_height: float, observe_object: Union[str, bool], light_type: str, light_radius:
+                                                                                                      float = \
+    None):
     from gym.envs.registration import register, registry
 
     _check_parameters(weight=weight, num_kilobots=num_kilobots, object_shape=object_shape, object_width=object_width,
@@ -44,7 +48,8 @@ def register_object_relative_env(weight: float, num_kilobots: int, object_shape:
 
     register(id=_id, entry_point='kb_learning.envs:ObjectRelativeEnv',
              kwargs=dict(object_shape=object_shape, object_width=object_width, object_height=object_height,
-                         num_kilobots=num_kilobots, weight=weight, light_type=light_type, light_radius=light_radius))
+                         observe_object=observe_object, num_kilobots=num_kilobots, weight=weight,
+                         light_type=light_type, light_radius=light_radius))
 
     return _id
 

@@ -1,0 +1,72 @@
+base_env_configuration: &env_base_config
+  !EvalEnv
+  width: 1.2
+  height: 1.0
+  resolution: 600
+
+  objects:
+    - &obj0 !ObjectConf
+      idx: 0
+      shape: c_shape
+      width: .14
+      height: .21
+      init: [-0.35, 0.2, 0.0]
+    - &obj1 !ObjectConf
+      idx: 1
+      shape: t_shape
+      width: .14
+      height: .21
+      init: [-0.35, -0.1, 0.0]
+
+  light: !LightConf
+    type: circular
+    radius: .2
+    init: [-0.5, 0.05]
+
+  kilobots: !KilobotsConf
+    num: 10
+    mean: [-0.5, 0.05]
+    std: .01
+
+pushing_policies: &ct_pushing_policies
+  - object_type: 't_shape'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/t_shape_w_factor{w_factor}.pkl'
+  - object_type: 'c_shape'
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/c_shape_w_factor{w_factor}.pkl'
+
+square_pushing_policy: &square_pushing_policy
+  - object_type: null
+    w_factors: [0.0, 0.5, 1.0]
+    path_template: 'policies/kernel_based/fixed_weight/square_w_factor{w_factor}.pkl'
+
+
+way_points: &way_points
+  - !AssemblyWayPoint {obj_conf: *obj0, x: 0.1, y: -0.00, theta: 0.0,
+                       orientation_accuracy: 0.35, position_accuracy: 0.05}
+  - !AssemblyWayPoint {obj_conf: *obj0, x: 0.3, y: 0.05, theta: 1.570796,
+                         orientation_accuracy: 0.2, position_accuracy: 0.03}
+  - !AssemblyWayPoint {obj_conf: *obj1, x: 0.3, y: -0.25, theta: -1.570796,
+                       orientation_accuracy: 0.3, position_accuracy: 0.05}
+  - !AssemblyWayPoint {obj_conf: *obj1, x: 0.3, y: -0.05, theta: -1.570796,
+                         orientation_accuracy: 0.2, position_accuracy: 0.02}
+  - !AssemblyWayPoint {obj_conf: *obj0, x: 0.3, y: 0.05, theta: 1.570796,
+                       orientation_accuracy: 0.2, position_accuracy: 0.03}
+
+eval_configurations:
+  ct_shape_policies:
+    env_configuration: *env_base_config
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *way_points
+    pushing_policies: *ct_pushing_policies
+  square_policy:
+    env_configuration: *env_base_config
+    assembly_policy_config:
+      !AssemblyPolicy
+      way_points: *way_points
+    pushing_policies: *square_pushing_policy
+
+
+max_eval_steps: 4000

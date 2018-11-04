@@ -1,5 +1,7 @@
 import abc
 import multiprocessing
+import threading
+import time
 from typing import Tuple, List
 
 import numpy as np
@@ -57,7 +59,8 @@ class KilobotSampler(object):
 
 class ObjectEnvSampler(KilobotSampler):
     def __init__(self, registration_function, w_factor=.0, num_kilobots=15, object_shape='quad',
-                 object_width=.15, object_height=.15, light_type='circular', light_radius=.2, *args, **kwargs):
+                 object_width=.15, object_height=.15, observe_object=False, light_type='circular',
+                 light_radius=.2, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.w_factor = w_factor
         self.num_kilobots = num_kilobots
@@ -65,6 +68,7 @@ class ObjectEnvSampler(KilobotSampler):
         self.object_shape = object_shape
         self.object_width = object_width
         self.object_height = object_height
+        self.observe_object = observe_object
 
         self.light_type = light_type
         self.light_radius = light_radius
@@ -85,8 +89,8 @@ class ObjectEnvSampler(KilobotSampler):
     def _get_env_id(self):
         return self.registration_function(weight=self.w_factor, num_kilobots=self.num_kilobots,
                                           object_shape=self.object_shape, object_width=self.object_width,
-                                          object_height=self.object_height, light_type=self.light_type,
-                                          light_radius=self.light_radius)
+                                          object_height=self.object_height, observe_object=self.observe_object,
+                                          light_type=self.light_type, light_radius=self.light_radius)
 
 
 class SARSSampler(ObjectEnvSampler):
@@ -130,11 +134,11 @@ envs = []
 
 
 def _init_worker(registration_function, num_environments, w_factor, num_kilobots, object_shape, object_width,
-                 object_height, light_type, light_radius):
+                 object_height, observe_object, light_type, light_radius):
     global envs
     env_id = registration_function(weight=w_factor, num_kilobots=num_kilobots, object_shape=object_shape,
-                                   object_width=object_width, object_height=object_height, light_type=light_type,
-                                   light_radius=light_radius)
+                                   object_width=object_width, object_height=object_height,
+                                   observe_object=observe_object, light_type=light_type, light_radius=light_radius)
     envs = [gym.make(env_id) for _ in range(num_environments)]
 
 
@@ -166,6 +170,8 @@ def _do_work(policy_dict, num_episodes, num_steps, seed, work_seed):
         policy = SparseWeightedGPyWrapper.from_dict(policy_dict)
     elif policy_class == 'SparseWeightedGP':
         policy = SparseWeightedGP.from_dict(policy_dict)
+    # elif policy_class == 'MultiAgentPolicy':
+    #     policy = MultiAgentPolicy.from_dict(policy_dict)
     else:
         raise UnknownPolicyClassException()
 
@@ -191,6 +197,14 @@ def _do_work(policy_dict, num_episodes, num_steps, seed, work_seed):
         it_info_data[step::num_steps, :] = np.array(list(i['state'] for i in info))
 
     return it_sars_data, it_info_data
+
+
+def _joblib_work(init_args, work_args):
+    _init_worker(*init_args)
+    return _do_work(*work_args)
+
+
+pool_creation_lock = threading.Lock()
 
 
 class ParallelSARSSampler(SARSSampler):
@@ -225,18 +239,26 @@ class ParallelSARSSampler(SARSSampler):
         # for the cluster it is necessary to use the context forkserver here, using a forkserver prevents the
         # forked processes from taking over handles to files and similar stuff
         self._context = multiprocessing.get_context(self._mp_context)
-        return self._context.Pool(processes=self._num_workers, initializer=_init_worker,
-                                  initargs=[self.registration_function, self._episodes_per_worker, self.w_factor,
-                                            self.num_kilobots, self.object_shape, self.object_width,
-                                            self.object_height, self.light_type, self.light_radius])
+        for i in range(5):
+            try:
+                return self._context.Pool(processes=self._num_workers, initializer=_init_worker,
+                                          initargs=[self.registration_function, self._episodes_per_worker, self.w_factor,
+                                                    self.num_kilobots, self.object_shape, self.object_width,
+                                                    self.object_height, self.observe_object, self.light_type,
+                                                    self.light_radius])
+            except Exception as e:
+                logger.warning('Caught error while creating pool ({}): '.format(i+1) + str(e))
+                if i == 4:
+                    raise
+                time.sleep(2)
 
     def _sample_sars(self, policy, num_episodes, num_steps_per_episode):
         if self._num_workers == 1:
             return super(ParallelSARSSampler, self)._sample_sars(policy, num_episodes, num_steps_per_episode)
         else:
-            if self.__pool is None:
-                self._episodes_per_worker = (self.max_episodes // self._num_workers) + 1
-                self.__pool = self._create_pool()
+            self._episodes_per_worker = (self.max_episodes // self._num_workers) + 1
+            # if self.__pool is None:
+            #     self.__pool = self._create_pool()
             episodes_per_work = [num_episodes // self._num_workers] * self._num_workers
             for i in range(num_episodes % self._num_workers):
                 episodes_per_work[i] += 1
@@ -249,8 +271,16 @@ class ParallelSARSSampler(SARSSampler):
 
             for i in range(self._num_restarts):
                 try:
-                    results = self.__pool.starmap_async(_do_work, work, error_callback=self.__error_callback).get(
-                        self._pool_timeout)
+                    from joblib import Parallel, delayed
+                    initargs = [self.registration_function, self._episodes_per_worker, self.w_factor,
+                                self.num_kilobots, self.object_shape, self.object_width,
+                                self.object_height, self.observe_object, self.light_type,
+                                self.light_radius]
+
+                    p = Parallel(n_jobs=self._num_workers, backend='multiprocessing')
+                    results = p(delayed(_joblib_work)(init_args=initargs, work_args=w) for w in work)
+                    # results = self.__pool.starmap_async(_do_work, work, error_callback=self.__error_callback).get(
+                    #     self._pool_timeout)
                     break
                 except multiprocessing.TimeoutError:
                     logger.warning('got TimeoutError, restarting.')
