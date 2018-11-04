@@ -1,0 +1,58 @@
+---
+# DEFAULT
+name: "DEFAULT"
+repetitions: 3
+iterations: 150
+path: "data/trpo_ma"
+gui: false
+
+params: {}
+
+env_config:
+  !EvalEnv
+  width: 1.0
+  height: 1.0
+  resolution: 600
+
+  objects:
+    - !ObjectConf
+      idx: 0
+      shape: square
+      width: .15
+      height: .15
+      init: random
+    - !ObjectConf
+      idx: 1
+      shape: square
+      width: .15
+      height: .15
+      init: random
+    - !ObjectConf
+      idx: 2
+      shape: square
+      width: .15
+      height: .15
+      init: random
+    - !ObjectConf
+      idx: 3
+      shape: square
+      width: .15
+      height: .15
+      init: random
+
+  kilobots: !KilobotsConf
+    num: 10
+    mean: random
+    std: .03
+
+---
+name: "test"
+iterations: 400
+
+params:
+  policy:
+    swarm_size: [64, 64]
+    hidden_size: [128]
+
+---
+name: "test2"

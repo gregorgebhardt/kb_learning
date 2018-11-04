@@ -1,0 +1,91 @@
+---
+# DEFAULT
+name: "DEFAULT"
+repetitions: 3
+iterations: 150
+path: "data/ppo_mo"
+gui: false
+
+params:
+  sampling:
+    num_workers: 40
+
+env_config:
+  !EvalEnv
+  width: 1.0
+  height: 1.0
+  resolution: 600
+
+  objects:
+    - !ObjectConf
+      idx: 0
+      shape: square
+      width: .15
+      height: .15
+      init: random
+    - !ObjectConf
+      idx: 1
+      shape: square
+      width: .15
+      height: .15
+      init: random
+
+
+  light: !LightConf
+    type: momentum
+    radius: .2
+    init: random
+
+  kilobots: !KilobotsConf
+    num: 10
+    mean: light
+    std: .03
+
+---
+name: "test"
+iterations: 400
+
+params:
+  sampling:
+    num_worker_steps: 300
+    done_after_steps: 300
+  policy:
+    swarm_size: [64]
+    light_size: [64]
+    objects_size: [64]
+    concat_size: [64]
+  ppo:
+    learning_rate: 6.e-4
+    gamma: 0.99
+    lambda: 0.95
+    clip_range: 0.1
+    num_threads: 40
+    num_train_epochs: 4
+
+#list:
+#  sampling:
+#    w_factor: [.0, .5, 1.]
+---
+name: "create_model"
+iterations: 1
+repetitions: 1
+
+params:
+  sampling:
+    num_workers: 1
+    num_worker_steps: 50
+    done_after_steps: 50
+    num_minibatches: 1
+  policy:
+    swarm_size: [64]
+    light_size: [64]
+    objects_size: [64]
+    concat_size: [64]
+  ppo:
+    learning_rate: 6.e-4
+    gamma: 0.99
+    lambda: 0.95
+    clip_range: 0.1
+    num_threads: 40
+    num_train_epochs: 1
+  updates_per_iteration: 5

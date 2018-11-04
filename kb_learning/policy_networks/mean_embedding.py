@@ -1,10 +1,11 @@
-import baselines.common.tf_util as U
 import tensorflow as tf
 import tensorflow.contrib as tfc
 
+import baselines.common.tf_util as U
+
 
 class MeanEmbedding:
-    def __init__(self, input_ph, hidden_sizes, nr_obs, dim_obs, layer_norm=False):
+    def __init__(self, input_ph, hidden_sizes, nr_obs, dim_obs, activation=tf.nn.leaky_relu, layer_norm=False):
 
         reshaped_input = tf.reshape(input_ph, shape=(-1, int(dim_obs)))
 
@@ -18,7 +19,7 @@ class MeanEmbedding:
                     last_out = tfc.layers.layer_norm(last_out)
                     # tf.summary.scalar(last_out.name + '_norm', last_out)
 
-                last_out = tf.nn.leaky_relu(last_out)
+                last_out = activation(last_out)
                 # tf.summary.histogram(last_out.name + '_hist', last_out)
 
             fc_out = last_out
@@ -31,4 +32,4 @@ class MeanEmbedding:
         last_out_mean = tf.reduce_mean(reshaped_output, axis=1)
         # tf.summary.histogram(last_out_mean.name + '_hist', last_out_mean)
 
-        self.me_out = last_out_mean
+        self.out = last_out_mean

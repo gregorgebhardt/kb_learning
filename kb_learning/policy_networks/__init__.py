@@ -1,2 +1,2 @@
-from .me_mlp import me_mlp
-from .mlp import mlp
+from .swarm_policy_network import swarm_policy_network
+from .multi_layer_perceptron import mlp

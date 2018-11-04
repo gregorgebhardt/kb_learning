@@ -9,7 +9,6 @@ import multiprocessing
 
 import tensorflow as tf
 import cloudpickle
-import gym
 import numpy as np
 from baselines.bench.monitor import Monitor
 from baselines.common import explained_variance
@@ -19,10 +18,11 @@ from baselines.common.tf_util import make_session, get_session, save_variables, 
 from baselines.common.tf_util import initialize
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
 
-from cluster_work import ClusterWork, InvalidParameterArgument
+from cluster_work import ClusterWork
 
-from kb_learning.envs import register_object_env, NormalizeActionWrapper
-from kb_learning.policy_networks import mlp, swarm_policy_network
+from kb_learning.envs import NormalizeActionWrapper
+from kb_learning.envs import MultiObjectEnv
+from kb_learning.policy_networks import swarm_policy_network
 from kb_learning.tools import swap_flatten_01, const_fn, safe_mean
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -32,21 +32,13 @@ os.environ["KMP_AFFINITY"] = "granularity=fine,compact,1,0"
 logger = logging.getLogger('ppo')
 
 
-class PPOLearner(ClusterWork):
+class PPOMultiObjectLearner(ClusterWork):
     _restore_supported = True
     _default_params = {
         'sampling':              {
-            'num_kilobots':     15,
-            'w_factor':         .0,
             'num_workers':      10,
             'num_worker_steps': 500,
             'num_minibatches':  4,
-            'object_shape':     'quad',
-            'object_width':     .15,
-            'object_height':    .15,
-            'light_type':       'circular',
-            'light_radius':     .2,
-            'environment':      'relative',
             'done_after_steps': 125
         },
         'ppo':                   {
@@ -61,12 +53,13 @@ class PPOLearner(ClusterWork):
             'num_threads':          0,
         },
         'policy': {
-            'type': 'me_mlp',
-            'me_size': (128, 128),
-            'mlp_size': (128, 128)
+            'swarm_size': (128, 128),
+            'light_size': (128, 128),
+            'objects_size': (128, 128),
+            'concat_size': (128, 128)
         },
         'updates_per_iteration': 5,
-        'episode_info_length':   100,
+        'episode_info_length':   3000,
     }
 
     def __init__(self):
@@ -96,8 +89,6 @@ class PPOLearner(ClusterWork):
 
         self.ep_info_buffer = None
 
-        self.timer = .0
-
     def reset(self, config: dict, rep: int):
         if self._params['ppo']['num_threads'] == 0:
             self._params['ppo']['num_threads'] = multiprocessing.cpu_count()
@@ -125,33 +116,15 @@ class PPOLearner(ClusterWork):
         self.num_updates = config['iterations'] * self.updates_per_iteration
 
         # create environment
-        if self._params['sampling']['environment'] == 'relative':
-            logger.info('using object relative environment')
-            env_class = 'ObjectRelativeEnv'
-            extra_kw_args = dict(weight=self._params['sampling']['w_factor'])
-        elif self._params['sampling']['environment'] == 'absolute':
-            logger.info('using object absolute environment')
-            env_class = 'ObjectAbsoluteEnv'
-            extra_kw_args = dict()
-        else:
-            raise InvalidParameterArgument("Invalid argument for parameter 'sampling.environment: {}'".format(
-                self._params['sampling']['environment']))
-
-        env_id = register_object_env(entry_point='kb_learning.envs:' + env_class,
-                                     num_kilobots=self._params['sampling']['num_kilobots'],
-                                     object_shape=self._params['sampling']['object_shape'],
-                                     object_width=self._params['sampling']['object_width'],
-                                     object_height=self._params['sampling']['object_height'],
-                                     light_type=self._params['sampling']['light_type'],
-                                     light_radius=self._params['sampling']['light_radius'],
-                                     done_after_steps=self._params['sampling']['done_after_steps'],
-                                     **extra_kw_args)
-        proto_env = gym.make(env_id)
+        proto_env = MultiObjectEnv(configuration=config['env_config'],
+                                   done_after_steps=self._params['sampling']['done_after_steps'])
 
         def _make_env(i):
             def _make_env_i():
                 np.random.seed(self._seed + 10000 * i)
-                env = Monitor(NormalizeActionWrapper(gym.make(env_id)), None, True)
+                env = Monitor(NormalizeActionWrapper(MultiObjectEnv(configuration=config['env_config'],
+                                                                    done_after_steps=self._params['sampling'][
+                                                                        'done_after_steps'])), None, True)
                 return env
 
             return _make_env_i
@@ -161,32 +134,18 @@ class PPOLearner(ClusterWork):
         # wrap env in SubprocVecEnv
         self.env = SubprocVecEnv(envs)
 
-        ob_space = self.env.observation_space
-        ac_space = self.env.action_space
+        ob_space = proto_env.observation_space
+        ac_space = proto_env.action_space
 
         # create network
-        if self._params['policy']['type'] == 'me_mlp':
-            logger.info('using mean embedding policy')
-            network = swarm_policy_network(num_agents=self._params['sampling']['num_kilobots'],
-                                           light_dims=proto_env.light_observation_space.shape[0],
-                                           num_objects=len(proto_env.objects),
-                                           object_dims=proto_env.object_observation_space.shape[0])
-        elif self._params['policy']['type'] == 'mlp':
-            logger.info('using plain mlp policy')
-            network = mlp(size=self._params['policy']['mlp_size'])
-        elif self._params['policy']['type'] == 'mean_mlp':
-            logger.info('using plain mlp policy with mean wrapper')
-            from kb_learning.policy_networks.policy_decorator import compute_mean
-            network = compute_mean(mlp(size=self._params['policy']['mlp_size']),
-                                   num_kilobots=self._params['sampling']['num_kilobots'])
-        elif self._params['policy']['type'] == 'mean_var_mlp':
-            logger.info('using plain mlp policy with mean-variance wrapper')
-            from kb_learning.policy_networks.policy_decorator import compute_mean_var
-            network = compute_mean_var(mlp(size=self._params['policy']['mlp_size']),
-                                       num_kilobots=self._params['sampling']['num_kilobots'])
-        else:
-            raise InvalidParameterArgument("Invalid argument for parameter 'policy.type': {}".format(
-                self._params['policy']['type']))
+        network = swarm_policy_network(num_agents=proto_env.num_kilobots,
+                                       swarm_network_size=self._params['policy']['swarm_size'],
+                                       light_dims=proto_env.light_observation_space.shape[0],
+                                       light_network_size=self._params['policy']['light_size'],
+                                       num_objects=len(proto_env.objects),
+                                       object_dims=4,
+                                       objects_network_size=self._params['policy']['objects_size'],
+                                       concat_network_size=self._params['policy']['concat_size'])
 
         policy = build_policy(ob_space, ac_space, network)
 
@@ -234,6 +193,9 @@ class PPOLearner(ClusterWork):
 
             # sample environments
             obs, returns, masks, actions, values, neglogpacs, states, epinfos = self.runner.run()
+            logger.info('iteration {}: mean returns: {}  mean rewards: {}'.format(i_update, safe_mean(returns),
+                                                                                  safe_mean([e['r'] / e['l'] for e in
+                                                                                             epinfos])))
 
             # todo save trajectories from obs...
 
@@ -258,7 +220,6 @@ class PPOLearner(ClusterWork):
 
         time_elapsed = time.time() - time_update_start
         frames_per_second = int(self.steps_per_batch * self.updates_per_iteration / time_elapsed)
-        self.timer += time_elapsed
 
         return_values = {
             # compute elapsed number of steps
@@ -272,12 +233,9 @@ class PPOLearner(ClusterWork):
             'explained_variance':  float(explained_variance(values, returns)),
             # compute mean over episode rewards
             'episode_reward_mean': safe_mean([ep_info['r'] for ep_info in self.ep_info_buffer]),
+            'step_reward_mean': safe_mean([ep_info['r'] / ep_info['l'] for ep_info in self.ep_info_buffer]),
             # compute mean over episode lengths
             'episode_length_mean': safe_mean([ep_info['l'] for ep_info in self.ep_info_buffer]),
-            # elapsed time during iteration
-            'time_elapsed':        time_elapsed,
-            # elapsed time since starting the experiment
-            'total_time_elapsed':  self.timer
         }
 
         for k, v in return_values.items():
@@ -291,6 +249,8 @@ class PPOLearner(ClusterWork):
         self.session.close()
 
     def save_state(self, config: dict, rep: int, n: int):
+        # TODO save sampled trajectories
+
         # dump model only after the first iteration
         if n == 0:
             model_path = os.path.join(self._log_path_rep, 'make_model.pkl')
@@ -303,11 +263,10 @@ class PPOLearner(ClusterWork):
         self.model.save(parameters_path)
 
         # save seed and time information TODO remove
-        seed_time_path = os.path.join(self._log_path_it, 'seed_time')
-        logger.info('Saving seed and timer information to {}'.format(seed_time_path))
-        np_random_state = np.random.get_state()
-        with open(seed_time_path, 'wb') as fh:
-            cloudpickle.dump(dict(np_random_state=np_random_state, timer=self.timer), fh)
+        seed_path = os.path.join(self._log_path_it, 'seed')
+        logger.info('Saving seed to {}'.format(seed_path))
+        with open(seed_path, 'wb') as fh:
+            cloudpickle.dump(dict(np_random_state=np.random.get_state()), fh)
 
     def restore_state(self, config: dict, rep: int, n: int):
         # we do not need to restore the model as it is reconstructed from the parameters
@@ -317,14 +276,13 @@ class PPOLearner(ClusterWork):
         logger.info('Restoring parameters from {}'.format(parameters_path))
         self.model.load(parameters_path)
 
-        # restore seed and time TODO remove
-        seed_time_path = os.path.join(self._log_path_it, 'seed_time')
-        logger.info('Restoring seed and timer information to {}'.format(seed_time_path))
-        with open(seed_time_path, 'rb') as fh:
+        # restore seed TODO remove
+        seed_path = os.path.join(self._log_path_it, 'seed')
+        logger.info('Restoring seed and timer information to {}'.format(seed_path))
+        with open(seed_path, 'rb') as fh:
             d = cloudpickle.load(fh)
-            if 'timer' not in d or 'np_random_state' not in d:
+            if 'np_random_state' not in d:
                 return False
-            self.timer = d['timer']
             np.random.set_state(d['np_random_state'])
 
         return True
@@ -449,6 +407,7 @@ class Runner(AbstractEnvRunner):
         mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [], [], [], [], [], []
         mb_states = self.states
         epinfos = []
+        last_rewards = None
         for _ in range(self.nsteps):
             actions, values, self.states, neglogpacs = self.model.step(self.obs, S=self.states, M=self.dones)
             mb_obs.append(self.obs.copy())

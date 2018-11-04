@@ -1,6 +1,20 @@
-import tensorflow as tf
-from baselines.common.models import fc
 import numpy as np
+import tensorflow as tf
+import tensorflow.contrib as tfc
+from baselines.common.models import fc
+
+
+class MultiLayerPerceptron:
+    def __init__(self, X, hidden_sizes=(64, 64), activation=tf.nn.leaky_relu, layer_norm=False):
+
+        h = tf.layers.flatten(X)
+        for i, s in enumerate(hidden_sizes):
+            h = activation(fc(h, 'mlp_fc{}'.format(i), nh=s, init_scale=np.sqrt(2)))
+
+            if layer_norm:
+                h = tfc.layers.layer_norm(h)
+
+        self.out = h
 
 
 def mlp(size=(64, 64), activation=tf.nn.leaky_relu):
