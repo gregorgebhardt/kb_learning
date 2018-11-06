@@ -15,9 +15,9 @@ from baselines.common.mpi_adam import MpiAdam
 from cluster_work import ClusterWork
 from mpi4py import MPI
 
-from kb_learning.envs import NormalizeActionWrapper, MultiObjectDirectControlEnv
+from kb_learning.envs import NormalizeActionWrapper, MultiObjectEnv
 from kb_learning.policy_networks.trpo_policy import MlpPolicy
-from kb_learning.tools.trpo_tools import traj_segment_generator_ma, add_vtarg_and_adv_ma, flatten_lists, ActWrapper
+from kb_learning.tools.trpo_tools import add_vtarg_and_adv, flatten_lists, ActWrapper, traj_segment_generator
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["KMP_BLOCKTIME"] = "0"
@@ -26,7 +26,7 @@ os.environ["KMP_AFFINITY"] = "granularity=fine,compact,1,0"
 logger = logging.getLogger('trpo')
 
 
-class TRPOMultiAgentLearner(ClusterWork):
+class TRPOLearner(ClusterWork):
     _restore_supported = True
     _default_params = {
         'sampling': {
@@ -124,17 +124,15 @@ class TRPOMultiAgentLearner(ClusterWork):
             self._comm = MPI.COMM_WORLD
 
         # create env
-        env = MultiObjectDirectControlEnv(configuration=config['env_config'],
-                                          done_after_steps=self._params['sampling']['done_after_steps'])
+        env = MultiObjectEnv(configuration=config['env_config'],
+                             done_after_steps=self._params['sampling']['done_after_steps'])
 
         wrapped_env = NormalizeActionWrapper(env)
 
         # create policy function
         def policy_fn(name, ob_space, ac_space):
             return MlpPolicy(name=name, ob_space=ob_space, ac_space=ac_space,
-                             # we observe all other kilobots with (x, y, sin(th), cos(th), lin_vel, rot_vel)
-                             num_observed_kilobots=env.num_kilobots - 1, kilobot_dims=6,
-                             # we observe all objects with (x, y, sin(th), cos(th))
+                             num_observed_kilobots=env.num_kilobots, kilobot_dims=2,
                              num_observed_objects=len(env.objects), object_dims=4,
                              hid_size=self._params['policy']['hidden_size'],
                              kb_me_size=self._params['policy']['swarm_size'],
@@ -148,8 +146,9 @@ class TRPOMultiAgentLearner(ClusterWork):
         np.set_printoptions(precision=3)
         # Setup losses and stuff
         # ----------------------------------------
-        pi = policy_fn("pi", env.observation_space, env.kilobots[0].action_space)
-        oldpi = policy_fn("oldpi", env.observation_space, env.kilobots[0].action_space)
+        pi = policy_fn("pi", env.observation_space, env.action_space)
+        oldpi = policy_fn("oldpi", env.observation_space, env.action_space)
+
         atarg = tf.placeholder(dtype=tf.float32, shape=[None])  # Target advantage function (if applicable)
         ret = tf.placeholder(dtype=tf.float32, shape=[None])  # Empirical return
 
@@ -177,6 +176,7 @@ class TRPOMultiAgentLearner(ClusterWork):
         var_list = [v for v in all_var_list if v.name.split("/")[1].startswith("pol")]
         var_list.extend([v for v in all_var_list if v.name.split("/")[1].startswith("me")])
         vf_var_list = [v for v in all_var_list if v.name.split("/")[1].startswith("vf")]
+
         self.vfadam = MpiAdam(vf_var_list, comm=self._comm)
 
         self.get_flat = tf_util.GetFlat(var_list)
@@ -190,13 +190,12 @@ class TRPOMultiAgentLearner(ClusterWork):
             sz = tf_util.intprod(shape)
             tangents.append(tf.reshape(flat_tangent[start:start + sz], shape))
             start += sz
-        gvp = tf.add_n(
-            [tf.reduce_sum(g * tangent) for (g, tangent) in zipsame(klgrads, tangents)])  # pylint: disable=E1111
+        gvp = tf.add_n([tf.reduce_sum(g * tangent) for (g, tangent) in zipsame(klgrads, tangents)])
         fvp = tf_util.flatgrad(gvp, var_list)
 
         self.assign_old_eq_new = tf_util.function([], [], updates=[tf.assign(oldv, newv)
-                                                                   for (oldv, newv) in
-                                                                   zipsame(oldpi.get_variables(), pi.get_variables())])
+            for (oldv, newv) in zipsame(oldpi.get_variables(), pi.get_variables())])
+
         self.compute_losses = tf_util.function([ob, ac, atarg], losses)
         self.compute_lossandgrad = tf_util.function([ob, ac, atarg], losses + [tf_util.flatgrad(optimgain, var_list)])
         self.compute_fvp = tf_util.function([flat_tangent, ob, ac, atarg], fvp)
@@ -205,7 +204,7 @@ class TRPOMultiAgentLearner(ClusterWork):
         act_params = {
             'name':     "pi",
             'ob_space': env.observation_space,
-            'ac_space': env.kilobots[0].action_space,
+            'ac_space': env.action_space,
         }
 
         self.pi = ActWrapper(pi, act_params)
@@ -217,8 +216,8 @@ class TRPOMultiAgentLearner(ClusterWork):
         self.vfadam.sync()
         logger.info("Init param sum {}".format(th_init.sum()))
 
-        self.seg_gen = traj_segment_generator_ma(pi, wrapped_env, self._params['sampling']['timesteps_per_batch'],
-                                                 stochastic=True)
+        self.seg_gen = traj_segment_generator(pi, wrapped_env, self._params['sampling']['timesteps_per_batch'],
+                                              stochastic=True)
 
         self.gamma = self._params['trpo']['gamma']
         self.lam = self._params['trpo']['lambda']
@@ -240,19 +239,17 @@ class TRPOMultiAgentLearner(ClusterWork):
 
         with self.timed("sampling"):
             seg = self.seg_gen.__next__()
-        add_vtarg_and_adv_ma(seg, self.gamma, self.lam)
+        add_vtarg_and_adv(seg, self.gamma, self.lam)
 
-        ob = np.concatenate([s['ob'] for s in seg], axis=0)
-        ac = np.concatenate([s['ac'] for s in seg], axis=0)
-        atarg = np.concatenate([s['adv'] for s in seg], axis=0)
-        tdlamret = np.concatenate([s['tdlamret'] for s in seg], axis=0)
-        vpredbefore = np.concatenate([s["vpred"] for s in seg], axis=0)  # predicted value function before udpate
+        # ob, ac, atarg, ret, td1ret = map(np.concatenate, (obs, acs, atargs, rets, td1rets))
+        ob, ac, atarg, tdlamret = seg["ob"], seg["ac"], seg["adv"], seg["tdlamret"]
+        vpredbefore = seg["vpred"]  # predicted value function before udpate
         atarg = (atarg - atarg.mean()) / atarg.std()  # standardized advantage function estimate
 
-        # if hasattr(pi, "ret_rms"): pi.ret_rms.update(tdlamret)
-        # if hasattr(pi, "ob_rms"): pi.ob_rms.update(ob) # update running mean/std for policy
+        # if hasattr(self.pi, "ret_rms"): self.pi.ret_rms.update(tdlamret)
+        # if hasattr(self.pi, "ob_rms"): self.pi.ob_rms.update(ob)  # update running mean/std for policy
 
-        args = ob, ac, atarg
+        args = seg["ob"], seg["ac"], atarg
         fvpargs = [arr[::5] for arr in args]
 
         def fisher_vector_product(p):
@@ -271,7 +268,7 @@ class TRPOMultiAgentLearner(ClusterWork):
             assert np.isfinite(stepdir).all()
             shs = .5 * stepdir.dot(fisher_vector_product(stepdir))
             lm = np.sqrt(shs / self.max_kl)
-            # logger.log("lagrange multiplier:", lm, "gnorm:", np.linalg.norm(g))
+            # logger.info("lagrange multiplier:", lm, "gnorm:", np.linalg.norm(g))
             fullstep = stepdir / lm
             expectedimprove = g.dot(fullstep)
             surrbefore = lossbefore[0]
@@ -282,7 +279,7 @@ class TRPOMultiAgentLearner(ClusterWork):
                 self.set_from_flat(thnew)
                 meanlosses = surr, kl, *_ = self.allmean(np.array(self.compute_losses(*args)))
                 improve = surr - surrbefore
-                logger.info("Expected: {} Actual: {}".format(expectedimprove, improve))
+                logger.info("Expected: %.3f Actual: %.3f" % (expectedimprove, improve))
                 if not np.isfinite(meanlosses).all():
                     logger.info("Got non-finite value of losses -- bad!")
                 elif kl > self.max_kl * 1.5:
@@ -302,13 +299,12 @@ class TRPOMultiAgentLearner(ClusterWork):
 
         with self.timed("vf"):
             for _ in range(self.vf_iters):
-                for (mbob, mbret) in dataset.iterbatches((ob, tdlamret),
+                for (mbob, mbret) in dataset.iterbatches((seg["ob"], seg["tdlamret"]),
                                                          include_final_partial_batch=False, batch_size=64):
                     g = self.allmean(self.compute_vflossandgrad(mbob, mbret))
                     self.vfadam.update(g, self.vf_stepsize)
 
-        # lrlocal = (seg["ep_lens"], seg["ep_rets"]) # local values
-        lrlocal = (seg[0]["ep_lens"], seg[0]["ep_rets"])  # local values
+        lrlocal = (seg["ep_lens"], seg["ep_rets"])  # local values
         listoflrpairs = self._comm.allgather(lrlocal)  # list of tuples
         lens, rews = map(flatten_lists, zip(*listoflrpairs))
         self.lenbuffer.extend(lens)

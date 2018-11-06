@@ -49,18 +49,20 @@ class MultiObjectEnv(YamlKilobotsEnv):
     def get_state(self):
         return np.concatenate(tuple(k.get_position() for k in self._kilobots)
                               + (self._light.get_state(),)
-                              + tuple(o.get_pose() for o in self._objects))
+                               + tuple(o.get_pose() for o in self._objects))
 
     def get_info(self, state, action):
         return {}
 
     def get_observation(self):
-        observation = np.concatenate(tuple(k.get_position() for k in self._kilobots)
-                                     + (self._light.get_state(),))
+        observation = np.concatenate(tuple(k.get_position() for k in self._kilobots))
+
         for obj in self._objects:
             _object_orientation = obj.get_orientation()
             observation = np.r_[observation, obj.get_position(), np.sin(_object_orientation),
                                 np.cos(_object_orientation)]
+
+        observation = np.r_[observation, self._light.get_state()]
 
         return observation
 
@@ -149,15 +151,17 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
     def get_observation(self):
         # create local observations for each agent
         kb_states = np.array([[k.get_state()] for k in self._kilobots])
+        # local positions
         kb_rel_positions = -kb_states[..., :2] + kb_states[..., :2].reshape(1, -1, 2)
+        # local orientations
         kb_rel_orientations = -kb_states[..., [2]] + kb_states[..., 2].reshape(1, -1, 1)
-        # todo absolute velocities or relative velocities?
+        # absolute velocities
         kb_vel = np.tile(kb_states[..., 3:].reshape(1, -1, 2), (self.num_kilobots, 1, 1))
 
         # concat swarm observations
         A = np.concatenate((kb_rel_positions, np.sin(kb_rel_orientations), np.cos(kb_rel_orientations), kb_vel), axis=2)
 
-        # remove diagonal entries
+        # remove diagonal entries, i.e., self observations
         strided = np.lib.stride_tricks.as_strided
         m, _, d = A.shape
         s0, s1, s2 = A.strides
@@ -166,9 +170,11 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         # reshape to two dimensional matrix
         A = A.reshape(self.num_kilobots, -1)
 
-        # relative object observations
+        # local object observations
         obj_states = np.array([[o.get_pose() for o in self._objects]])
+        # local positions
         obj_rel_positions = -kb_states[..., :2].reshape(-1, 1, 2) + obj_states[..., :2]
+        # local orientations
         obj_rel_orientations = -kb_states[..., [2]] + obj_states[..., 2].reshape(1, -1, 1)
 
         B = np.concatenate((obj_rel_positions, np.sin(obj_rel_orientations), np.cos(obj_rel_orientations)), axis=2)
