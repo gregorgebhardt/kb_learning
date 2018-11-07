@@ -44,8 +44,8 @@ def main():
     model.load('policies/nn_based/ppo_mo/objs_2/model_parameters')
 
     env_config = yaml.load(env_config_yaml)
-    # env = NormalizeActionWrapper(MultiObjectEnv(env_config, done_after_steps=200))
-    env = MultiObjectEnv(configuration=env_config, done_after_steps=200)
+    env = NormalizeActionWrapper(MultiObjectEnv(configuration=env_config, done_after_steps=200))
+    # env = MultiObjectEnv(configuration=env_config, done_after_steps=200)
 
     obs = env.reset()
     states = model.initial_state

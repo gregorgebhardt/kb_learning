@@ -46,7 +46,7 @@ class PPOLearner(ClusterWork):
             'object_height':    .15,
             'light_type':       'circular',
             'light_radius':     .2,
-            'environment':      'relative',
+            'environment':      'absolute',
             'done_after_steps': 125
         },
         'ppo':                   {
@@ -62,8 +62,14 @@ class PPOLearner(ClusterWork):
         },
         'policy': {
             'type': 'me_mlp',
-            'me_size': (128, 128),
-            'mlp_size': (128, 128)
+            'swarm_network_type':   'me',
+            'swarm_network_size':   (64,),
+            'objects_network_type': 'mlp',
+            'object_dims':          4,
+            'objects_network_size': (64,),
+            'extra_dims':           2,
+            'extra_network_size':   (64,),
+            'concat_network_size':  (64,)
         },
         'updates_per_iteration': 5,
         'episode_info_length':   100,
@@ -167,10 +173,16 @@ class PPOLearner(ClusterWork):
         # create network
         if self._params['policy']['type'] == 'me_mlp':
             logger.info('using mean embedding policy')
-            network = swarm_policy_network(num_agents=self._params['sampling']['num_kilobots'],
-                                           light_dims=proto_env.light_observation_space.shape[0],
+            network = swarm_policy_network(num_agents=proto_env.num_kilobots,
+                                           swarm_network_size=self._params['policy']['swarm_network_size'],
+                                           swarm_network_type=self._params['policy']['swarm_network_type'],
                                            num_objects=len(proto_env.objects),
-                                           object_dims=proto_env.object_observation_space.shape[0])
+                                           object_dims=self._params['policy']['object_dims'],
+                                           objects_network_size=self._params['policy']['objects_network_size'],
+                                           objects_network_type=self._params['policy']['objects_network_type'],
+                                           extra_dims=self._params['policy']['extra_dims'],
+                                           exta_network_size=self._params['policy']['extra_network_size'],
+                                           concat_network_size=self._params['policy']['concat_network_size'])
         elif self._params['policy']['type'] == 'mlp':
             logger.info('using plain mlp policy')
             network = mlp(size=self._params['policy']['mlp_size'])
@@ -214,10 +226,13 @@ class PPOLearner(ClusterWork):
         self.ep_info_buffer = deque(maxlen=self._params['episode_info_length'])
 
     def iterate(self, config: dict, rep: int, n: int):
+        # set random seed for repetition and iteration
+        np.random.seed(self._seed)
+        tf.set_random_seed(self._seed)
+        random.seed(self._seed)
+
         if not self.graph.finalized:
             self.graph.finalize()
-
-        # TODO set seed from self._seed
 
         values = None
         returns = None
@@ -234,6 +249,9 @@ class PPOLearner(ClusterWork):
 
             # sample environments
             obs, returns, masks, actions, values, neglogpacs, states, epinfos = self.runner.run()
+            logger.info('iteration {}: mean return/step: {}  mean reward/step: {}'.format(i_update, safe_mean(returns),
+                                                                                  safe_mean([e['r'] / e['l'] for e in
+                                                                                             epinfos])))
 
             # todo save trajectories from obs...
 

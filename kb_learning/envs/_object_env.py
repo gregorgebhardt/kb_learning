@@ -16,6 +16,8 @@ class ObjectEnv(KilobotsEnv):
     _observe_objects = False
     _observe_light = True
 
+    __steps_per_action = 20
+
     # _light_max_dist = .4
     # _spawn_angle_mean = np.pi
     # _spawn_angle_variance = .5 * np.pi
@@ -67,7 +69,6 @@ class ObjectEnv(KilobotsEnv):
     def get_state(self):
         return np.concatenate(tuple(k.get_position() for k in self._kilobots)
                               + (self._light.get_state(),)
-                              + (([self._weight],) if self._sampled_weight else tuple())
                               + tuple(o.get_pose() for o in self._objects))
 
     def get_info(self, state, action):
@@ -143,8 +144,6 @@ class ObjectEnv(KilobotsEnv):
             self._init_dual_light()
         else:
             raise UnknownLightTypeException()
-
-        self.action_space = self._light.action_space
 
     def _sample_init_pos(self):
         spawn_randomly = np.random.rand() < np.abs(self._spawn_type_ratio)

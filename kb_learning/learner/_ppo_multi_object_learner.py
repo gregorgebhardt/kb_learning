@@ -53,10 +53,12 @@ class PPOMultiObjectLearner(ClusterWork):
             'num_threads':          0,
         },
         'policy': {
-            'swarm_size': (128, 128),
-            'light_size': (128, 128),
-            'objects_size': (128, 128),
-            'concat_size': (128, 128)
+            'swarm_network_size': (128, 128),
+            'swarm_network_type': 'me',
+            'light_network_size': (128, 128),
+            'objects_network_size': (128, 128),
+            'objects_network_type': 'me',
+            'concat_network_size': (128, 128)
         },
         'updates_per_iteration': 5,
         'episode_info_length':   3000,
@@ -139,13 +141,15 @@ class PPOMultiObjectLearner(ClusterWork):
 
         # create network
         network = swarm_policy_network(num_agents=proto_env.num_kilobots,
-                                       swarm_network_size=self._params['policy']['swarm_size'],
-                                       light_dims=proto_env.light_observation_space.shape[0],
-                                       light_network_size=self._params['policy']['light_size'],
+                                       swarm_network_size=self._params['policy']['swarm_network_size'],
+                                       swarm_network_type=self._params['policy']['swarm_network_type'],
+                                       extra_dims=proto_env.light_observation_space.shape[0],
+                                       exta_network_size=self._params['policy']['light_network_size'],
                                        num_objects=len(proto_env.objects),
                                        object_dims=4,
-                                       objects_network_size=self._params['policy']['objects_size'],
-                                       concat_network_size=self._params['policy']['concat_size'])
+                                       objects_network_size=self._params['policy']['objects_network_size'],
+                                       objects_network_type=self._params['policy']['objects_network_type'],
+                                       concat_network_size=self._params['policy']['concat_network_size'])
 
         policy = build_policy(ob_space, ac_space, network)
 
@@ -173,10 +177,13 @@ class PPOMultiObjectLearner(ClusterWork):
         self.ep_info_buffer = deque(maxlen=self._params['episode_info_length'])
 
     def iterate(self, config: dict, rep: int, n: int):
+        # set random seed for repetition and iteration
+        np.random.seed(self._seed)
+        tf.set_random_seed(self._seed)
+        random.seed(self._seed)
+
         if not self.graph.finalized:
             self.graph.finalize()
-
-        # TODO set seed from self._seed
 
         values = None
         returns = None

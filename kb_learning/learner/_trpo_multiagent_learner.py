@@ -31,7 +31,7 @@ class TRPOMultiAgentLearner(ClusterWork):
     _default_params = {
         'sampling': {
             'timesteps_per_batch': 2048,
-            'done_after_steps':    128
+            'done_after_steps':    1024
         },
         'trpo':     {
             'gamma':         0.99,

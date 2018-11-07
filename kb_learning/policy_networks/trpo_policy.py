@@ -73,16 +73,16 @@ class MlpPolicy(object):
         self.pdtype = make_pdtype(ac_space)
 
         # the observation is usually a tensor with shape num_agents x observation_dims
-        ob = tf_util.get_placeholder(name="ob", dtype=tf.float32, shape=(None, ob_space.shape[0]))
+        ob = tf_util.get_placeholder(name="ob", dtype=tf.float32, shape=(None, ob_space.shape[-1]))
 
         size_kilobot_obs = num_observed_kilobots * kilobot_dims
         size_objects_obs = num_observed_objects * object_dims
         # the first columns are the observations of the kilobots
-        kilobots_input_layer = tf.slice(ob, [0, 0], [-1, size_kilobot_obs])
+        kilobots_input_layer = tf.slice(ob, [0, 0], [-1, size_kilobot_obs], name='kb_slice')
         # followed by the observations of the objects
-        objects_input_layer = tf.slice(ob, [0, size_kilobot_obs], [-1, size_objects_obs])
+        objects_input_layer = tf.slice(ob, [0, size_kilobot_obs], [-1, size_objects_obs], name = 'ob_slice')
         # the extra dims can contain information about the agent, the target area or the light source
-        extra_input_layer = tf.slice(ob, [0, size_kilobot_obs + size_objects_obs], [-1, -1])
+        extra_input_layer = tf.slice(ob, [0, size_kilobot_obs + size_objects_obs], [-1, -1], name='ex_slice')
 
         with tf.variable_scope('vf'):
             with tf.variable_scope('me_kb'):
@@ -137,12 +137,12 @@ class MlpPolicy(object):
 
         stochastic = tf.placeholder(dtype=tf.bool, shape=())
         ac = tf_util.switch(stochastic, self.pd.sample(), self.pd.mode())
-        self._act = tf_util.function([stochastic, ob], [ac, self.vpred])
+        self._act = tf_util.function([ob, stochastic], [ac, self.vpred])
         # self._me_v = tf_util.function([ob], [me_v.me_out])
         # self._me_pi = tf_util.function([ob], [me_pi.me_out])
 
     def act(self, ob, stochastic=False):
-        ac1, vpred1 = self._act(stochastic, ob)
+        ac1, vpred1 = self._act(ob, stochastic)
         return ac1, vpred1
 
     def get_variables(self):

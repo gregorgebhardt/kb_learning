@@ -31,6 +31,8 @@ class ObjectAbsoluteEnv(ObjectEnv):
 
         self._done_after_steps = done_after_steps
 
+    @property
+    def state_space(self):
         _state_space_low = self.kilobots_space.low
         _state_space_high = self.kilobots_space.high
         if self.light_state_space:
@@ -40,8 +42,10 @@ class ObjectAbsoluteEnv(ObjectEnv):
             _state_space_low = np.concatenate((_state_space_low, self.object_state_space.low))
             _state_space_high = np.concatenate((_state_space_high, self.object_state_space.high))
 
-        self.state_space = spaces.Box(low=_state_space_low, high=_state_space_high, dtype=np.float32)
+        return spaces.Box(low=_state_space_low, high=_state_space_high, dtype=np.float32)
 
+    @property
+    def observation_space(self):
         _observation_spaces_low = self.kilobots_space.low
         _observation_spaces_high = self.kilobots_space.high
         if self.light_observation_space:
@@ -57,7 +61,7 @@ class ObjectAbsoluteEnv(ObjectEnv):
             # _observation_spaces_low = np.concatenate((_observation_spaces_low, self._object_observation_space.low))
             # _observation_spaces_high = np.concatenate((_observation_spaces_high, self._object_observation_space.high))
 
-        self.observation_space = spaces.Box(low=_observation_spaces_low, high=_observation_spaces_high,
+        return spaces.Box(low=_observation_spaces_low, high=_observation_spaces_high,
                                             dtype=np.float32)
 
     def get_desired_pose(self):
@@ -65,8 +69,8 @@ class ObjectAbsoluteEnv(ObjectEnv):
 
     def get_state(self):
         return np.concatenate(tuple(k.get_position() for k in self._kilobots)
-                              + (self._light.get_state(),)
-                              + tuple(o.get_pose() for o in self._objects))
+                              + tuple(o.get_pose() for o in self._objects)
+                              + (self._light.get_state(),))
 
     def get_info(self, state, action):
         return {'desired_pose': self._desired_pose}
@@ -81,31 +85,27 @@ class ObjectAbsoluteEnv(ObjectEnv):
         _object_sin_cos = ((np.sin(_object_orientation), np.cos(_object_orientation)),)
 
         return np.concatenate(tuple(k.get_position() for k in self._kilobots)
-                              + _light_position
                               # + (self._objects[0].get_pose(),)
                               + (self._objects[0].get_position(),)
                               + _object_sin_cos
+                              + _light_position
                               # + (self._object_desired,)
                               )
 
     def get_reward(self, old_state, action, new_state):
         # obj pose in frame of desired pose
-        old_obj_pose = old_state[-3:] - self._desired_pose
-        new_obj_pose = new_state[-3:] - self._desired_pose
+        old_obj_pose = old_state[-5:-2] - self._desired_pose
+        new_obj_pose = new_state[-5:-2] - self._desired_pose
+        # swarm_pos = old_state[:-5].reshape(-1, 2)
+        #
+        # reward_swarm = -np.sum(np.linalg.norm(swarm_pos - old_obj_pose[:2], axis=1)) / swarm_pos.shape[0]
+        #
+        # reward_obj = -np.linalg.norm(old_obj_pose[:2]) / 2 - np.abs(np.sin(old_obj_pose[2] / 2)) / 2
+        #
+        # reward = reward_swarm + np.exp(reward_swarm) * reward_obj
+
+        # THIS WAS WORKING
         reward = .0
-
-        # swarm_mean = compute_robust_mean_swarm_position(state[:2 * self._num_kilobots])
-
-        # punish distance of swarm to object
-        # reward -= .01 * ((swarm_mean - self.get_objects()[0].get_position()) ** 2).sum()
-
-        # # punish distance of light to swarm
-        # reward -= ((swarm_mean - self.get_light().get_state()) ** 2).sum()
-
-        # compute diff between old and new pose in the frame of the desired pose
-        # obj_diff = (old_obj_pose - new_obj_pose) - self._desired_pose
-        # reward += obj_diff.sum()
-
         # compute polar coordinates of object positions
         r_old = np.linalg.norm(old_obj_pose[:2])
         r_new = np.linalg.norm(new_obj_pose[:2])
@@ -114,25 +114,18 @@ class ObjectAbsoluteEnv(ObjectEnv):
         # compute differences between absolute orientations
         reward += 10 * np.exp(-(new_obj_pose[:2] ** 2).sum() / .5) * (np.abs(old_obj_pose[2]) - np.abs(new_obj_pose[2]))
 
-        # compute diff between desired and current pose
-        # dist_obj_pose = self._desired_pose - obj_pose
-        # dist_obj_pose[2] = np.abs(np.sin(dist_obj_pose[2] / 2))
-        # reward -= dist_obj_pose.dot(dist_obj_pose)
-
-        # print('{} reward: {}'.format(dist_obj_pose[2], reward))
-
         return reward
 
     def has_finished(self, state, action):
         # has finished if object reached goal pose with certain ε
-        obj_pose = state[-3:]
+        obj_pose = state[-5:-2]
         dist_obj_pose = self._desired_pose - obj_pose
         dist_obj_pose[2] = np.abs(np.sin(dist_obj_pose[2] / 2))
 
-        sq_error_norm = dist_obj_pose.dot(dist_obj_pose)
+        l2_norm = dist_obj_pose.dot(dist_obj_pose)
         # print('sq_error_norm: {}'.format(sq_error_norm))
 
-        if sq_error_norm < .005:
+        if l2_norm < .005:
             return True
 
         if self._sim_steps >= self._done_after_steps * self._steps_per_action:
@@ -142,11 +135,17 @@ class ObjectAbsoluteEnv(ObjectEnv):
         return False
 
     def _get_init_object_pose(self):
-        # sample the initial position uniformly from [-w/4, w/4] and [-h/4, h/4] (w = width, h = height)
-        # TODO make area larger?
-        _object_init_position = np.random.rand(2) * np.array(self.world_size) / 4 + np.array(self.world_bounds[0]) / 2
-        # sample the initial orientation uniformly from [-π, +π] TODO revert to full 2π range
-        _object_init_orientation = np.random.rand() * np.pi - np.pi / 2
+        # sample initial position as polar coordinates
+        # get the min of width, height
+        min_extend = max(self.world_size)
+        # sample the radius between [min_ext/6, 2min_ext/6]
+        radius = np.random.rand() * min_extend / 6 + min_extend / 6
+        # sample the angle uniformly from [-π, +π]
+        angle = np.random.rand() * np.pi * 2 - np.pi
+        _object_init_position = np.array([np.cos(angle), np.sin(angle)]) * radius
+
+        # sample the initial orientation uniformly from [-π, +π]
+        _object_init_orientation = np.random.rand() * np.pi * 2 - np.pi
         self._object_init = np.concatenate((_object_init_position, [_object_init_orientation]))
         
         return self._object_init

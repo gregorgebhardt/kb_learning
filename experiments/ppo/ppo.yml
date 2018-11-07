@@ -59,17 +59,20 @@ iterations: 100
 params:
   sampling:
     num_kilobots: 10
+    num_workers: 24
     num_worker_steps: 250
     environment: 'absolute'
-    done_after_steps: 125
-    policy:
-      me_size: [256, 256]
-      mlp_size: [256, 256]
-    ppo:
-      learning_rate: 6.e-4
-      gamma: 0.99
-      lambda: 0.95
-      clip_range: 0.1
+    done_after_steps: 250
+  policy:
+    swarm_network_size: [64, 64]
+    light_network_size: null
+    objects_network_size: null
+    concat_network_size: [64]
+  ppo:
+    learning_rate: 6.e-4
+    gamma: 0.99
+    lambda: 0.95
+    clip_range: 0.2
 ---
 name: "eval_policy_type"
 iterations: 100
@@ -82,8 +85,10 @@ params:
     environment: 'relative'
     done_after_steps: 125
   policy:
-    me_size: [256, 256]
-    mlp_size: [256, 256]
+    swarm_network_size: [256, 256]
+    light_network_size: null
+    objects_network_size: null
+    concat_network_size: [256, 256]
   ppo:
     learning_rate: 6.e-4
     gamma: 0.99
@@ -97,11 +102,30 @@ grid:
     type: ['mlp', 'me_mlp', 'mean_mlp', 'mean_var_mlp']
 
 ---
-name: "eval_num_kilobots"
-grid:
+name: "eval_network_size"
+
+params:
   sampling:
-    num_kilobots: [5, 10, 15]
-    w_factor: [.0, .5, 1.]
+    num_kilobots: 10
+    num_workers: 16
+    num_worker_steps: 500
+    environment: 'absolute'
+    done_after_steps: 250
+  policy:
+    swarm_network_size: [64]
+    light_network_size: null
+    objects_network_size: null
+    concat_network_size: [64]
+  ppo:
+    learning_rate: 6.e-4
+    gamma: 0.99
+    lambda: 0.95
+    clip_range: 0.2
+
+grid:
+  policy:
+    swarm_network_size: [[64], [128], [64, 64]]
+    concat_network_size: [[64], [128], [64, 64]]
 ---
 name: "eval_direct_input"
 
@@ -113,3 +137,28 @@ params:
 grid:
   sampling:
     num_kilobots: [5, 10, 15]
+
+---
+name: 'create_model'
+iterations: 1
+repetitions: 1
+
+params:
+  sampling:
+    num_kilobots: 10
+    num_workers: 1
+    num_worker_steps: 250
+    num_minibatches: 1
+    environment: 'absolute'
+    done_after_steps: 125
+  policy:
+    swarm_network_size: [256, 256]
+    light_network_size: [256, 256]
+    objects_network_size: null
+    concat_network_size: [256, 256]
+    ppo:
+      learning_rate: 6.e-4
+      num_train_epochs: 1
+      gamma: 0.99
+      lambda: 0.95
+      clip_range: 0.1
