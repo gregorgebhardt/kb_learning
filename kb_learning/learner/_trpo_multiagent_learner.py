@@ -1,11 +1,14 @@
 import logging
 import os
 import random
+import tempfile
 import time
+import zipfile
 from collections import deque
 from contextlib import contextmanager
 from typing import Generator
 
+import cloudpickle
 import tensorflow as tf
 import numpy as np
 from baselines.common import tf_util, explained_variance, colorize, zipsame, dataset
@@ -24,14 +27,15 @@ os.environ["KMP_BLOCKTIME"] = "0"
 os.environ["KMP_AFFINITY"] = "granularity=fine,compact,1,0"
 
 logger = logging.getLogger('trpo')
-
+np.seterr(all='raise')
 
 class TRPOMultiAgentLearner(ClusterWork):
     _restore_supported = True
     _default_params = {
         'sampling': {
             'timesteps_per_batch': 2048,
-            'done_after_steps':    1024
+            'done_after_steps':    1024,
+            'num_objects':         None,
         },
         'trpo':     {
             'gamma':         0.99,
@@ -44,9 +48,10 @@ class TRPOMultiAgentLearner(ClusterWork):
             'vf_iterations': 5,
         },
         'policy':   {
-            'swarm_size':   (64,),
-            'objects_size': (64,),
-            'hidden_size':  (64,)
+            'swarm_net_size':   (64,),
+            'object_net_size': (64,),
+            'extra_net_size': (64,),
+            'concat_net_size':  (64,)
         },
     }
 
@@ -54,6 +59,9 @@ class TRPOMultiAgentLearner(ClusterWork):
         super().__init__()
         self.num_workers = None
         self.rank = None
+        self.session = None
+
+        self.env = None
 
         self.policy_fn = None
 
@@ -104,52 +112,57 @@ class TRPOMultiAgentLearner(ClusterWork):
     def allmean(self, x):
         assert isinstance(x, np.ndarray)
         out = np.empty_like(x)
-        self._comm.Allreduce(x, out, op=MPI.SUM)
+        self._COMM.Allreduce(x, out, op=MPI.SUM)
         out /= self.num_workers
         return out
 
     def reset(self, config: dict, rep: int):
-        os.environ["OMP_NUM_THREADS"] = '2'
+        os.environ["OMP_NUM_THREADS"] = '1'
 
         sess_conf = tf.ConfigProto(allow_soft_placement=True,
-                                   inter_op_parallelism_threads=2,
+                                   inter_op_parallelism_threads=1,
                                    intra_op_parallelism_threads=1)
-        tf_util.make_session(config=sess_conf, make_default=True)
+        self.session = tf_util.make_session(config=sess_conf, make_default=True)
 
         np.random.seed(self._seed)
         tf.set_random_seed(self._seed)
         random.seed(self._seed)
 
-        if not self._comm:
-            self._comm = MPI.COMM_WORLD
+        if not self._COMM:
+            self._COMM = MPI.COMM_WORLD
+
+        if self._params['sampling']['num_objects']:
+            if isinstance(self._params['sampling']['num_objects'], int):
+                config['env_config'].objects = config['env_config'].objects[:self._params['sampling']['num_objects']]
 
         # create env
-        env = MultiObjectDirectControlEnv(configuration=config['env_config'],
+        self.env = MultiObjectDirectControlEnv(configuration=config['env_config'],
                                           done_after_steps=self._params['sampling']['done_after_steps'])
 
-        wrapped_env = NormalizeActionWrapper(env)
+        wrapped_env = NormalizeActionWrapper(self.env)
 
         # create policy function
         def policy_fn(name, ob_space, ac_space):
             return MlpPolicy(name=name, ob_space=ob_space, ac_space=ac_space,
-                             # we observe all other kilobots with (x, y, sin(th), cos(th), lin_vel, rot_vel)
-                             num_observed_kilobots=env.num_kilobots - 1, kilobot_dims=6,
-                             # we observe all objects with (x, y, sin(th), cos(th))
-                             num_observed_objects=len(env.objects), object_dims=4,
-                             hid_size=self._params['policy']['hidden_size'],
-                             kb_me_size=self._params['policy']['swarm_size'],
-                             ob_me_size=self._params['policy']['objects_size'])
+                             # we observe all other agents with (r, sin(a), cos(a), sin(th), cos(th), lin_vel, rot_vel)
+                             num_agent_observations=self.env.num_kilobots - 1, agent_obs_dims=7,
+                             # we observe all objects with (r, sin(a), cos(a), sin(th), cos(th))
+                             num_object_observations=len(config['env_config'].objects), object_obs_dims=6,
+                             swarm_net_size=self._params['policy']['swarm_net_size'],
+                             obj_net_size=self._params['policy']['object_net_size'],
+                             extra_net_size=self._params['policy']['extra_net_size'],
+                             concat_net_size=self._params['policy']['concat_net_size'])
 
         self.policy_fn = policy_fn
 
-        self.num_workers = self._comm.Get_size()
-        self.rank = self._comm.Get_rank()
+        self.num_workers = self._COMM.Get_size()
+        self.rank = self._COMM.Get_rank()
         logger.debug('initializing with rank {} of {}'.format(self.rank, self.num_workers))
         np.set_printoptions(precision=3)
         # Setup losses and stuff
         # ----------------------------------------
-        pi = policy_fn("pi", env.observation_space, env.kilobots[0].action_space)
-        oldpi = policy_fn("oldpi", env.observation_space, env.kilobots[0].action_space)
+        pi = policy_fn("pi", self.env.observation_space, self.env.kilobots[0].action_space)
+        oldpi = policy_fn("oldpi", self.env.observation_space, self.env.kilobots[0].action_space)
         atarg = tf.placeholder(dtype=tf.float32, shape=[None])  # Target advantage function (if applicable)
         ret = tf.placeholder(dtype=tf.float32, shape=[None])  # Empirical return
 
@@ -177,7 +190,7 @@ class TRPOMultiAgentLearner(ClusterWork):
         var_list = [v for v in all_var_list if v.name.split("/")[1].startswith("pol")]
         var_list.extend([v for v in all_var_list if v.name.split("/")[1].startswith("me")])
         vf_var_list = [v for v in all_var_list if v.name.split("/")[1].startswith("vf")]
-        self.vfadam = MpiAdam(vf_var_list, comm=self._comm)
+        self.vfadam = MpiAdam(vf_var_list, comm=self._COMM)
 
         self.get_flat = tf_util.GetFlat(var_list)
         self.set_from_flat = tf_util.SetFromFlat(var_list)
@@ -204,15 +217,15 @@ class TRPOMultiAgentLearner(ClusterWork):
 
         act_params = {
             'name':     "pi",
-            'ob_space': env.observation_space,
-            'ac_space': env.kilobots[0].action_space,
+            'ob_space': self.env.observation_space,
+            'ac_space': self.env.kilobots[0].action_space,
         }
 
         self.pi = ActWrapper(pi, act_params)
 
         tf_util.initialize()
         th_init = self.get_flat()
-        self._comm.Bcast(th_init, root=0)
+        self._COMM.Bcast(th_init, root=0)
         self.set_from_flat(th_init)
         self.vfadam.sync()
         logger.info("Init param sum {}".format(th_init.sum()))
@@ -237,6 +250,11 @@ class TRPOMultiAgentLearner(ClusterWork):
         random.seed(self._seed)
 
         time_update_start = time.time()
+
+        if self._params['sampling']['num_objects'] == 'random':
+            num_objects = random.randint(1, len(config['env_config'].objects))
+            self.env.num_objects = num_objects
+            logger.debug('using env with {} objects'.format(num_objects))
 
         with self.timed("sampling"):
             seg = self.seg_gen.__next__()
@@ -266,6 +284,9 @@ class TRPOMultiAgentLearner(ClusterWork):
         if np.allclose(g, 0):
             logger.info("Got zero gradient. not updating")
         else:
+            if g.dot(g) > 1e20:
+                logger.warning("Gradient norm very large")
+                g = g * 1e-4
             with self.timed("cg"):
                 stepdir = cg(fisher_vector_product, g, cg_iters=self.cg_iters)
             assert np.isfinite(stepdir).all()
@@ -282,7 +303,8 @@ class TRPOMultiAgentLearner(ClusterWork):
                 self.set_from_flat(thnew)
                 meanlosses = surr, kl, *_ = self.allmean(np.array(self.compute_losses(*args)))
                 improve = surr - surrbefore
-                logger.info("Expected: {} Actual: {}".format(expectedimprove, improve))
+                logger.info("Expected: {}".format(expectedimprove))
+                logger.info("Actual: {}".format(improve))
                 if not np.isfinite(meanlosses).all():
                     logger.info("Got non-finite value of losses -- bad!")
                 elif kl > self.max_kl * 1.5:
@@ -297,7 +319,7 @@ class TRPOMultiAgentLearner(ClusterWork):
                 logger.info("couldn't compute a good step")
                 self.set_from_flat(thbefore)
             if self.num_workers > 1 and self.iters_so_far % 20 == 0:
-                paramsums = self._comm.allgather((thnew.sum(), self.vfadam.getflat().sum()))  # list of tuples
+                paramsums = self._COMM.allgather((thnew.sum(), self.vfadam.getflat().sum()))  # list of tuples
                 assert all(np.allclose(ps, paramsums[0]) for ps in paramsums[1:])
 
         with self.timed("vf"):
@@ -309,7 +331,7 @@ class TRPOMultiAgentLearner(ClusterWork):
 
         # lrlocal = (seg["ep_lens"], seg["ep_rets"]) # local values
         lrlocal = (seg[0]["ep_lens"], seg[0]["ep_rets"])  # local values
-        listoflrpairs = self._comm.allgather(lrlocal)  # list of tuples
+        listoflrpairs = self._COMM.allgather(lrlocal)  # list of tuples
         lens, rews = map(flatten_lists, zip(*listoflrpairs))
         self.lenbuffer.extend(lens)
         self.rewbuffer.extend(rews)
@@ -318,7 +340,7 @@ class TRPOMultiAgentLearner(ClusterWork):
         self.timesteps_so_far += sum(lens)
         self.iters_so_far += 1
 
-        if self._comm.rank == 0:
+        if self._COMM.rank == 0:
             time_elapsed = time.time() - time_update_start
 
             return_values = dict(zip(self.loss_names, meanlosses))
@@ -344,7 +366,10 @@ class TRPOMultiAgentLearner(ClusterWork):
             return return_values
 
     def finalize(self):
-        pass
+        if self.env:
+            self.env.close()
+        self.session.close()
+        tf.reset_default_graph()
 
     def save_state(self, config: dict, rep: int, n: int):
         # save parameters at every iteration
@@ -355,7 +380,18 @@ class TRPOMultiAgentLearner(ClusterWork):
         # resore parameters
         policy_path = os.path.join(self._log_path_it, 'policy.pkl')
         logger.info('Restoring parameters from {}'.format(policy_path))
-        self.pi = ActWrapper.load(policy_path, self.policy_fn)
+        # self.pi = ActWrapper.load(policy_path, self.policy_fn)
+
+        with open(policy_path, "rb") as f:
+            model_data, act_params = cloudpickle.load(f)
+
+        with tempfile.TemporaryDirectory() as td:
+            arc_path = os.path.join(td, "packed.zip")
+            with open(arc_path, "wb") as f:
+                f.write(model_data)
+
+            zipfile.ZipFile(arc_path, 'r', zipfile.ZIP_DEFLATED).extractall(td)
+            self.pi.load_state(os.path.join(td, "model"))
 
         return True
 

@@ -13,7 +13,7 @@ def main():
         make_model = cloudpickle.load(fh)
 
     model = make_model()
-    model.load('policies/nn_based/ppo/absolute_env/model_parameters')
+    model.load('policies/nn_based/ppo/absolute_env/it_0148/model_parameters')
 
     env_id = register_object_env(entry_point='kb_learning.envs:ObjectAbsoluteEnv', num_kilobots=10,
                                  object_shape='corner_quad', object_width=.15, object_height=.15,
@@ -37,7 +37,7 @@ def main():
     dones = False
 
     for _ in range(2000):
-        actions, values, states, neglogpacs = pi(obs, S=states, M=dones)
+        actions, values, states, neglogpacs = model.eval_step(obs, S=states, M=dones)
 
         obs[:], rewards, dones, infos = env.step(actions[0])
 

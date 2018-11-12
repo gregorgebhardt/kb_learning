@@ -10,8 +10,8 @@ params: {}
 
 env_config:
   !EvalEnv
-  width: 1.0
-  height: 1.0
+  width: 1.
+  height: 1.
   resolution: 600
 
   objects:
@@ -47,12 +47,41 @@ env_config:
 
 ---
 name: "test"
-iterations: 400
+iterations: 100
+repetitions: 4
+
+params:
+  sampling:
+    num_objects: 2
+  policy:
+    swarm_net_size: [64]
+    object_net_size: [64]
+    extra_net_size: [64]
+    concat_net_size: [64]
+
+---
+name: "eval_num_objects"
+iterations: 100
 
 params:
   policy:
-    swarm_size: [64, 64]
-    hidden_size: [128]
+    swarm_net_size: [64]
+    object_net_size: [64]
+    extra_net_size: [64]
+    concat_net_size: [128]
+
+list:
+  sampling:
+    num_objects: [1, 2, 3, 4]
 
 ---
-name: "test2"
+name: "eval_random_num_objects"
+iterations: 100
+
+params:
+  sampling:
+    num_objects: random
+
+list:
+  policy:
+    concat_net_size: [[64], [128], [128, 128]]

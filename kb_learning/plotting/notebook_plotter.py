@@ -359,11 +359,25 @@ def plot_fixed_weight_iteration(learner: ACRepsLearner, args=None):
     # return box
 
 
-@plot_work.register_file_provider('policy_file')
-def provide_policy_file(learner: ACRepsLearner, config: dict, args=None):
+@plot_work.register_file_provider('ppo_policy_file')
+def provide_ppo_policy_file(learner: ACRepsLearner, config: dict, args=None):
     from plot_work import DownloadFile
     prefix = config['name']
-    policy_path = os.path.join(learner._log_path_rep, 'policy_it{:02d}.pkl'.format(learner._it))
-    link_text = 'policy'
-    file_name = prefix + '_' + 'policy_rep{:02d}_it{:02d}.pkl'.format(learner._rep, learner._it)
-    return DownloadFile(path=policy_path, link_text=link_text, file_name=file_name)
+    model_path = os.path.join(learner._log_path_rep, 'make_model.pkl')
+    model_link_text = 'make_model'
+    model_file_name = prefix + '_make_model.pkl'
+    parameter_path = os.path.join(learner._log_path_it, 'model_parameters')
+    parameter_link_text = 'model_parameters'
+    parameter_file_name = prefix + '_model_parameters_rep{:02d}_it{:02d}.pkl'.format(learner._rep, learner._it)
+    return [DownloadFile(path=model_path, link_text=model_link_text, file_name=model_file_name),
+            DownloadFile(path=parameter_path, link_text=parameter_link_text, file_name=parameter_file_name)]
+
+
+@plot_work.register_file_provider('trpo_policy_file')
+def provide_trpo_policy_file(learner: ACRepsLearner, config: dict, args=None):
+    from plot_work import DownloadFile
+    prefix = config['name']
+    policy_path = os.path.join(learner._log_path_it, 'policy.pkl')
+    policy_link_text = 'policy_rep00.pkl'
+    policy_file_name = prefix + '_policy.pkl'
+    return DownloadFile(path=policy_path, link_text=policy_link_text, file_name=policy_file_name)

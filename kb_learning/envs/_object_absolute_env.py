@@ -112,7 +112,7 @@ class ObjectAbsoluteEnv(ObjectEnv):
         reward += 10 * np.exp(-(new_obj_pose[:2] ** 2).sum() / 2) * (r_old - r_new)
 
         # compute differences between absolute orientations
-        reward += 10 * np.exp(-(new_obj_pose[:2] ** 2).sum() / .5) * (np.abs(old_obj_pose[2]) - np.abs(new_obj_pose[2]))
+        reward += 1 * np.exp(-(new_obj_pose[:2] ** 2).sum() / .05) * (np.abs(old_obj_pose[2]) - np.abs(new_obj_pose[2]))
 
         return reward
 

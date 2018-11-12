@@ -98,7 +98,7 @@ def traj_segment_generator_ma(pi, env, horizon, stochastic):
     time_steps = []
 
     # Initialize history arrays
-    sub_sample_thresh = 8
+    sub_sample_thresh = 20
     if n_agents > sub_sample_thresh:
         sub_sample = True
         sub_sample_idx = np.random.choice(n_agents, sub_sample_thresh, replace=False)

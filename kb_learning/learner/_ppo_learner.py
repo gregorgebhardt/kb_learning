@@ -1,4 +1,3 @@
-import functools
 import logging
 import os
 import random
@@ -14,16 +13,16 @@ import numpy as np
 from baselines.bench.monitor import Monitor
 from baselines.common import explained_variance
 from baselines.common.policies import build_policy
-from baselines.common.runners import AbstractEnvRunner
-from baselines.common.tf_util import make_session, get_session, save_variables, load_variables
-from baselines.common.tf_util import initialize
+from baselines.common.tf_util import make_session
 from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
+from baselines.common.vec_env.shmem_vec_env import ShmemVecEnv
 
 from cluster_work import ClusterWork, InvalidParameterArgument
 
 from kb_learning.envs import register_object_env, NormalizeActionWrapper
 from kb_learning.policy_networks import mlp, swarm_policy_network
-from kb_learning.tools import swap_flatten_01, const_fn, safe_mean
+from kb_learning.tools import const_fn, safe_mean
+from kb_learning.tools.ppo_tools import model_lambda, Runner
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["KMP_BLOCKTIME"] = "0"
@@ -64,8 +63,8 @@ class PPOLearner(ClusterWork):
             'type': 'me_mlp',
             'swarm_network_type':   'me',
             'swarm_network_size':   (64,),
-            'objects_network_type': 'mlp',
             'object_dims':          4,
+            'objects_network_type': 'mlp',
             'objects_network_size': (64,),
             'extra_dims':           2,
             'extra_network_size':   (64,),
@@ -134,38 +133,41 @@ class PPOLearner(ClusterWork):
         if self._params['sampling']['environment'] == 'relative':
             logger.info('using object relative environment')
             env_class = 'ObjectRelativeEnv'
-            extra_kw_args = dict(weight=self._params['sampling']['w_factor'])
+            env_params = dict(weight=self._params['sampling']['w_factor'])
         elif self._params['sampling']['environment'] == 'absolute':
             logger.info('using object absolute environment')
             env_class = 'ObjectAbsoluteEnv'
-            extra_kw_args = dict()
+            env_params = dict()
         else:
             raise InvalidParameterArgument("Invalid argument for parameter 'sampling.environment: {}'".format(
                 self._params['sampling']['environment']))
 
-        env_id = register_object_env(entry_point='kb_learning.envs:' + env_class,
-                                     num_kilobots=self._params['sampling']['num_kilobots'],
-                                     object_shape=self._params['sampling']['object_shape'],
-                                     object_width=self._params['sampling']['object_width'],
-                                     object_height=self._params['sampling']['object_height'],
-                                     light_type=self._params['sampling']['light_type'],
-                                     light_radius=self._params['sampling']['light_radius'],
-                                     done_after_steps=self._params['sampling']['done_after_steps'],
-                                     **extra_kw_args)
+        env_params.update(dict(entry_point='kb_learning.envs:' + env_class,
+                               num_kilobots=self._params['sampling']['num_kilobots'],
+                               object_shape=self._params['sampling']['object_shape'],
+                               object_width=self._params['sampling']['object_width'],
+                               object_height=self._params['sampling']['object_height'],
+                               light_type=self._params['sampling']['light_type'],
+                               light_radius=self._params['sampling']['light_radius'],
+                               done_after_steps=self._params['sampling']['done_after_steps']))
+
+        env_id = register_object_env(**env_params)
         proto_env = gym.make(env_id)
 
-        def _make_env(i):
+        def _make_env(i, seed):
             def _make_env_i():
-                np.random.seed(self._seed + 10000 * i)
-                env = Monitor(NormalizeActionWrapper(gym.make(env_id)), None, True)
+                np.random.seed(seed + 10000 * i)
+                _env_id = register_object_env(**env_params)
+                env = Monitor(NormalizeActionWrapper(gym.make(_env_id)), None, True)
                 return env
 
             return _make_env_i
 
-        envs = [_make_env(i) for i in range(self._params['sampling']['num_workers'])]
+        envs = [_make_env(i, self._seed) for i in range(self._params['sampling']['num_workers'])]
 
         # wrap env in SubprocVecEnv
-        self.env = SubprocVecEnv(envs)
+        # self.env = SubprocVecEnv(envs, context=self._MP_CONTEXT)
+        self.env = ShmemVecEnv(envs, context=self._MP_CONTEXT)
 
         ob_space = self.env.observation_space
         ac_space = self.env.action_space
@@ -365,175 +367,3 @@ class PPOLearner(ClusterWork):
 
         axes.legend()
         plt.show(block=True)
-        # fig.show()
-
-
-def model_lambda(policy, ob_space, ac_space, num_workers, steps_per_minibatch, steps_per_worker, entropy_coefficient,
-                 value_fn_coefficient, max_grad_norm):
-    return lambda: Model(policy=policy, ob_space=ob_space, ac_space=ac_space, nbatch_act=num_workers,
-                         nbatch_train=steps_per_minibatch, nsteps=steps_per_worker, ent_coef=entropy_coefficient,
-                         vf_coef=value_fn_coefficient, max_grad_norm=max_grad_norm)
-
-
-# Classes from baseline ppo
-class Model(object):
-    def __init__(self, *, policy, ob_space, ac_space, nbatch_act, nbatch_train,
-                 nsteps, ent_coef, vf_coef, max_grad_norm):
-        sess = get_session()
-
-        with tf.variable_scope('ppo2_model', reuse=tf.AUTO_REUSE) as ppo_scope:
-            act_model = policy(nbatch_act, 1, sess)
-            train_model = policy(nbatch_train, nsteps, sess)
-            eval_model = policy(1, 1, sess)
-
-        A = train_model.pdtype.sample_placeholder([None])
-        ADV = tf.placeholder(tf.float32, [None])
-        R = tf.placeholder(tf.float32, [None])
-        OLDNEGLOGPAC = tf.placeholder(tf.float32, [None])
-        OLDVPRED = tf.placeholder(tf.float32, [None])
-        LR = tf.placeholder(tf.float32, [])
-        CLIPRANGE = tf.placeholder(tf.float32, [])
-
-        neglogpac = train_model.pd.neglogp(A)
-        entropy = tf.reduce_mean(train_model.pd.entropy())
-
-        vpred = train_model.vf
-        vpredclipped = OLDVPRED + tf.clip_by_value(train_model.vf - OLDVPRED, - CLIPRANGE, CLIPRANGE)
-        vf_losses1 = tf.square(vpred - R)
-        vf_losses2 = tf.square(vpredclipped - R)
-        vf_loss = .5 * tf.reduce_mean(tf.maximum(vf_losses1, vf_losses2))
-        ratio = tf.exp(OLDNEGLOGPAC - neglogpac)
-        pg_losses = -ADV * ratio
-        pg_losses2 = -ADV * tf.clip_by_value(ratio, 1.0 - CLIPRANGE, 1.0 + CLIPRANGE)
-        pg_loss = tf.reduce_mean(tf.maximum(pg_losses, pg_losses2))
-        approxkl = .5 * tf.reduce_mean(tf.square(neglogpac - OLDNEGLOGPAC))
-        clipfrac = tf.reduce_mean(tf.to_float(tf.greater(tf.abs(ratio - 1.0), CLIPRANGE)))
-        loss = pg_loss - entropy * ent_coef + vf_loss * vf_coef
-        # tf.summary.scalar('ppo loss', loss)
-
-        params = tf.trainable_variables(ppo_scope.name)
-        trainer = tf.train.AdamOptimizer(learning_rate=LR, epsilon=1e-5)
-        # from baselines.common.mpi_adam_optimizer import MpiAdamOptimizer
-        # from mpi4py import MPI
-        # trainer = MpiAdamOptimizer(MPI.COMM_WORLD, learning_rate=LR, epsilon=1e-5)
-        grads_and_var = trainer.compute_gradients(loss, params)
-        grads, var = zip(*grads_and_var)
-
-        if max_grad_norm is not None:
-            grads, _grad_norm = tf.clip_by_global_norm(grads, max_grad_norm)
-        grads_and_var = list(zip(grads, var))
-
-        _train = trainer.apply_gradients(grads_and_var)
-
-        def train(lr, cliprange, obs, returns, masks, actions, values, neglogpacs, states=None):
-            advs = returns - values
-            advs = (advs - advs.mean()) / (advs.std() + 1e-8)
-            td_map = {train_model.X: obs, A: actions, ADV: advs, R: returns, LR: lr,
-                      CLIPRANGE:     cliprange, OLDNEGLOGPAC: neglogpacs, OLDVPRED: values}
-            if states is not None:
-                td_map[train_model.S] = states
-                td_map[train_model.M] = masks
-            return sess.run(
-                [pg_loss, vf_loss, entropy, approxkl, clipfrac, _train],
-                td_map
-            )[:-1]
-
-        self.loss_names = ['policy_loss', 'value_loss', 'policy_entropy', 'approxkl', 'clipfrac']
-
-        self.train = train
-        self.train_model = train_model
-        self.act_model = act_model
-        self.eval_model = eval_model
-        self.step = act_model.step
-        self.eval_step = eval_model.step
-        self.value = act_model.value
-        self.initial_state = tf.constant(0)  # act_model.initial_state
-
-        self.save = functools.partial(save_variables, sess=sess)
-        self.load = functools.partial(load_variables, sess=sess)
-
-        initialize()
-        # global_variables = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope="")
-        # sync_from_root(sess, global_variables)  # pylint: disable=E1101
-
-
-class Runner(AbstractEnvRunner):
-    def __init__(self, *, env, model, nsteps, gamma, lam):
-        super().__init__(env=env, model=model, nsteps=nsteps)
-        self.λ = lam
-        self.γ = gamma
-
-    def run(self):
-        mb_obs, mb_rewards, mb_actions, mb_values, mb_dones, mb_neglogpacs = [], [], [], [], [], []
-        mb_states = self.states
-        epinfos = []
-        for _ in range(self.nsteps):
-            actions, values, self.states, neglogpacs = self.model.step(self.obs, S=self.states, M=self.dones)
-            mb_obs.append(self.obs.copy())
-            mb_actions.append(actions)
-            mb_values.append(values)
-            mb_neglogpacs.append(neglogpacs)
-            mb_dones.append(self.dones)
-            self.obs[:], rewards, self.dones, infos = self.env.step(actions)
-            for info in infos:
-                maybeepinfo = info.get('episode')
-                if maybeepinfo: epinfos.append(maybeepinfo)
-            mb_rewards.append(rewards)
-        # batch of steps to batch of rollouts
-        mb_obs = np.asarray(mb_obs, dtype=self.obs.dtype)
-        mb_rewards = np.asarray(mb_rewards, dtype=np.float32)
-        mb_actions = np.asarray(mb_actions)
-        mb_values = np.asarray(mb_values, dtype=np.float32)
-        mb_neglogpacs = np.asarray(mb_neglogpacs, dtype=np.float32)
-        mb_dones = np.asarray(mb_dones, dtype=np.bool)
-        last_values = self.model.value(self.obs, S=self.states, M=self.dones)
-        # discount/bootstrap off value fn
-        mb_returns = np.zeros_like(mb_rewards)
-        mb_advs = np.zeros_like(mb_rewards)
-        lastgaelam = 0
-        for t in reversed(range(self.nsteps)):
-            if t == self.nsteps - 1:
-                nextnonterminal = 1.0 - self.dones
-                nextvalues = last_values
-            else:
-                nextnonterminal = 1.0 - mb_dones[t + 1]
-                nextvalues = mb_values[t + 1]
-            delta = mb_rewards[t] + self.γ * nextvalues * nextnonterminal - mb_values[t]
-            mb_advs[t] = lastgaelam = delta + self.γ * self.λ * nextnonterminal * lastgaelam
-        mb_returns = mb_advs + mb_values
-        return (*map(swap_flatten_01, (mb_obs, mb_returns, mb_dones, mb_actions, mb_values, mb_neglogpacs)),
-                mb_states, epinfos)
-
-
-# def train(num_envs):
-#     sess = tf_util.single_threaded_session()
-#
-#     with sess:
-#         # create env here
-#         # TODO add wrapper for gym to reset in case object close to env boundaries or num time steps too large
-#         env_id = register_object_relative_env(1., 10, 'quad', .15, .15, 'circular', .20)
-#
-#         def _make_env(i):
-#             def _make_env_i():
-#                 import numpy as np
-#                 np.random.seed(1234 * i + 7809)
-#                 env = Monitor(NormalizeActionWrapper(gym.make(env_id)), 'env_{}_monitor.csv'.format(i), True)
-#                 return env
-#
-#             return _make_env_i
-#
-#         envs = [_make_env(i) for i in range(num_envs)]
-#
-#         # wrap env in SubprocVecEnv
-#         vec_env = SubprocVecEnv(envs)
-#
-#         network = me_mlp(num_me_inputs=10, dim_me_inputs=2)
-#
-#         # def policy_fn(name):
-#         #     return mlp_policy.MlpPolicy(name=name, ob_space=vec_env.observation_space, ac_space=vec_env.action_space,
-#         #         hid_size=256, num_hid_layers=3)
-#
-#         model = learn(network=network, env=vec_env, total_timesteps=2000000, nsteps=500, seed=1234, log_interval=5,
-#                       save_interval=5)
-#
-#         vec_env.close()

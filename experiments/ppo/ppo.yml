@@ -16,16 +16,18 @@ iterations: 200
 
 params:
   sampling:
-    w_factor: 1.0
     num_kilobots: 10
     num_worker_steps: 250
     environment: absolute
-    light_type: dual
+    light_type: circular
     done_after_steps: 125
   policy:
-#    type: 'mean_mlp'
-    me_size: [256, 256]
-    mlp_size: [256, 256]
+    swarm_network_size: [64]
+    object_dims: 4
+    objects_network_size: [64]
+    extra_dims: 2
+    extra_network_size: [64]
+    concat_network_size: [64]
   ppo:
     learning_rate: 6.e-4
     gamma: 0.99
@@ -62,7 +64,7 @@ params:
     num_workers: 24
     num_worker_steps: 250
     environment: 'absolute'
-    done_after_steps: 250
+    done_after_steps: 125
   policy:
     swarm_network_size: [64, 64]
     light_network_size: null
@@ -72,7 +74,7 @@ params:
     learning_rate: 6.e-4
     gamma: 0.99
     lambda: 0.95
-    clip_range: 0.2
+    clip_range: 0.1
 ---
 name: "eval_policy_type"
 iterations: 100
@@ -103,29 +105,33 @@ grid:
 
 ---
 name: "eval_network_size"
+iterations: 300
 
 params:
   sampling:
     num_kilobots: 10
-    num_workers: 16
-    num_worker_steps: 500
-    environment: 'absolute'
-    done_after_steps: 250
+    num_workers: 24
+    num_worker_steps: 250
+    environment: absolute
+    done_after_steps: 125
   policy:
     swarm_network_size: [64]
-    light_network_size: null
-    objects_network_size: null
-    concat_network_size: [64]
+    object_dims: 4
+    objects_network_size: [128]
+    extra_dims: 2
+    extra_network_size: [64]
+    concat_network_size: [256, 256]
   ppo:
     learning_rate: 6.e-4
     gamma: 0.99
     lambda: 0.95
-    clip_range: 0.2
+    clip_range: 0.1
+    num_threads: 12
 
 grid:
   policy:
-    swarm_network_size: [[64], [128], [64, 64]]
-    concat_network_size: [[64], [128], [64, 64]]
+    swarm_network_size: [[64], [128], [256], [128, 128]]
+#    concat_network_size: [[64], [128], [64, 64], [128, 128], [256], [256, 256], [64, 64, 64], [128, 128, 128]]
 ---
 name: "eval_direct_input"
 
