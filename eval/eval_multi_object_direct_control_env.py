@@ -22,12 +22,14 @@ resolution: 600
 objects:
     - !ObjectConf
       idx: 0
+      color: [93, 133, 195]
       shape: square
       width: .15
       height: .15
       init: random
     - !ObjectConf
       idx: 1
+      color: [195, 93, 133]
       shape: square
       width: .15
       height: .15
@@ -88,7 +90,7 @@ def main():
         ac, vpred = pi.act(obs, False)
 
         obs, reward, dones, infos = wrapped_env.step(ac)
-        # obs[:], reward, dones, infos = env.step(env.action_space.sample())
+        # obs, reward, dones, infos = wrapped_env.step(wrapped_env.action_space.sample())
         steps += 1
         ep_reward += reward
 

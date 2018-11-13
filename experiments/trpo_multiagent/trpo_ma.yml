@@ -1,7 +1,7 @@
 ---
 # DEFAULT
 name: "DEFAULT"
-repetitions: 3
+repetitions: 4
 iterations: 150
 path: "data/trpo_ma"
 gui: false
@@ -61,18 +61,18 @@ params:
 
 ---
 name: "eval_num_objects"
-iterations: 100
+iterations: 200
 
 params:
   policy:
     swarm_net_size: [64]
     object_net_size: [64]
     extra_net_size: [64]
-    concat_net_size: [128]
+    concat_net_size: [64]
 
 list:
   sampling:
-    num_objects: [1, 2, 3, 4]
+    num_objects: [1, 2]
 
 ---
 name: "eval_random_num_objects"

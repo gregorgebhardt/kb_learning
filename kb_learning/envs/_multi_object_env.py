@@ -46,6 +46,8 @@ class MultiObjectEnv(YamlKilobotsEnv):
 
         super(MultiObjectEnv, self).__init__(configuration=configuration, **kwargs)
 
+        # self._real_time = True
+
     @property
     def num_objects(self):
         return len(self.objects)
@@ -144,10 +146,10 @@ class MultiObjectEnv(YamlKilobotsEnv):
         if self._num_objects == 'random':
             num_objs = random.randint(1, len(self.conf.objects))
             for o in self.conf.objects[:num_objs]:
-                self._init_object(o.shape, o.width, o.height, o.init)
+                self._init_object(o.shape, o.width, o.height, o.init, getattr(o, 'color', None))
         else:
             for o in self.conf.objects[:self._num_objects]:
-                self._init_object(o.shape, o.width, o.height, o.init)
+                self._init_object(o.shape, o.width, o.height, o.init, getattr(o, 'color', None))
 
     def has_finished(self, state, action):
         if np.all([o.get_position() in self._target_area for o in self._objects]) \
@@ -227,7 +229,9 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         target_rel_angle -= kb_states[..., 2]
 
         # proprioceptive observations
-        kb_proprioception = kb_states.squeeze()
+        kb_states = kb_states.squeeze()
+        kb_proprioception = np.concatenate((kb_states[:, :2], np.sin(kb_states[:, [2]]), np.cos(kb_states[:, [2]]),
+                                            kb_states[:, 3:]), axis=1)
 
         return np.concatenate((A, B, target_rel_radius, np.sin(target_rel_angle), np.cos(target_rel_angle),
                                kb_proprioception, np.full((self.num_kilobots, 1), len(self.objects))), axis=1)
@@ -262,7 +266,9 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
 
         # kb_obj_cost = np.sum(-1. + np.exp(-kb_obj_dist * .2))
 
-        return obj_cost + kb_obj_cost
+        # action_cost = -np.sum(np.abs([kb.get_action() for kb in self._kilobots]))
+
+        return kb_obj_cost
 
     @property
     def kilobots_observation_space(self):
@@ -279,7 +285,7 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
 
     @property
     def object_observation_space(self):
-        # radius, angle as sin+cos, orientation as sin+cos
+        # radius, angle as sin+cos, orientation as sin+cos, object observation valid
         obj_low = np.array([.0, -1., -1., -1., -1., 0] * len(self.conf.objects))
         obj_high = np.array([np.sqrt(-self.world_width * -self.world_height), 1., 1., 1., 1., 1
                              ] * len(self.conf.objects))
@@ -292,8 +298,11 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         target_low = np.array([.0, -1., -1.])
         target_high = np.array([np.sqrt(-self.world_width * -self.world_height), 1., 1.])
 
-        proprio_low = self._kilobots[0].state_space.low
-        proprio_high = self._kilobots[0].state_space.high
+        # proprio_low = self._kilobots[0].state_space.low
+        # position, orientation as sin+cos, linear vel, angular vel
+        proprio_low = np.r_[self.world_bounds[0], -1., -1., .0, -.5 * np.pi]
+        # proprio_high = self._kilobots[0].state_space.high
+        proprio_high = np.r_[self.world_bounds[1], 1., 1., .01, .5 * np.pi]
 
         obs_space_low = np.r_[self.kilobots_observation_space.low, self.object_observation_space.low,
                               target_low, proprio_low, 1]
@@ -316,4 +325,4 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
             position = np.minimum(position, self.world_bounds[1] - 0.02)
             kb_class = getattr(gym_kilobots.lib, type)
             self._add_kilobot(kb_class(self.world, position=position, orientation=orientation,
-                                       velocity=[.01, .0]))
+                                       velocity=[.01, np.random.rand() * np.pi - np.pi/2]))

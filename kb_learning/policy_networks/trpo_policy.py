@@ -99,19 +99,22 @@ class MlpPolicy(object):
         with tf.variable_scope('vf'):
             with tf.variable_scope('me_kb'):
                 # mean embedding for the swarm
-                me_kb_layer = MeanEmbedding(kilobots_input_layer, swarm_net_size, num_agent_observations, agent_obs_dims)
+                kb_layer = MeanEmbedding(kilobots_input_layer, swarm_net_size, num_agent_observations, agent_obs_dims)
 
             with tf.variable_scope('me_ob'):
                 # mean embedding for the objects
-                me_ob_layer = MeanEmbedding(objects_input_layer, obj_net_size, num_object_observations,
+                obj_layer = MeanEmbedding(objects_input_layer, obj_net_size, num_object_observations,
                                             object_obs_dims, last_as_valid=True)
+
+            # with tf.variable_scope('obj'):
+            #     obj_layer = MultiLayerPerceptron(objects_input_layer, obj_net_size)
 
             with tf.variable_scope('extra'):
                 # mlp for additional inputs
                 extra_layer = MultiLayerPerceptron(extra_input_layer, extra_net_size, activation=tf.nn.leaky_relu)
 
             # concat mean embeddings and extra inputs
-            last_out = tf.concat([me_kb_layer.out, me_ob_layer.out, extra_layer.out], axis=1)
+            last_out = tf.concat([kb_layer.out, obj_layer.out, extra_layer.out], axis=1)
 
             # mlp after concatenation
             last_out = MultiLayerPerceptron(last_out, concat_net_size, layer_norm=self.layer_norm).out
@@ -123,19 +126,22 @@ class MlpPolicy(object):
         with tf.variable_scope('pol'):
             with tf.variable_scope('me_kb'):
                 # mean embedding for the swarm
-                me_kb_layer = MeanEmbedding(kilobots_input_layer, swarm_net_size, num_agent_observations, agent_obs_dims)
+                kb_layer = MeanEmbedding(kilobots_input_layer, swarm_net_size, num_agent_observations, agent_obs_dims)
 
             with tf.variable_scope('me_ob'):
                 # mean embedding for the objects
-                me_ob_layer = MeanEmbedding(objects_input_layer, obj_net_size, num_object_observations,
+                obj_layer = MeanEmbedding(objects_input_layer, obj_net_size, num_object_observations,
                                             object_obs_dims, last_as_valid=True)
+
+            # with tf.variable_scope('obj'):
+            #     obj_layer = MultiLayerPerceptron(objects_input_layer, obj_net_size)
 
             with tf.variable_scope('extra'):
                 # mlp for additional inputs
                 extra_layer = MultiLayerPerceptron(extra_input_layer, extra_net_size)
 
             # concat mean embeddings and extra inputs
-            last_out = tf.concat([me_kb_layer.out, me_ob_layer.out, extra_layer.out], axis=1)
+            last_out = tf.concat([kb_layer.out, obj_layer.out, extra_layer.out], axis=1)
 
             last_out = MultiLayerPerceptron(last_out, concat_net_size, layer_norm=self.layer_norm).out
 
@@ -147,7 +153,7 @@ class MlpPolicy(object):
                 pdparam = tf.concat([mean, mean * 0.0 + logstd], axis=1)
             else:
                 pd_dims = self.pdtype.param_shape()[0]
-                pd_bias_init = np.asarray([.0] * (pd_dims // 2) + [.0] * (pd_dims // 2))
+                pd_bias_init = np.asarray([0., .0] + [0., 0.])
                 pdparam = tf.layers.dense(last_out, pd_dims, name='final',
                                           kernel_initializer=tf_util.normc_initializer(0.01),
                                           bias_initializer=tf.constant_initializer(pd_bias_init))
