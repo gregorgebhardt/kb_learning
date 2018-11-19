@@ -323,11 +323,11 @@ class PPOLearner(ClusterWork):
         self.model.save(parameters_path)
 
         # save seed and time information TODO remove
-        seed_time_path = os.path.join(self._log_path_it, 'seed_time')
-        logger.info('Saving seed and timer information to {}'.format(seed_time_path))
-        np_random_state = np.random.get_state()
-        with open(seed_time_path, 'wb') as fh:
-            cloudpickle.dump(dict(np_random_state=np_random_state, timer=self.timer), fh)
+        # seed_time_path = os.path.join(self._log_path_it, 'seed_time')
+        # logger.info('Saving seed and timer information to {}'.format(seed_time_path))
+        # np_random_state = np.random.get_state()
+        # with open(seed_time_path, 'wb') as fh:
+        #     cloudpickle.dump(dict(np_random_state=np_random_state, timer=self.timer), fh)
 
     def restore_state(self, config: dict, rep: int, n: int):
         # we do not need to restore the model as it is reconstructed from the parameters
@@ -338,14 +338,14 @@ class PPOLearner(ClusterWork):
         self.model.load(parameters_path)
 
         # restore seed and time TODO remove
-        seed_time_path = os.path.join(self._log_path_it, 'seed_time')
-        logger.info('Restoring seed and timer information to {}'.format(seed_time_path))
-        with open(seed_time_path, 'rb') as fh:
-            d = cloudpickle.load(fh)
-            if 'timer' not in d or 'np_random_state' not in d:
-                return False
-            self.timer = d['timer']
-            np.random.set_state(d['np_random_state'])
+        # seed_time_path = os.path.join(self._log_path_it, 'seed_time')
+        # logger.info('Restoring seed and timer information to {}'.format(seed_time_path))
+        # with open(seed_time_path, 'rb') as fh:
+        #     d = cloudpickle.load(fh)
+        #     if 'timer' not in d or 'np_random_state' not in d:
+        #         return False
+        #     self.timer = d['timer']
+        #     np.random.set_state(d['np_random_state'])
 
         return True
 

@@ -46,20 +46,23 @@ iterations: 400
 
 params:
   sampling:
-    num_worker_steps: 300
-    done_after_steps: 300
+#    num_workers: 1
+    num_worker_steps: 1500
+    done_after_steps: 150
   policy:
     swarm_network_size: [64]
-    light_network_size: [64]
     objects_network_size: [64]
-    concat_network_size: [64]
+    extra_network_size: [64]
+    concat_network_size: [256]
   ppo:
     learning_rate: 6.e-4
     gamma: 0.99
-    lambda: 0.95
-    clip_range: 0.1
-    num_threads: 40
+    lambda: 0.98
+    clip_range: 0.01
+    num_threads: 20
     num_train_epochs: 4
+  updates_per_iteration: 1
+
 ---
 name: 'test_objects_mlp'
 iterations: 400
@@ -70,7 +73,7 @@ params:
     done_after_steps: 300
   policy:
     swarm_network_size: [64]
-    light_network_size: [64]
+    extra_network_size: [64]
     objects_network_size: [64, 64]
     objects_network_type: 'mlp'
     concat_network_size: [128, 64]
@@ -79,7 +82,7 @@ params:
     gamma: 0.99
     lambda: 0.95
     clip_range: 0.1
-    num_threads: 40
+    num_threads: 20
     num_train_epochs: 4
 ---
 name: "create_model"
@@ -94,15 +97,15 @@ params:
     num_minibatches: 1
   policy:
     swarm_network_size: [64]
-    light_network_size: [64]
-    objects_network_size: [64, 64]
-    objects_network_type: 'mlp'
-    concat_network_size: [128, 64]
+    focus_network_size: [64]
+    objects_network_size: [64]
+    extra_network_size: [64]
+    concat_network_size: [256]
   ppo:
     learning_rate: 6.e-4
     gamma: 0.99
     lambda: 0.95
     clip_range: 0.1
     num_threads: 40
-    num_train_epochs: 1
+    num_train_epochs: 4
   updates_per_iteration: 5

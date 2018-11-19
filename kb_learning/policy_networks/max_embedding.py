@@ -1,10 +1,10 @@
 import tensorflow as tf
-import tensorflow.contrib as tfc
+import numpy as np
 
 import baselines.common.tf_util as U
 
 
-class MeanEmbedding:
+class MaxEmbedding:
     def __init__(self, input_ph, hidden_sizes, nr_obs, dim_obs, activation=tf.nn.relu,
                  last_as_valid=False):
 
@@ -31,17 +31,8 @@ class MeanEmbedding:
         else:
             if last_as_valid:
                 last_out = tf.multiply(last_out, layer_valid)
-                reshaped_output = tf.reshape(last_out, shape=(-1, nr_obs, dim_obs - 1))
-            else:
-                reshaped_output = tf.reshape(last_out, shape=(-1, nr_obs, dim_obs))
+            reshaped_output = tf.reshape(last_out, shape=(-1, nr_obs, dim_obs))
 
-        if last_as_valid:
-            reshaped_valid = tf.reshape(layer_valid, shape=(-1, nr_obs))
-            num_obs_objects = tf.reduce_sum(reshaped_valid)
-            last_out_sum = tf.reduce_sum(reshaped_output, axis=1)
-            with tf.control_dependencies([tf.assert_greater(num_obs_objects, .0)]):
-                last_out_mean = tf.divide(last_out_sum, num_obs_objects)
-        else:
-            last_out_mean = tf.reduce_mean(reshaped_output, axis=1)
+        last_out_mean = tf.reduce_max(reshaped_output, axis=1)
 
         self.out = last_out_mean

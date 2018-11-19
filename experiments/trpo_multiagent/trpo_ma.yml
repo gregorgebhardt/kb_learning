@@ -18,26 +18,8 @@ env_config:
     - !ObjectConf
       idx: 0
       shape: square
-      width: .15
-      height: .15
-      init: random
-    - !ObjectConf
-      idx: 1
-      shape: square
-      width: .15
-      height: .15
-      init: random
-    - !ObjectConf
-      idx: 2
-      shape: square
-      width: .15
-      height: .15
-      init: random
-    - !ObjectConf
-      idx: 3
-      shape: square
-      width: .15
-      height: .15
+      width: .05
+      height: .05
       init: random
 
   kilobots: !KilobotsConf
@@ -46,18 +28,59 @@ env_config:
     std: .03
 
 ---
-name: "test"
-iterations: 100
+name: "object_touching_embedding_type"
+iterations: 200
 repetitions: 4
 
 params:
   sampling:
-    num_objects: 2
+    reward_function: object_touching
+    agent_reward: True
+    swarm_reward: False
+    num_objects: 4
+    timesteps_per_batch: 2048
+    done_after_steps: 2048
+
+list:
   policy:
-    swarm_net_size: [64]
-    object_net_size: [64]
-    extra_net_size: [64]
-    concat_net_size: [64]
+    swarm_net_type: ['mean', 'max']
+    objects_net_type: ['mean', 'max']
+
+---
+name: "object_collecting_embedding_type"
+iterations: 200
+repetitions: 4
+
+params:
+  sampling:
+    reward_function: object_collecting
+    agent_reward: True
+    swarm_reward: False
+    num_objects: 4
+    timesteps_per_batch: 2048
+    done_after_steps: 2048
+
+list:
+  policy:
+    swarm_net_type: ['mean', 'max']
+    objects_net_type: ['mean', 'max']
+
+---
+name: object_cleanup_sparse
+iterations: 150
+repetitions: 3
+
+params:
+  sampling:
+    reward_function: object_cleanup_sparse
+    swarm_reward: True
+    agent_reward: True
+    num_objects: 20
+    timesteps_per_batch: 2048  # 4096
+    done_after_steps: 2048
+  policy:
+    swarm_net_type: max
+    objects_net_type: max
 
 ---
 name: "eval_num_objects"

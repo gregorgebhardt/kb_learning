@@ -22,17 +22,9 @@ resolution: 600
 objects:
     - !ObjectConf
       idx: 0
-      color: [93, 133, 195]
       shape: square
-      width: .15
-      height: .15
-      init: random
-    - !ObjectConf
-      idx: 1
-      color: [195, 93, 133]
-      shape: square
-      width: .15
-      height: .15
+      width: .05
+      height: .05
       init: random
 
 kilobots: !KilobotsConf
@@ -44,43 +36,24 @@ kilobots: !KilobotsConf
 
 def main():
     env_config = yaml.load(env_config_yaml)
-    env = MultiObjectDirectControlEnv(configuration=env_config, done_after_steps=200)
+    env_config.objects = [env_config.objects[0]] * 20
+    env = MultiObjectDirectControlEnv(configuration=env_config, agent_reward=True, swarm_reward=False,
+                                      done_after_steps=500,
+                                      reward_function='object_cleanup')
     wrapped_env = NormalizeActionWrapper(env)
 
     obs = env.reset()
 
-    def policy_fn(name, ob_space, ac_space):
+    def policy_fn(name, ob_space, ac_space, env_config, agent_dims, object_dims, swarm_net_size, swarm_net_type,
+                  objects_net_size, objects_net_type, extra_net_size, concat_net_size):
         return MlpPolicy(name=name, ob_space=ob_space, ac_space=ac_space,
-                         # we observe all other agents with (r, sin(a), cos(a), sin(th), cos(th), lin_vel, rot_vel)
-                         num_agent_observations=env.num_kilobots - 1, agent_obs_dims=7,
-                         # we observe all objects with (r, sin(a), cos(a), sin(th), cos(th))
-                         num_object_observations=len(env.objects), object_obs_dims=6,
-                         swarm_net_size=[64],
-                         obj_net_size=[64],
-                         extra_net_size=[64],
-                         concat_net_size=[64])
-    pi = policy_fn("pi", env.observation_space, env.kilobots[0].action_space)
+                         num_agent_observations=env_config.kilobots.num - 1, agent_obs_dims=agent_dims,
+                         num_object_observations=len(env_config.objects), object_obs_dims=object_dims,
+                         swarm_net_size=swarm_net_size, swarm_net_type=swarm_net_type,
+                         objects_net_size=objects_net_size, objects_net_type=objects_net_type,
+                         extra_net_size=extra_net_size, concat_net_size=concat_net_size)
 
-    act_params = {
-        'name':     "pi",
-        'ob_space': env.observation_space,
-        'ac_space': env.kilobots[0].action_space,
-    }
-
-    pi = ActWrapper(pi, act_params)
-
-    sess = tf_util.get_session()
-    policy_path = 'policies/nn_based/trpo_ma/2obj/policy.pkl'
-    with open(policy_path, "rb") as f:
-        model_data, act_params = cloudpickle.load(f)
-
-    with tempfile.TemporaryDirectory() as td:
-        arc_path = os.path.join(td, "packed.zip")
-        with open(arc_path, "wb") as f:
-            f.write(model_data)
-
-        zipfile.ZipFile(arc_path, 'r', zipfile.ZIP_DEFLATED).extractall(td)
-        pi.load_state(os.path.join(td, "model"))
+    pi = ActWrapper.load('policies/nn_based/trpo_ma/clean_up/20obj/policy.pkl', policy_fn)
 
     steps = 0
     ep_reward = .0
@@ -88,9 +61,10 @@ def main():
         env.render()
 
         ac, vpred = pi.act(obs, False)
-
         obs, reward, dones, infos = wrapped_env.step(ac)
+
         # obs, reward, dones, infos = wrapped_env.step(wrapped_env.action_space.sample())
+        # obs, reward, dones, infos = wrapped_env.step(None)
         steps += 1
         ep_reward += reward
 

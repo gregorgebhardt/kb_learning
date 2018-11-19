@@ -9,11 +9,11 @@ from kb_learning.policy_networks import swarm_policy_network
 
 
 def main():
-    with open('policies/nn_based/ppo/absolute_env/make_model.pkl', 'rb') as fh:
+    with open('policies/nn_based/ppo/absolute_env/it_0297/make_model.pkl', 'rb') as fh:
         make_model = cloudpickle.load(fh)
 
     model = make_model()
-    model.load('policies/nn_based/ppo/absolute_env/it_0148/model_parameters')
+    model.load('policies/nn_based/ppo/absolute_env/it_0297/model_parameters')
 
     env_id = register_object_env(entry_point='kb_learning.envs:ObjectAbsoluteEnv', num_kilobots=10,
                                  object_shape='corner_quad', object_width=.15, object_height=.15,

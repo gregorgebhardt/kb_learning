@@ -31,7 +31,9 @@ class NormalizeActionWrapper(ActionWrapper):
         # self.inv_scale_diag = np.diag(1/scale)
 
     def action(self, action):
-        return (action - self.mean) * self.scale
+        if action is None:
+            return action
+        return action * self.scale + self.mean
 
     def reverse_action(self, action):
-        return action / self.scale + self.mean
+        return (action - self.mean) / self.scale

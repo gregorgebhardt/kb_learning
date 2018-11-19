@@ -128,6 +128,13 @@ def traj_segment_generator_ma(pi, env, horizon, stochastic):
             # yield {"ob" : obs, "rew" : rews, "vpred" : vpreds, "new" : news,
             #         "ac" : acs, "prevac" : prevacs, "nextvpred": vpred * (1 - new),
             #         "ep_rets" : ep_rets, "ep_lens" : ep_lens}
+            if len(ep_rets) == 0:
+                ep_rets.append(cur_ep_ret)
+                ep_lens.append(cur_ep_len)
+                cur_ep_ret = 0
+                cur_ep_len = 0
+                ob = env.reset()
+
             yield [
                 dict(
                     ob=np.array(obs[:, na, :]),
@@ -158,7 +165,7 @@ def traj_segment_generator_ma(pi, env, horizon, stochastic):
 
         ob, rew, new, _ = env.step(ac)
         # env.render()
-        rew = np.asarray([rew] * n_agents)
+        # rew = np.asarray([rew] * n_agents)
         rews[i] = rew[sub_sample_idx] if sub_sample else rew
 
         cur_ep_ret += rew
@@ -204,7 +211,7 @@ class ActWrapper(object):
         shutil.rmtree(self._tmp_dir, ignore_errors=True)
 
     @staticmethod
-    def load(path, pol_fn):
+    def load(path, pol_fn, name='pi'):
         with open(path, "rb") as f:
             model_data, act_params = cloudpickle.load(f)
         if "dim_rec_o" in act_params:
@@ -212,7 +219,7 @@ class ActWrapper(object):
             act_params['ob_space'].dim_local_o = act_params['ob_space'].shape[0] - np.prod(act_params["dim_rec_o"])
             del act_params["dim_rec_o"]
 
-        act = pol_fn(**act_params)
+        act = pol_fn(name=name, **act_params)
         sess = tf.Session()
         sess.__enter__()
         aw = ActWrapper(act, act_params)
