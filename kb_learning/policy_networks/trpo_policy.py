@@ -1,16 +1,16 @@
 import gym
 import numpy as np
 import tensorflow as tf
-import tensorflow.contrib as tfc
 from baselines.common.distributions import make_pdtype
 from baselines.common import tf_util
 
 from kb_learning.policy_networks.max_embedding import MaxEmbedding
 from kb_learning.policy_networks.mean_embedding import MeanEmbedding
+from kb_learning.policy_networks.softmax_embedding import SoftMaxEmbedding
 from kb_learning.policy_networks.multi_layer_perceptron import MultiLayerPerceptron
 
 
-class MlpPolicy(object):
+class SwarmPolicy(object):
     recurrent = False
 
     def __init__(self, name, ob_space, ac_space,
@@ -56,6 +56,9 @@ class MlpPolicy(object):
                         # max embedding for the swarm
                         swarm_layer = MaxEmbedding(swarm_input_layer, swarm_net_size, num_agent_observations,
                                                    agent_obs_dims).out
+                    elif swarm_net_type == 'softmax':
+                        swarm_layer = SoftMaxEmbedding(swarm_input_layer, swarm_net_size, num_agent_observations,
+                                                       agent_obs_dims).out
                     elif swarm_net_type == 'mlp':
                         swarm_layer = MultiLayerPerceptron(swarm_input_layer, swarm_net_size).out
                     else:
@@ -70,6 +73,9 @@ class MlpPolicy(object):
                         # max embedding for the objects
                         objects_layer = MaxEmbedding(objects_input_layer, objects_net_size, num_object_observations,
                                                      object_obs_dims, last_as_valid=True).out
+                    elif swarm_net_type == 'softmax':
+                        objects_layer = SoftMaxEmbedding(objects_input_layer, objects_net_size, num_object_observations,
+                                                       object_obs_dims, last_as_valid=True).out
                     elif objects_net_type == 'mlp':
                         objects_layer = MultiLayerPerceptron(objects_input_layer, objects_net_size).out
                     else:

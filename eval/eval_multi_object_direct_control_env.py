@@ -10,7 +10,7 @@ from kb_learning.envs import MultiObjectDirectControlEnv, NormalizeActionWrapper
 import yaml
 import numpy as np
 
-from kb_learning.policy_networks.trpo_policy import MlpPolicy
+from kb_learning.policy_networks.trpo_policy import SwarmPolicy
 from kb_learning.tools.trpo_tools import ActWrapper
 
 env_config_yaml = '''
@@ -36,24 +36,24 @@ kilobots: !KilobotsConf
 
 def main():
     env_config = yaml.load(env_config_yaml)
-    env_config.objects = [env_config.objects[0]] * 20
+    env_config.objects = [env_config.objects[0]] * 10
     env = MultiObjectDirectControlEnv(configuration=env_config, agent_reward=True, swarm_reward=False,
                                       done_after_steps=500,
-                                      reward_function='object_cleanup')
+                                      reward_function='object_cleanup_sparse')
     wrapped_env = NormalizeActionWrapper(env)
 
     obs = env.reset()
 
     def policy_fn(name, ob_space, ac_space, env_config, agent_dims, object_dims, swarm_net_size, swarm_net_type,
                   objects_net_size, objects_net_type, extra_net_size, concat_net_size):
-        return MlpPolicy(name=name, ob_space=ob_space, ac_space=ac_space,
-                         num_agent_observations=env_config.kilobots.num - 1, agent_obs_dims=agent_dims,
-                         num_object_observations=len(env_config.objects), object_obs_dims=object_dims,
-                         swarm_net_size=swarm_net_size, swarm_net_type=swarm_net_type,
-                         objects_net_size=objects_net_size, objects_net_type=objects_net_type,
-                         extra_net_size=extra_net_size, concat_net_size=concat_net_size)
+        return SwarmPolicy(name=name, ob_space=ob_space, ac_space=ac_space,
+                           num_agent_observations=env_config.kilobots.num - 1, agent_obs_dims=agent_dims,
+                           num_object_observations=len(env_config.objects), object_obs_dims=object_dims,
+                           swarm_net_size=swarm_net_size, swarm_net_type=swarm_net_type,
+                           objects_net_size=objects_net_size, objects_net_type=objects_net_type,
+                           extra_net_size=extra_net_size, concat_net_size=concat_net_size)
 
-    pi = ActWrapper.load('policies/nn_based/trpo_ma/clean_up/20obj/policy.pkl', policy_fn)
+    pi = ActWrapper.load('policies/nn_based/trpo_ma/clean_up_sparse/10obj/policy.pkl', policy_fn)
 
     steps = 0
     ep_reward = .0

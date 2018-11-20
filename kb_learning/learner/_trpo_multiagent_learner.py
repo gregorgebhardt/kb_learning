@@ -19,7 +19,7 @@ from cluster_work import ClusterWork
 from mpi4py import MPI
 
 from kb_learning.envs import NormalizeActionWrapper, MultiObjectDirectControlEnv
-from kb_learning.policy_networks.trpo_policy import MlpPolicy
+from kb_learning.policy_networks.trpo_policy import SwarmPolicy
 from kb_learning.tools.trpo_tools import traj_segment_generator_ma, add_vtarg_and_adv_ma, flatten_lists, ActWrapper
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -40,8 +40,9 @@ class TRPOMultiAgentLearner(ClusterWork):
             'done_after_steps':    1024,
             'num_objects':         None,
             'reward_function':     None,
-            'swarm_reward':        False,
-            'agent_reward':        False,
+            'agent_type':          'SimpleAccelerationControlKilobot',
+            'swarm_reward':        True,
+            'agent_reward':        True,
         },
         'trpo':     {
             'gamma':         0.99,
@@ -131,7 +132,8 @@ class TRPOMultiAgentLearner(ClusterWork):
         sess_conf = tf.ConfigProto(allow_soft_placement=True,
                                    inter_op_parallelism_threads=2,
                                    intra_op_parallelism_threads=1)
-        self.session = tf_util.make_session(config=sess_conf, make_default=True)
+        self.graph = tf.Graph()
+        self.session = tf_util.make_session(config=sess_conf, make_default=True, graph=self.graph)
 
         np.random.seed(self._seed)
         tf.set_random_seed(self._seed)
@@ -150,6 +152,7 @@ class TRPOMultiAgentLearner(ClusterWork):
                                                reward_function=self._params['sampling']['reward_function'],
                                                swarm_reward=self._params['sampling']['swarm_reward'],
                                                agent_reward=self._params['sampling']['agent_reward'],
+                                               agent_type=self._params['sampling']['agent_type'],
                                                done_after_steps=self._params['sampling']['done_after_steps'])
 
         wrapped_env = NormalizeActionWrapper(self.env)
@@ -157,20 +160,20 @@ class TRPOMultiAgentLearner(ClusterWork):
         # create policy function
         def policy_fn(name, ob_space, ac_space, env_config, agent_dims, object_dims, swarm_net_size, swarm_net_type,
                       objects_net_size, objects_net_type, extra_net_size, concat_net_size):
-            return MlpPolicy(name=name, ob_space=ob_space, ac_space=ac_space,
-                             num_agent_observations=env_config.kilobots.num - 1, agent_obs_dims=agent_dims,
-                             num_object_observations=len(env_config.objects), object_obs_dims=object_dims,
-                             swarm_net_size=swarm_net_size, swarm_net_type=swarm_net_type,
-                             objects_net_size=objects_net_size, objects_net_type=objects_net_type,
-                             extra_net_size=extra_net_size, concat_net_size=concat_net_size)
+            return SwarmPolicy(name=name, ob_space=ob_space, ac_space=ac_space,
+                               num_agent_observations=env_config.kilobots.num - 1, agent_obs_dims=agent_dims,
+                               num_object_observations=len(env_config.objects), object_obs_dims=object_dims,
+                               swarm_net_size=swarm_net_size, swarm_net_type=swarm_net_type,
+                               objects_net_size=objects_net_size, objects_net_type=objects_net_type,
+                               extra_net_size=extra_net_size, concat_net_size=concat_net_size)
 
         policy_params = dict(ob_space=self.env.observation_space,
                              ac_space=self.env.kilobots[0].action_space,
                              env_config=config['env_config'],
                              # we observe all other agents with (r, sin(a), cos(a), sin(th), cos(th), lin_vel, rot_vel)
-                             agent_dims=7,
+                             agent_dims=self.env.kilobots_observation_space.shape[0],
                              # we observe all objects with (r, sin(a), cos(a), sin(th), cos(th), valid_indicator)
-                             object_dims=6,
+                             object_dims=self.env.object_observation_space.shape[0],
                              swarm_net_size=self._params['policy']['swarm_net_size'],
                              swarm_net_type=self._params['policy']['swarm_net_type'],
                              objects_net_size=self._params['policy']['objects_net_size'],
@@ -263,6 +266,8 @@ class TRPOMultiAgentLearner(ClusterWork):
 
         self.cg_iters = self._params['trpo']['cg_iterations']
         self.cg_damping = self._params['trpo']['cg_damping']
+
+        # self.graph.finalize()
 
     def iterate(self, config: dict, rep: int, n: int):
         # set random seed for repetition and iteration
@@ -397,7 +402,7 @@ class TRPOMultiAgentLearner(ClusterWork):
         if self.env:
             self.env.close()
         self.session.close()
-        tf.reset_default_graph()
+        del self.graph
 
     def save_state(self, config: dict, rep: int, n: int):
         # save parameters at every iteration

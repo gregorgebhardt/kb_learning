@@ -4,7 +4,6 @@ import gym_kilobots
 import numpy as np
 from gym import spaces
 from gym_kilobots.envs import YamlKilobotsEnv, DirectControlKilobotsEnv
-from gym_kilobots.lib import SimpleDirectControlKilobot
 
 
 class TargetArea:
@@ -254,7 +253,8 @@ class MultiObjectAssemblyEnv(MultiObjectEnv):
 
 
 class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
-    def __init__(self, reward_function, agent_reward, swarm_reward, **kwargs):
+    def __init__(self, reward_function, agent_reward, swarm_reward, agent_type='SimpleVelocityControlKilobot',
+                 **kwargs):
         self._target_area = TargetArea((.0, .0), .2, .2)
         self._reward_function = reward_function
         self._agent_reward = agent_reward
@@ -262,6 +262,8 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
 
         self._agent_score = None
         self._swarm_score = None
+
+        self.agent_type = agent_type
 
         self._reward_ratio = 1.
 
@@ -291,12 +293,15 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         kb_rel_angle -= kb_states[..., [2]]
         # local orientations
         kb_rel_orientations = -kb_states[..., [2]] + kb_states[..., 2].reshape(1, -1, 1)
-        # absolute velocities
-        kb_vel = np.tile(kb_states[..., 3:].reshape(1, -1, 2), (self.num_kilobots, 1, 1))
-
         # concat swarm observations
         A = np.concatenate((kb_rel_radius, np.sin(kb_rel_angle), np.cos(kb_rel_angle),
-                            np.sin(kb_rel_orientations), np.cos(kb_rel_orientations), kb_vel), axis=2)
+                            np.sin(kb_rel_orientations), np.cos(kb_rel_orientations)), axis=2)
+
+        if kb_states.shape[-1] > 3:
+            # absolute velocities
+            kb_vel = np.tile(kb_states[..., 3:].reshape(1, -1, 2), (self.num_kilobots, 1, 1))
+            # concat swarm observations
+            A = np.concatenate((A, kb_vel), axis=2)
 
         # remove diagonal entries, i.e., self observations
         strided = np.lib.stride_tricks.as_strided
@@ -337,11 +342,12 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
 
         # proprioceptive observations
         kb_states = kb_states[:, 0, :]
-        kb_proprioception = np.concatenate((kb_states[:, :2], np.sin(kb_states[:, [2]]), np.cos(kb_states[:, [2]]),
-                                            kb_states[:, 3:], self._agent_score.reshape(-1, 1)), axis=1)
+        kb_proprio = np.concatenate((kb_states[:, :2], np.sin(kb_states[:, [2]]), np.cos(kb_states[:, [2]])), axis=1)
+        if kb_states.shape[1] > 3:
+            kb_proprio = np.concatenate((kb_proprio, kb_states[:, 3:]), axis=1)
 
         return np.concatenate((A, B, target_rel_radius, np.sin(target_rel_angle), np.cos(target_rel_angle),
-                               kb_proprioception, np.full((self.num_kilobots, 1), len(self.objects))), axis=1)
+                               kb_proprio, np.full((self.num_kilobots, 1), len(self.objects))), axis=1)
 
     @property
     def reward_ratio(self):
@@ -422,9 +428,6 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         else:
             raise Exception('reward function `{}` not implemented.'.format(self._reward_function))
 
-        # TODO Sisyphus-Cleanup-Task
-        #   reward and re-spawning for objects in the target area
-
         for kb, r in zip(self._kilobots, reward):
             if r > .1:
                 kb.set_color((150, 150 + min([100, r * 50]), 150))
@@ -440,7 +443,7 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         kb_dims = self.kilobots_state_space.shape[0]
 
         # get kilobot positions in a (n x 1 x 2) matrix
-        kb_states = state[:kb_dims].reshape((-1, 5))
+        kb_states = state[:kb_dims].reshape((self.num_kilobots, -1))
         kb_positions = kb_states[:, :2].reshape(-1, 1, 2)
 
         # get object positions in a (m x 2) matrix
@@ -452,9 +455,10 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         kb_obj_touching = np.sqrt(kb_obj_sqdist) <= np.sqrt(2 * .036 ** 2)
 
         swarm_reward = .0
-        for o, o_pos in zip(self._objects, obj_state):
+        for i, (o, o_pos) in enumerate(zip(self._objects, obj_state)):
             if o_pos in self._target_area:
-                swarm_reward += 1
+                swarm_reward += 10
+                kb_obj_touching[:, i] = False
 
         return np.asarray(np.any(kb_obj_touching, axis=1), dtype=np.float64) + swarm_reward
 
@@ -573,43 +577,52 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         kb_high = self._kilobots[0].state_space.high
 
         # radius, angle as sin+cos, orientation as sin+cos
-        kb_low = np.r_[[.0, -1., -1., -1., -1.], kb_low[-2:]]
-        kb_high = np.r_[[np.sqrt(-self.world_width * -self.world_height), 1., 1., 1., 1.], kb_high[-2:]]
-        kb_low = np.tile(kb_low, self.num_kilobots - 1)
-        kb_high = np.tile(kb_high, self.num_kilobots - 1)
+        kb_low = np.r_[[.0, -1., -1., -1., -1.], kb_low[3:]]
+        kb_high = np.r_[[np.sqrt(-self.world_width * -self.world_height), 1., 1., 1., 1.], kb_high[3:]]
+        # kb_low = np.tile(kb_low, self.num_kilobots - 1)
+        # kb_high = np.tile(kb_high, self.num_kilobots - 1)
 
         return spaces.Box(low=kb_low, high=kb_high, dtype=np.float64)
 
     @property
     def object_observation_space(self):
         # radius, angle as sin+cos, orientation as sin+cos, object observation valid
-        obj_low = np.array([.0, -1., -1., -1., -1., 0] * len(self.conf.objects))
-        obj_high = np.array([np.sqrt(-self.world_width * -self.world_height), 1., 1., 1., 1., 1
-                             ] * len(self.conf.objects))
+        obj_low = np.array([.0, -1., -1., -1., -1., 0])
+        obj_high = np.array([np.sqrt(-self.world_width * -self.world_height), 1., 1., 1., 1., 1])
 
         return spaces.Box(low=obj_low, high=obj_high, dtype=np.float64)
 
     @property
     def observation_space(self):
+        agent_obs_space = self.kilobots_observation_space
+        swarm_obs_space_low = np.tile(agent_obs_space.low, self.num_kilobots-1)
+        swarm_obs_space_high = np.tile(agent_obs_space.high, self.num_kilobots-1)
+
+        object_obs_space = self.object_observation_space
+        objects_obs_space_low = np.tile(object_obs_space.low, len(self.conf.objects))
+        objects_obs_space_high = np.tile(object_obs_space.high, len(self.conf.objects))
+
         # radius, angle as sin+cos
         target_low = np.array([.0, -1., -1.])
         target_high = np.array([np.sqrt(-self.world_width * -self.world_height), 1., 1.])
 
-        # proprio_low = self._kilobots[0].state_space.low
-        # position, orientation as sin+cos, linear vel, angular vel, score
-        proprio_low = np.r_[self.world_bounds[0], -1., -1., .0, -.5 * np.pi, .0]
-        # proprio_high = self._kilobots[0].state_space.high
-        proprio_high = np.r_[self.world_bounds[1], 1., 1., .01, .5 * np.pi, np.inf]
+        if self.agent_type == 'SimpleAccelerationControlKilobot':
+            # position, orientation as sin+cos, linear vel, angular vel, score
+            proprio_low = np.r_[self.world_bounds[0], -1., -1., .0, -.5 * np.pi]
+            proprio_high = np.r_[self.world_bounds[1], 1., 1., .01, .5 * np.pi]
+        else:
+            # position, orientation as sin+cos, score
+            proprio_low = np.r_[self.world_bounds[0], -1., -1.]
+            proprio_high = np.r_[self.world_bounds[1], 1., 1.]
 
-        obs_space_low = np.r_[self.kilobots_observation_space.low, self.object_observation_space.low,
-                              target_low, proprio_low, 1]
-        obs_space_high = np.r_[self.kilobots_observation_space.high, self.object_observation_space.high,
-                               target_high, proprio_high, len(self.conf.objects)]
+        obs_space_low = np.r_[swarm_obs_space_low, objects_obs_space_low, target_low, proprio_low, 1]
+        obs_space_high = np.r_[swarm_obs_space_high, objects_obs_space_high, target_high, proprio_high,
+                               len(self.conf.objects)]
 
         return spaces.Box(np.tile(obs_space_low, (self.num_kilobots, 1)),
                           np.tile(obs_space_high, (self.num_kilobots, 1)), dtype=np.float64)
 
-    def _init_kilobots(self, type='SimpleDirectControlKilobot'):
+    def _init_kilobots(self, agent_type=None):
         num_kilobots = self.conf.kilobots.num
 
         # draw the kilobots positions uniformly from the world size
@@ -620,13 +633,14 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         for position, orientation in zip(kilobot_positions, kilobot_orientations):
             position = np.maximum(position, self.world_bounds[0] + 0.02)
             position = np.minimum(position, self.world_bounds[1] - 0.02)
-            kb_class = getattr(gym_kilobots.lib, type)
+            kb_class = getattr(gym_kilobots.lib, self.agent_type)
             self._add_kilobot(kb_class(self.world, position=position, orientation=orientation,
                                        velocity=[.01, np.random.rand() * 0.1 * np.pi - 0.05 * np.pi]))
 
     @property
     def kilobots_state_space(self):
-        kb_state_space = SimpleDirectControlKilobot.state_space
+        kb_class = getattr(gym_kilobots.lib, self.agent_type)
+        kb_state_space = kb_class.state_space
         kb_low = np.r_[self.world_bounds[0], kb_state_space.low[2:]]
         kb_high = np.r_[self.world_bounds[1], kb_state_space.high[2:]]
         return spaces.Box(low=np.tile(kb_low, self.num_kilobots), high=np.tile(kb_high, self.num_kilobots),

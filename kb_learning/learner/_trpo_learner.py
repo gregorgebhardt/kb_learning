@@ -16,7 +16,7 @@ from cluster_work import ClusterWork
 from mpi4py import MPI
 
 from kb_learning.envs import NormalizeActionWrapper, MultiObjectEnv
-from kb_learning.policy_networks.trpo_policy import MlpPolicy
+from kb_learning.policy_networks.trpo_policy import SwarmPolicy
 from kb_learning.tools.trpo_tools import add_vtarg_and_adv, flatten_lists, ActWrapper, traj_segment_generator
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
@@ -131,12 +131,12 @@ class TRPOLearner(ClusterWork):
 
         # create policy function
         def policy_fn(name, ob_space, ac_space):
-            return MlpPolicy(name=name, ob_space=ob_space, ac_space=ac_space,
-                             num_observed_kilobots=env.num_kilobots, kilobot_dims=2,
-                             num_observed_objects=len(env.objects), object_dims=4,
-                             hid_size=self._params['policy']['hidden_size'],
-                             kb_me_size=self._params['policy']['swarm_size'],
-                             ob_me_size=self._params['policy']['objects_size'])
+            return SwarmPolicy(name=name, ob_space=ob_space, ac_space=ac_space,
+                               num_observed_kilobots=env.num_kilobots, kilobot_dims=2,
+                               num_observed_objects=len(env.objects), object_dims=4,
+                               hid_size=self._params['policy']['hidden_size'],
+                               kb_me_size=self._params['policy']['swarm_size'],
+                               ob_me_size=self._params['policy']['objects_size'])
 
         self.policy_fn = policy_fn
 

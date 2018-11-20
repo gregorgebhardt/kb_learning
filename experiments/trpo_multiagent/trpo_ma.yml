@@ -66,21 +66,88 @@ list:
     objects_net_type: ['mean', 'max']
 
 ---
-name: object_cleanup_sparse
+name: velocity_agent_max_embeddings
+iterations: 150
+repetitions: 5
+
+params:
+  sampling:
+    reward_function: object_cleanup_sparse
+    agent_type: SimpleVelocityControlKilobot
+    num_objects: 10
+    timesteps_per_batch: 2048  # 4096
+    done_after_steps: 2048
+  policy:
+    swarm_net_type: max
+    objects_net_type: max
+
+list:
+  policy:
+    swarm_net_size: [[64], [128]]
+    objects_net_size: [[64], [128]]
+
+---
+name: velocity_agent_softmax_embeddings
 iterations: 150
 repetitions: 3
 
 params:
   sampling:
     reward_function: object_cleanup_sparse
-    swarm_reward: True
-    agent_reward: True
-    num_objects: 20
+    agent_type: SimpleVelocityControlKilobot
+    num_objects: 10
+    timesteps_per_batch: 2048  # 4096
+    done_after_steps: 2048
+  policy:
+    swarm_net_type: softmax
+    objects_net_type: softmax
+
+list:
+  policy:
+    swarm_net_size: [[64], [128]]
+    objects_net_size: [[64], [128]]
+
+---
+name: acceleration_agent_max_embeddings
+iterations: 150
+repetitions: 5
+
+params:
+  sampling:
+    reward_function: object_cleanup_sparse
+    agent_type: SimpleAccelerationControlKilobot
+    num_objects: 10
     timesteps_per_batch: 2048  # 4096
     done_after_steps: 2048
   policy:
     swarm_net_type: max
     objects_net_type: max
+
+list:
+  policy:
+    swarm_net_size: [[64], [128]]
+    objects_net_size: [[64], [128]]
+
+---
+name: acceleration_agent_softmax_embeddings
+iterations: 150
+repetitions: 3
+
+params:
+  sampling:
+    reward_function: object_cleanup_sparse
+    agent_type: SimpleAccelerationControlKilobot
+    num_objects: 10
+    timesteps_per_batch: 2048  # 4096
+    done_after_steps: 2048
+  policy:
+    swarm_net_type: softmax
+    objects_net_type: softmax
+
+list:
+  policy:
+    swarm_net_size: [[64], [128]]
+    objects_net_size: [[64], [128]]
 
 ---
 name: "eval_num_objects"
