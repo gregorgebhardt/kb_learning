@@ -5,7 +5,7 @@ import baselines.common.tf_util as U
 
 
 class MeanEmbedding:
-    def __init__(self, input_ph, hidden_sizes, nr_obs, dim_obs, activation=tf.nn.relu,
+    def __init__(self, input_ph, hidden_sizes, nr_obs, dim_obs, activation=tf.nn.leaky_relu,
                  last_as_valid=False):
 
         reshaped_input = tf.reshape(input_ph, shape=(-1, int(dim_obs)))
@@ -43,5 +43,6 @@ class MeanEmbedding:
                 last_out_mean = tf.divide(last_out_sum, num_obs_objects)
         else:
             last_out_mean = tf.reduce_mean(reshaped_output, axis=1)
+
 
         self.out = last_out_mean

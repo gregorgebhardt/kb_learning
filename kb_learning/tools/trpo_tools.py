@@ -81,7 +81,7 @@ def add_vtarg_and_adv(seg, gamma, lam):
     seg["tdlamret"] = seg["adv"] + seg["vpred"]
 
 
-def traj_segment_generator_ma(pi, env, horizon, stochastic):
+def traj_segment_generator_ma(pi, env, horizon, stochastic, render=False):
     # Initialize state variables
     t = 0
     n_agents = len(env.env.kilobots)
@@ -98,7 +98,7 @@ def traj_segment_generator_ma(pi, env, horizon, stochastic):
     time_steps = []
 
     # Initialize history arrays
-    sub_sample_thresh = 20
+    sub_sample_thresh = 8
     if n_agents > sub_sample_thresh:
         sub_sample = True
         sub_sample_idx = np.random.choice(n_agents, sub_sample_thresh, replace=False)
@@ -164,7 +164,8 @@ def traj_segment_generator_ma(pi, env, horizon, stochastic):
         prevacs[i] = prevac
 
         ob, rew, new, _ = env.step(ac)
-        # env.render()
+        if render:
+            env.render()
         # rew = np.asarray([rew] * n_agents)
         rews[i] = rew[sub_sample_idx] if sub_sample else rew
 

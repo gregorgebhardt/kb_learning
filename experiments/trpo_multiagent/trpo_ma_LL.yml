@@ -1,0 +1,82 @@
+---
+# DEFAULT
+name: "DEFAULT"
+repetitions: 4
+iterations: 150
+path: "data/trpo_ma_LL"
+gui: false
+
+params: {}
+
+env_config:
+  !EvalEnv
+  width: 1.
+  height: 1.
+  resolution: 600
+
+  objects:
+    - !ObjectConf
+      idx: 0
+      shape: l_shape
+      width: .1
+      height: .2
+      init: random
+      symmetry: 1
+    - !ObjectConf
+      idx: 0
+      shape: l_shape
+      width: .1
+      height: .2
+      init: random
+      symmetry: 1
+
+  kilobots: !KilobotsConf
+    num: 10
+    mean: random
+    std: .03
+
+---
+name: test
+iterations: 250
+repetitions: 5
+
+params:
+  sampling:
+    reward_function: assembly_LL
+    agent_type: SimpleVelocityControlKilobot
+    num_objects: 2
+    timesteps_per_batch: 4096
+    done_after_steps: 512
+  policy:
+#    swarm_net_size: [64]
+#    objects_net_size: [64]
+    swarm_net_type: mean
+    objects_net_type: max
+#    extra_net_size: []
+#    concat_net_size: [128, 64]
+#    load_path: trpo_multiagent/policy.pkl
+  trpo:
+    gamma: .99
+    lambda: .95
+
+---
+name: eval_assembly_LL
+iterations: 250
+repetitions: 5
+
+params:
+  sampling:
+    reward_function: assembly
+    agent_type: SimpleVelocityControlKilobot
+    num_objects: 2
+    timesteps_per_batch: 5120
+    done_after_steps: 512
+  trpo:
+    gamma: .99
+    lambda: .95
+
+list:
+  policy:
+    type:             ['swarm', 'swarm', 'swarm',   'swarm',   'mlp']
+    swarm_net_type:   ['mean',  'max',   'softmax', 'softmax', '']
+    objects_net_type: ['max',   'max',   'max',     'softmax', '']

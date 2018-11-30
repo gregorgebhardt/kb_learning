@@ -1,28 +1,27 @@
 import logging
 import os
 import random
+import tempfile
 import time
+import zipfile
 from collections import deque
+from contextlib import contextmanager
 from typing import Generator
-import multiprocessing
 
-import tensorflow as tf
 import cloudpickle
-import gym
 import numpy as np
-from baselines.bench.monitor import Monitor
-from baselines.common import explained_variance
-from baselines.common.policies import build_policy
-from baselines.common.tf_util import make_session
-from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
-from baselines.common.vec_env.shmem_vec_env import ShmemVecEnv
+import tensorflow as tf
+from baselines.common import Dataset, colorize, explained_variance, tf_util, zipsame
+from baselines.common.mpi_adam import MpiAdam
+from baselines.common.mpi_moments import mpi_moments
+from cluster_work import ClusterWork
+from mpi4py import MPI
 
-from cluster_work import ClusterWork, InvalidParameterArgument
-
-from kb_learning.envs import register_object_env, NormalizeActionWrapper
-from kb_learning.policy_networks import mlp, swarm_policy_network
-from kb_learning.tools import const_fn, safe_mean
-from kb_learning.tools.ppo_tools import model_lambda, Runner
+from kb_learning.envs import MultiObjectTargetPoseEnv, NormalizeActionWrapper
+from kb_learning.policy_networks.mlp_policy import MlpPolicyNetwork
+from kb_learning.policy_networks.swarm_policy import SwarmPolicyNetwork
+from kb_learning.tools.ppo_tools import add_vtarg_and_adv, traj_segment_generator
+from kb_learning.tools.trpo_tools import ActWrapper, flatten_lists
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 os.environ["KMP_BLOCKTIME"] = "0"
@@ -34,198 +33,230 @@ logger = logging.getLogger('ppo')
 class PPOLearner(ClusterWork):
     _restore_supported = True
     _default_params = {
-        'sampling':              {
-            'num_kilobots':     15,
-            'w_factor':         .0,
-            'num_workers':      10,
-            'num_worker_steps': 500,
-            'num_minibatches':  4,
-            'object_shape':     'quad',
-            'object_width':     .15,
-            'object_height':    .15,
-            'light_type':       'circular',
-            'light_radius':     .2,
-            'environment':      'absolute',
-            'done_after_steps': 125
+        'sampling': {
+            'timesteps_per_batch': 2048,
+            'done_after_steps':    1024,
+            'num_objects':         None,
+            'reward_function':     None,
+            'swarm_reward':        True,
+            'agent_reward':        True,
+            'schedule':            'linear'
         },
-        'ppo':                   {
-            'learning_rate':        3e-4,
-            'clip_range':           0.2,
-            'gamma':                0.99,
-            'lambda':               0.95,
-            'entropy_coefficient':  0.0,
-            'value_fn_coefficient': 0.5,
-            'max_grad_norm':        0.5,
-            'num_train_epochs':     4,
-            'num_threads':          0,
+        'ppo':      {
+            'clip_range':          0.2,
+            'entropy_coefficient': 0.0,
+            'value_coefficient':   0.5,
+            'gamma':               0.99,
+            'lambda':              0.95,
+            'schedule':            'linear',
+            'epochs':              5,
+            'step_size':           3e-4,
+            'batch_size':          256,
+            'max_gradient_norm':   .5,
         },
-        'policy': {
-            'type': 'me_mlp',
-            'swarm_network_type':   'me',
-            'swarm_network_size':   (64,),
-            'object_dims':          4,
-            'objects_network_type': 'mlp',
-            'objects_network_size': (64,),
-            'extra_dims':           2,
-            'extra_network_size':   (64,),
-            'concat_network_size':  (64,)
+        'policy':   {
+            'type':             'swarm',
+            'swarm_net_size':   (64,),
+            'swarm_net_type':   'mean',
+            'objects_net_size': (64,),
+            'objects_net_type': 'mean',
+            'extra_net_size':   (64,),
+            'concat_net_size':  (64,),
+            'pd_bias_init':     None
         },
-        'updates_per_iteration': 5,
-        'episode_info_length':   100,
+        'buffer_len': 300
     }
 
     def __init__(self):
         super().__init__()
-        self.session: tf.Session = None
-        self.graph: tf.Graph = None
-        self.file_writer = None
-        self.merged_summary = None
-
-        self.learning_rate = None
-        self.clip_range = None
-
-        self.make_model = None
-
-        self.env = None
-        self.runner = None
-        self.model = None
-
         self.num_workers = None
-        self.steps_per_worker = None
-        self.steps_per_batch = None
-        self.num_minibatches = None
-        self.steps_per_minibatch = None
-        self.num_updates = None
-        self.updates_per_iteration = None
-        self.num_train_epochs = None
+        self.rank = None
 
-        self.ep_info_buffer = None
+        self.session = None
+        self.graph = None
+        self.env = None
 
-        self.timer = .0
+        self.policy_fn = None
+
+        self.timesteps_per_batch = None
+        self.seg_gen = None
+
+        self.loss_names = None
+
+        self.pi = None
+
+        self.adam = None
+
+        self.assign_old_eq_new = None
+        self.losses = None
+        self.loss_gradient = None
+        self.vf_loss = None
+
+        self.sampling_schedule = None
+        self.learning_schedule = None
+        self.gamma = None
+        self.lam = None
+        self.epochs = None
+        self.step_size = None
+        self.batch_size = None
+
+        self.episodes_so_far = 0
+        self.timesteps_so_far = 0
+        self.iters_so_far = 0
+        self.tstart = time.time()
+        self.ep_length_buffer = None  # rolling buffer for episode lengths
+        self.ep_return_buffer = None  # rolling buffer for episode rewards
+
+    @contextmanager
+    def timed(self, msg):
+        if self.rank == 0:
+            logger.info(colorize(msg, color='magenta'))
+            t_start = time.time()
+            yield
+            logger.info(colorize("done in %.3f seconds" % (time.time() - t_start), color='magenta'))
+        else:
+            yield
+
+    def allmean(self, x):
+        assert isinstance(x, np.ndarray)
+        out = np.empty_like(x)
+        self._COMM.Allreduce(x, out, op=MPI.SUM)
+        out /= self.num_workers
+        return out
 
     def reset(self, config: dict, rep: int):
-        if self._params['ppo']['num_threads'] == 0:
-            self._params['ppo']['num_threads'] = multiprocessing.cpu_count()
-        os.environ["OMP_NUM_THREADS"] = str(self._params['ppo']['num_threads'])
+        os.environ["OMP_NUM_THREADS"] = '1'
 
-        # get seed from cluster work
-        tf.set_random_seed(self._seed)
+        sess_conf = tf.ConfigProto(allow_soft_placement=True,
+                                   inter_op_parallelism_threads=1,
+                                   intra_op_parallelism_threads=1)
+        self.graph = tf.Graph()
+        self.session = tf_util.make_session(config=sess_conf, make_default=True, graph=self.graph)
+
         np.random.seed(self._seed)
+        tf.set_random_seed(self._seed)
         random.seed(self._seed)
 
-        # learning rate could change over time...
-        self.learning_rate = const_fn(self._params['ppo']['learning_rate'])
+        if not self._COMM:
+            logger.warning('setting self._COMM to MPI.COMM_WORLD')
+            self._COMM = MPI.COMM_WORLD
 
-        # clip range could change over time...
-        self.clip_range = const_fn(self._params['ppo']['clip_range'])
+        # create env
+        self.env = MultiObjectTargetPoseEnv(configuration=config['env_config'],
+                                            done_after_steps=self._params['sampling']['done_after_steps'])
 
-        self.num_workers = self._params['sampling']['num_workers']
-        self.steps_per_worker = int(self._params['sampling']['num_worker_steps'])
-        self.steps_per_batch = self.num_workers * self.steps_per_worker
-        self.num_minibatches = int(self._params['sampling']['num_minibatches'])
-        self.steps_per_minibatch = self.steps_per_batch // self.num_minibatches
-        self.num_train_epochs = self._params['ppo']['num_train_epochs']
+        wrapped_env = NormalizeActionWrapper(self.env)
 
-        self.updates_per_iteration = self._params['updates_per_iteration']
-        self.num_updates = config['iterations'] * self.updates_per_iteration
+        # create policy function
+        def policy_fn(name, **_policy_params):
+            if self._params['policy']['type'] == 'swarm':
+                return SwarmPolicyNetwork(name=name, **_policy_params)
+            elif self._params['policy']['type'] == 'mlp':
+                return MlpPolicyNetwork(name=name, **_policy_params)
+            else:
+                raise NotImplementedError
 
-        # create environment
-        if self._params['sampling']['environment'] == 'relative':
-            logger.info('using object relative environment')
-            env_class = 'ObjectRelativeEnv'
-            env_params = dict(weight=self._params['sampling']['w_factor'])
-        elif self._params['sampling']['environment'] == 'absolute':
-            logger.info('using object absolute environment')
-            env_class = 'ObjectAbsoluteEnv'
-            env_params = dict()
+        _pd_bias_init = self._params['policy']['pd_bias_init'] or np.array([.0] * self.env.action_space.shape[0] * 2)
+        policy_params = dict(ob_space=self.env.observation_space,
+                             ac_space=self.env.action_space,  # only the type and shape of the action space is important
+                             # we observe all other agents with (r, sin(a), cos(a), sin(th), cos(th), lin_vel, rot_vel)
+                             agent_dims=self.env.kilobots_observation_space.shape[0] // self.env.num_kilobots,
+                             num_agent_observations=self.env.num_kilobots,
+                             # we observe all objects with (r, sin(a), cos(a), sin(th), cos(th), valid_indicator)
+                             object_dims=self.env.object_observation_space.shape[0],
+                             num_object_observations=len(config['env_config'].objects),
+                             swarm_net_size=self._params['policy']['swarm_net_size'],
+                             swarm_net_type=self._params['policy']['swarm_net_type'],
+                             objects_net_size=self._params['policy']['objects_net_size'],
+                             objects_net_type=self._params['policy']['objects_net_type'],
+                             extra_net_size=self._params['policy']['extra_net_size'],
+                             concat_net_size=self._params['policy']['concat_net_size'],
+                             pd_bias_init=_pd_bias_init,
+                             weight_sharing=True)
+
+        self.policy_fn = policy_fn
+
+        self.num_workers = self._COMM.Get_size()
+        self.rank = self._COMM.Get_rank()
+        logger.debug('initializing with rank {} of {}'.format(self.rank, self.num_workers))
+        np.set_printoptions(precision=3)
+        # Setup losses and stuff
+        # ----------------------------------------
+        pi = policy_fn("pi", **policy_params)
+        oldpi = policy_fn("oldpi", **policy_params)
+        atarg = tf.placeholder(dtype=tf.float32, shape=[None])  # Target advantage function (if applicable)
+        ret = tf.placeholder(dtype=tf.float32, shape=[None])  # Empirical return
+
+        # learning rate multiplier, updated with schedule
+        lrmult = tf.placeholder(name='lrmult', dtype=tf.float32, shape=[])
+        clip_param = self._params['ppo']['clip_range'] * lrmult
+
+        ob = tf_util.get_placeholder_cached(name="ob")
+        ac = pi.pdtype.sample_placeholder([None])
+
+        kl_old_new = oldpi.pd.kl(pi.pd)
+        entropy = pi.pd.entropy()
+        mean_kl = tf.reduce_mean(kl_old_new)
+        mean_entropy = tf.reduce_mean(entropy)
+        entropy_penalty = -1 * self._params['ppo']['entropy_coefficient'] * mean_entropy
+
+        ratio = tf.exp(pi.pd.logp(ac) - oldpi.pd.logp(ac))  # pnew / pold
+        surr1 = ratio * atarg  # surrogate from conservative policy iteration
+        surr2 = tf.clip_by_value(ratio, 1.0 - clip_param, 1.0 + clip_param) * atarg  #
+        pol_surr = - tf.reduce_mean(tf.minimum(surr1, surr2))  # PPO's pessimistic surrogate (L^CLIP)
+
+        vpred_clipped = oldpi.vpred + tf.clip_by_value(pi.vpred - oldpi.vpred, -clip_param, clip_param)
+        vf_loss1 = tf.square(pi.vpred - ret)
+        vf_loss2 = tf.square(vpred_clipped - ret)
+        vf_loss = self._params['ppo']['value_coefficient'] * .5 * tf.reduce_mean(tf.maximum(vf_loss1, vf_loss2))
+        # vf_loss = self._params['ppo']['value_coefficient'] * tf.reduce_mean(tf.square(pi.vpred - ret))
+
+        total_loss = pol_surr + entropy_penalty + vf_loss
+        losses = [pol_surr, entropy_penalty, vf_loss, mean_kl, mean_entropy]
+        self.loss_names = ["pol_surr", "entropy_penalty", "vf_loss", "mean_kl", "mean_entropy"]
+
+        var_list = pi.get_trainable_variables()
+
+        max_grad_norm = self._params['ppo']['max_gradient_norm']
+        self.loss_gradient = tf_util.function([ob, ac, atarg, ret, lrmult],
+                                              losses + [tf_util.flatgrad(total_loss, var_list, max_grad_norm)])
+        self.adam = MpiAdam(var_list, comm=self._COMM)
+
+        self.assign_old_eq_new = tf_util.function([], [], updates=[tf.assign(oldv, newv)
+                                                                   for (oldv, newv) in
+                                                                   zipsame(oldpi.get_variables(), pi.get_variables())])
+        self.losses = tf_util.function([ob, ac, atarg, ret, lrmult], losses)
+        self.vf_loss = tf_util.function([ob, ret, lrmult], vf_loss)
+
+        self.pi = ActWrapper(pi, policy_params)
+
+        tf_util.initialize()
+        self.adam.sync()
+
+        self.seg_gen = traj_segment_generator(pi, wrapped_env, self._params['sampling']['timesteps_per_batch'],
+                                              stochastic=True)
+
+        self.gamma = self._params['ppo']['gamma']
+        self.lam = self._params['ppo']['lambda']
+        self.sampling_schedule = self._params['sampling']['schedule']
+        self.learning_schedule = self._params['ppo']['schedule']
+        self.epochs = self._params['ppo']['epochs']
+        self.step_size = self._params['ppo']['step_size']
+        self.batch_size = self._params['ppo']['batch_size']
+
+        self.ep_length_buffer = deque(maxlen=self._params['buffer_len'])
+        self.ep_return_buffer = deque(maxlen=self._params['buffer_len'])
+
+    def _get_schedule_factor(self, schedule):
+        if schedule == 'constant':
+            factor = 1.0
+        elif schedule == 'linear':
+            factor = max(1.0 - float(self._it) / self._iterations, 0)
+        elif schedule == 'sqrt':
+            factor = np.sqrt(1.0 - float(self._it) / self._iterations)
         else:
-            raise InvalidParameterArgument("Invalid argument for parameter 'sampling.environment: {}'".format(
-                self._params['sampling']['environment']))
-
-        env_params.update(dict(entry_point='kb_learning.envs:' + env_class,
-                               num_kilobots=self._params['sampling']['num_kilobots'],
-                               object_shape=self._params['sampling']['object_shape'],
-                               object_width=self._params['sampling']['object_width'],
-                               object_height=self._params['sampling']['object_height'],
-                               light_type=self._params['sampling']['light_type'],
-                               light_radius=self._params['sampling']['light_radius'],
-                               done_after_steps=self._params['sampling']['done_after_steps']))
-
-        env_id = register_object_env(**env_params)
-        proto_env = gym.make(env_id)
-
-        def _make_env(i, seed):
-            def _make_env_i():
-                np.random.seed(seed + 10000 * i)
-                _env_id = register_object_env(**env_params)
-                env = Monitor(NormalizeActionWrapper(gym.make(_env_id)), None, True)
-                return env
-
-            return _make_env_i
-
-        envs = [_make_env(i, self._seed) for i in range(self._params['sampling']['num_workers'])]
-
-        # wrap env in SubprocVecEnv
-        # self.env = SubprocVecEnv(envs, context=self._MP_CONTEXT)
-        self.env = ShmemVecEnv(envs, context=self._MP_CONTEXT)
-
-        ob_space = self.env.observation_space
-        ac_space = self.env.action_space
-
-        # create network
-        if self._params['policy']['type'] == 'me_mlp':
-            logger.info('using mean embedding policy')
-            network = swarm_policy_network(num_agents=proto_env.num_kilobots,
-                                           swarm_network_size=self._params['policy']['swarm_network_size'],
-                                           swarm_network_type=self._params['policy']['swarm_network_type'],
-                                           num_objects=len(proto_env.objects),
-                                           object_dims=self._params['policy']['object_dims'],
-                                           objects_network_size=self._params['policy']['objects_network_size'],
-                                           objects_network_type=self._params['policy']['objects_network_type'],
-                                           extra_dims=self._params['policy']['extra_dims'],
-                                           exta_network_size=self._params['policy']['extra_network_size'],
-                                           concat_network_size=self._params['policy']['concat_network_size'])
-        elif self._params['policy']['type'] == 'mlp':
-            logger.info('using plain mlp policy')
-            network = mlp(size=self._params['policy']['mlp_size'])
-        elif self._params['policy']['type'] == 'mean_mlp':
-            logger.info('using plain mlp policy with mean wrapper')
-            from kb_learning.policy_networks.policy_decorator import compute_mean
-            network = compute_mean(mlp(size=self._params['policy']['mlp_size']),
-                                   num_kilobots=self._params['sampling']['num_kilobots'])
-        elif self._params['policy']['type'] == 'mean_var_mlp':
-            logger.info('using plain mlp policy with mean-variance wrapper')
-            from kb_learning.policy_networks.policy_decorator import compute_mean_var
-            network = compute_mean_var(mlp(size=self._params['policy']['mlp_size']),
-                                       num_kilobots=self._params['sampling']['num_kilobots'])
-        else:
-            raise InvalidParameterArgument("Invalid argument for parameter 'policy.type': {}".format(
-                self._params['policy']['type']))
-
-        policy = build_policy(ob_space, ac_space, network)
-
-        self.make_model = model_lambda(policy=policy, ob_space=ob_space, ac_space=ac_space,
-                                       num_workers=self.num_workers, steps_per_minibatch=self.steps_per_minibatch,
-                                       steps_per_worker=self.steps_per_worker,
-                                       entropy_coefficient=self._params['ppo']['entropy_coefficient'],
-                                       value_fn_coefficient=self._params['ppo']['value_fn_coefficient'],
-                                       max_grad_norm=self._params['ppo']['max_grad_norm'])
-
-        self.graph = tf.Graph()
-        with self.graph.as_default():
-            self.session = make_session(num_cpu=self._params['ppo']['num_threads'], graph=self.graph)
-            self.session.__enter__()
-            # with tf.variable_scope(self._name + '_rep_{}'.format(rep)) as base_scope:
-            self.model = self.make_model()
-
-            # self.merged_summary = tf.summary.merge_all()
-
-            self.runner = Runner(env=self.env, model=self.model, nsteps=self.steps_per_worker,
-                                 gamma=self._params['ppo']['gamma'], lam=self._params['ppo']['lambda'])
-
-            self.model.act_model.state = tf.constant(0)
-
-        self.ep_info_buffer = deque(maxlen=self._params['episode_info_length'])
+            raise NotImplementedError
+        return factor
 
     def iterate(self, config: dict, rep: int, n: int):
         # set random seed for repetition and iteration
@@ -233,137 +264,124 @@ class PPOLearner(ClusterWork):
         tf.set_random_seed(self._seed)
         random.seed(self._seed)
 
-        if not self.graph.finalized:
-            self.graph.finalize()
-
-        values = None
-        returns = None
-        # loss_values = np.zeros(self.updates_per_iteration)
         time_update_start = time.time()
-        # frames_per_second = None
-        # time_elapsed = .0
 
-        for i_update in range(self.updates_per_iteration):
-            _finished_updates = n * self._params['updates_per_iteration'] + i_update
-            frac = 1.0 - _finished_updates / self.num_updates
-            _learning_rate = self.learning_rate(frac)
-            _clip_range = self.clip_range(frac)
+        curr_learn_rate_factor = self._get_schedule_factor(self.learning_schedule)
+        curr_sampling_factor = self._get_schedule_factor(self.sampling_schedule)
 
-            # sample environments
-            obs, returns, masks, actions, values, neglogpacs, states, epinfos = self.runner.run()
-            logger.info('iteration {}: mean return/step: {}  mean reward/step: {}'.format(i_update, safe_mean(returns),
-                                                                                  safe_mean([e['r'] / e['l'] for e in
-                                                                                             epinfos])))
+        self.env.progress_factor = curr_sampling_factor
+        with self.timed("sampling"):
+            seg = self.seg_gen.__next__()
 
-            # todo save trajectories from obs...
+        # rew_std = seg['rew'].std()
+        # rew_std = self._COMM.allreduce(rew_std, MPI.SUM) / self.num_workers
+        # seg['rew'] /= rew_std
 
-            self.ep_info_buffer.extend(epinfos)
-            mb_loss_values = []
+        add_vtarg_and_adv(seg, self.gamma, self.lam)
 
-            # train the model in mini-batches
-            indices = np.arange(self.steps_per_batch)
-            for i_epoch in range(self.num_train_epochs):
-                np.random.shuffle(indices)
-                for start in range(0, self.steps_per_batch, self.steps_per_minibatch):
-                    end = start + self.steps_per_minibatch
-                    mb_indices = indices[start:end]
-                    slices = (arr[mb_indices] for arr in (obs, returns, masks, actions, values, neglogpacs))
-                    mb_loss_values.append(self.model.train(_learning_rate, _clip_range, *slices))
+        # ob, ac, a_target, ret, td1ret = map(np.concatenate, (obs, acs, atargs, rets, td1rets))
+        ob, ac, a_target, td_lambda_return = seg["ob"], seg["ac"], seg["adv"], seg["tdlamret"]
+        v_prediction_before = seg["vpred"]  # predicted value function before udpate
+        # standardized advantage function estimate
+        a_target_mean = a_target.mean()
+        # a_target_mean = self._COMM.allreduce(a_target_mean, MPI.SUM) / self.num_workers
+        a_target_std = (a_target - a_target_mean).std()
+        # a_target_std = self._COMM.allreduce(a_target_std, MPI.SUM) / self.num_workers
+        a_target = (a_target - a_target_mean) / (a_target_std + 1e-8)
 
-            # summary = self.session.run([self.merged_summary, self.model])
-            # self.file_writer.add_summary(summary, i_update + n * self.updates_per_iteration)
+        d = Dataset(dict(ob=ob, ac=ac, atarg=a_target, vtarg=td_lambda_return), shuffle=True)
+        optim_batchsize = self.batch_size or ob.shape[0]
 
-            # TODO fix this
-            # loss_values[i_update] = np.mean(mb_loss_values, axis=0)
+        self.assign_old_eq_new()  # set old parameter values to new parameter values
 
-        time_elapsed = time.time() - time_update_start
-        frames_per_second = int(self.steps_per_batch * self.updates_per_iteration / time_elapsed)
-        self.timer += time_elapsed
+        for ep_i in range(self.epochs):
+            losses = []  # list of tuples, each of which gives the loss for a minibatch
+            for batch in d.iterate_once(optim_batchsize):
+                *new_losses, g = self.loss_gradient(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"],
+                                                    curr_learn_rate_factor)
+                self.adam.update(g, self.step_size * curr_learn_rate_factor)
+                losses.append(new_losses)
 
-        return_values = {
-            # compute elapsed number of steps
-            'serial_steps':        (n + 1) * self.updates_per_iteration * self.steps_per_worker,
-            # compute total number of steps, i.e., the number of simulated steps
-            'total_steps':         (n + 1) * self.updates_per_iteration * self.steps_per_batch,
-            # compute performed update iterations
-            'num_updates':         (n + 1) * self.updates_per_iteration,
-            # fps in this iteration
-            'frames_per_second':   frames_per_second,
-            'explained_variance':  float(explained_variance(values, returns)),
-            # compute mean over episode rewards
-            'episode_reward_mean': safe_mean([ep_info['r'] for ep_info in self.ep_info_buffer]),
-            # compute mean over episode lengths
-            'episode_length_mean': safe_mean([ep_info['l'] for ep_info in self.ep_info_buffer]),
-            # elapsed time during iteration
-            'time_elapsed':        time_elapsed,
-            # elapsed time since starting the experiment
-            'total_time_elapsed':  self.timer
-        }
+        logger.info("Evaluating losses...")
+        losses = []
+        for batch in d.iterate_once(optim_batchsize):
+            new_losses = self.losses(batch["ob"], batch["ac"], batch["atarg"], batch["vtarg"],
+                                     curr_learn_rate_factor)
+            losses.append(new_losses)
+        mean_losses, _, _ = mpi_moments(losses, axis=0, comm=self._COMM)
 
-        for k, v in return_values.items():
-            logger.info("{}: {}".format(k, v))
+        vf_loss = self.vf_loss(ob, td_lambda_return, curr_learn_rate_factor)
 
-        return return_values
+        vf_loss_mean = np.mean(self._COMM.allgather(vf_loss))
+        len_ret_local = (seg["ep_lens"], seg["ep_rets"])  # local values
+        len_ret_pairs = self._COMM.allgather(len_ret_local)  # list of tuples
+        ep_lengths, ep_returns = map(flatten_lists, zip(*len_ret_pairs))
+        self.ep_length_buffer.extend(ep_lengths)
+        self.ep_return_buffer.extend(ep_returns)
+
+        self.episodes_so_far += len(ep_lengths)
+        self.timesteps_so_far += sum(ep_lengths)
+        self.iters_so_far += 1
+
+        if self._COMM.rank == 0:
+            time_elapsed = time.time() - time_update_start
+
+            return_values = dict(zip(self.loss_names, mean_losses))
+
+            return_values.update({
+                "ev_tdlam_before":         explained_variance(v_prediction_before, td_lambda_return),
+                "vf_loss":                 vf_loss_mean,
+                "lr_factor":               curr_learn_rate_factor,
+                "episode_return_mean":     np.mean(self.ep_return_buffer),
+                "episode_return_min":      np.min(self.ep_return_buffer),
+                "episode_return_max":      np.max(self.ep_return_buffer),
+                "episode_length_mean":     np.mean(self.ep_length_buffer),
+                "episodes_this_iteration": len(ep_lengths),
+                "episodes":                self.episodes_so_far,
+                "timesteps":               self.timesteps_so_far,
+                "frames_per_second":       int(np.sum(ep_lengths) / time_elapsed)
+            })
+
+            important_values = ["episode_return_mean", "ev_tdlam_before"]
+
+            for k, v in return_values.items():
+                if k in important_values:
+                    logger.info(colorize("{}: {}".format(k, v), color='green', bold=True))
+                else:
+                    logger.info("{}: {}".format(k, v))
+
+            return return_values
 
     def finalize(self):
         if self.env:
             self.env.close()
         self.session.close()
+        del self.graph
 
     def save_state(self, config: dict, rep: int, n: int):
-        # dump model only after the first iteration
-        if n == 0:
-            model_path = os.path.join(self._log_path_rep, 'make_model.pkl')
-            logger.info('Saving model to to {}'.format(model_path))
-            with open(model_path, 'wb') as fh:
-                fh.write(cloudpickle.dumps(self.make_model))
-
-        parameters_path = os.path.join(self._log_path_it, 'model_parameters')
-        logger.info('Saving parameters to {}'.format(parameters_path))
-        self.model.save(parameters_path)
-
-        # save seed and time information TODO remove
-        # seed_time_path = os.path.join(self._log_path_it, 'seed_time')
-        # logger.info('Saving seed and timer information to {}'.format(seed_time_path))
-        # np_random_state = np.random.get_state()
-        # with open(seed_time_path, 'wb') as fh:
-        #     cloudpickle.dump(dict(np_random_state=np_random_state, timer=self.timer), fh)
+        # save parameters at every iteration
+        policy_path = os.path.join(self._log_path_it, 'policy.pkl')
+        self.pi.save(policy_path)
 
     def restore_state(self, config: dict, rep: int, n: int):
-        # we do not need to restore the model as it is reconstructed from the parameters
+        # resore parameters
+        policy_path = os.path.join(self._log_path_it, 'policy.pkl')
+        logger.info('Restoring parameters from {}'.format(policy_path))
+        # self.pi = ActWrapper.load(policy_path, self.policy_fn)
 
-        # restore model parameters
-        parameters_path = os.path.join(self._log_path_it, 'model_parameters')
-        logger.info('Restoring parameters from {}'.format(parameters_path))
-        self.model.load(parameters_path)
+        with open(policy_path, "rb") as f:
+            model_data, act_params = cloudpickle.load(f)
 
-        # restore seed and time TODO remove
-        # seed_time_path = os.path.join(self._log_path_it, 'seed_time')
-        # logger.info('Restoring seed and timer information to {}'.format(seed_time_path))
-        # with open(seed_time_path, 'rb') as fh:
-        #     d = cloudpickle.load(fh)
-        #     if 'timer' not in d or 'np_random_state' not in d:
-        #         return False
-        #     self.timer = d['timer']
-        #     np.random.set_state(d['np_random_state'])
+        with tempfile.TemporaryDirectory() as td:
+            arc_path = os.path.join(td, "packed.zip")
+            with open(arc_path, "wb") as f:
+                f.write(model_data)
+
+            zipfile.ZipFile(arc_path, 'r', zipfile.ZIP_DEFLATED).extractall(td)
+            self.pi.load_state(os.path.join(td, "model"))
 
         return True
 
     @classmethod
     def plot_results(cls, configs_results: Generator):
-        import matplotlib.pyplot as plt
-        fig = plt.figure()
-        axes = fig.add_subplot(111)
-
-        for config, results in configs_results:
-            if 'w_factor0.5' in config['name'] or 'w_factor1.0' in config['name']:
-                continue
-            mean_ep_reward = results.groupby(level=1).episode_reward_mean.mean()
-            std_ep_reward = results.groupby(level=1).episode_reward_mean.std()
-
-            axes.fill_between(mean_ep_reward.index, mean_ep_reward - 2 * std_ep_reward,
-                              mean_ep_reward + 2 * std_ep_reward, alpha=.5)
-            axes.plot(mean_ep_reward.index, mean_ep_reward, label=config['name'])
-
-        axes.legend()
-        plt.show(block=True)
+        pass

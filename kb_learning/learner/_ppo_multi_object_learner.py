@@ -1,27 +1,23 @@
 import logging
+import multiprocessing
 import os
 import random
 import time
 from collections import deque
-from contextlib import contextmanager
 from typing import Generator
-import multiprocessing
 
-import tensorflow as tf
 import cloudpickle
 import numpy as np
+import tensorflow as tf
 from baselines.bench.monitor import Monitor
-from baselines.common import explained_variance, colorize
+from baselines.common import colorize, explained_variance
 from baselines.common.policies import build_policy
 from baselines.common.tf_util import make_session
-from baselines.common.vec_env.subproc_vec_env import SubprocVecEnv
-
+from baselines.common.vec_env.shmem_vec_env import ShmemVecEnv
 from cluster_work import ClusterWork
 
-from kb_learning.envs import NormalizeActionWrapper
-from kb_learning.envs import MultiObjectEnv
-from kb_learning.envs._multi_object_env import MultiObjectAssemblyEnv
-from kb_learning.policy_networks import swarm_policy_network
+from kb_learning.envs import MultiObjectTargetAreaEnv, NormalizeActionWrapper
+from kb_learning.policy_networks.swarm_policy import swarm_policy_network
 from kb_learning.tools import const_fn, safe_mean
 from kb_learning.tools.ppo_tools import Runner, model_lambda
 
@@ -56,12 +52,12 @@ class PPOMultiObjectLearner(ClusterWork):
             'num_threads':          0,
         },
         'policy':                {
-            'swarm_network_size':   (64,),
-            'swarm_network_type':   'mean',
-            'objects_network_size': (64,),
-            'objects_network_type': 'mean',
-            'extra_network_size':   (64,),
-            'concat_network_size':  (256,)
+            'swarm_net_size':   (64,),
+            'swarm_net_type':   'mean',
+            'objects_net_size': (64,),
+            'objects_net_type': 'mean',
+            'extra_net_size':   (64,),
+            'concat_net_size':  (256,)
         },
         'updates_per_iteration': 5,
         'episode_info_length':   3000,
@@ -124,15 +120,15 @@ class PPOMultiObjectLearner(ClusterWork):
         self.num_updates = config['iterations'] * self.updates_per_iteration
 
         # create environment
-        proto_env = MultiObjectAssemblyEnv(configuration=config['env_config'],
+        proto_env = MultiObjectTargetAreaEnv(configuration=config['env_config'],
                                            done_after_steps=self._params['sampling']['done_after_steps'])
 
         def _make_env(i):
             def _make_env_i():
                 np.random.seed(self._seed + 10000 * i)
-                env = Monitor(NormalizeActionWrapper(MultiObjectAssemblyEnv(configuration=config['env_config'],
-                                                                            done_after_steps=self._params['sampling'][
-                                                                                'done_after_steps'])), None, True)
+                env = MultiObjectTargetAreaEnv(configuration=config['env_config'],
+                                               done_after_steps=self._params['sampling']['done_after_steps'])
+                env = Monitor(NormalizeActionWrapper(env), None, True)
                 return env
 
             return _make_env_i
@@ -140,7 +136,8 @@ class PPOMultiObjectLearner(ClusterWork):
         envs = [_make_env(i) for i in range(self._params['sampling']['num_workers'])]
 
         # wrap env in SubprocVecEnv
-        self.env = SubprocVecEnv(envs, context=self._MP_CONTEXT)
+        # self.env = SubprocVecEnv(envs, context=self._MP_CONTEXT)
+        self.env = ShmemVecEnv(envs, context=self._MP_CONTEXT)
         # self.env = DummyVecEnv(envs)
 
         ob_space = proto_env.observation_space
@@ -148,15 +145,15 @@ class PPOMultiObjectLearner(ClusterWork):
 
         # create network
         network = swarm_policy_network(num_agents=proto_env.num_kilobots,
-                                       swarm_network_size=self._params['policy']['swarm_network_size'],
-                                       swarm_network_type=self._params['policy']['swarm_network_type'],
+                                       agent_dims=2,
+                                       swarm_net_size=self._params['policy']['swarm_net_size'],
+                                       swarm_net_type=self._params['policy']['swarm_net_type'],
                                        num_objects=len(proto_env.objects),
-                                       object_dims=4,
-                                       objects_network_size=self._params['policy']['objects_network_size'],
-                                       objects_network_type=self._params['policy']['objects_network_type'],
-                                       extra_dims=proto_env.light_observation_space.shape[0],
-                                       extra_network_size=self._params['policy']['extra_network_size'],
-                                       concat_network_size=self._params['policy']['concat_network_size'])
+                                       object_dims=5,
+                                       objects_net_size=self._params['policy']['objects_net_size'],
+                                       objects_net_type=self._params['policy']['objects_net_type'],
+                                       extra_net_size=self._params['policy']['extra_net_size'],
+                                       concat_net_size=self._params['policy']['concat_net_size'])
 
         policy = build_policy(ob_space, ac_space, network)
 
@@ -273,8 +270,6 @@ class PPOMultiObjectLearner(ClusterWork):
         self.session.close()
 
     def save_state(self, config: dict, rep: int, n: int):
-        # TODO save sampled trajectories
-
         # dump model only after the first iteration
         if n == 0:
             model_path = os.path.join(self._log_path_rep, 'make_model.pkl')
@@ -286,28 +281,12 @@ class PPOMultiObjectLearner(ClusterWork):
         logger.info('Saving parameters to {}'.format(parameters_path))
         self.model.save(parameters_path)
 
-        # save seed and time information TODO remove
-        # seed_path = os.path.join(self._log_path_it, 'seed')
-        # logger.info('Saving seed to {}'.format(seed_path))
-        # with open(seed_path, 'wb') as fh:
-        #     cloudpickle.dump(dict(np_random_state=np.random.get_state()), fh)
-
     def restore_state(self, config: dict, rep: int, n: int):
         # we do not need to restore the model as it is reconstructed from the parameters
-
         # restore model parameters
         parameters_path = os.path.join(self._log_path_it, 'model_parameters')
         logger.info('Restoring parameters from {}'.format(parameters_path))
         self.model.load(parameters_path)
-
-        # restore seed TODO remove
-        # seed_path = os.path.join(self._log_path_it, 'seed')
-        # logger.info('Restoring seed and timer information to {}'.format(seed_path))
-        # with open(seed_path, 'rb') as fh:
-        #     d = cloudpickle.load(fh)
-        #     if 'np_random_state' not in d:
-        #         return False
-        #     np.random.set_state(d['np_random_state'])
 
         return True
 

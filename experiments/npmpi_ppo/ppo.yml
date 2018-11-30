@@ -1,0 +1,170 @@
+---
+# DEFAULT
+name: "DEFAULT"
+repetitions: 3
+iterations: 150
+path: "data/npmpi_ppo"
+gui: false
+
+params:
+  sampling:
+    num_kilobots: 10
+    num_workers: 24
+---
+name: "test"
+iterations: 200
+
+params:
+  sampling:
+    num_kilobots: 10
+    num_worker_steps: 250
+    environment: absolute
+    light_type: circular
+    done_after_steps: 125
+  policy:
+    swarm_network_size: [64]
+    object_dims: 4
+    objects_network_size: [64]
+    extra_dims: 2
+    extra_network_size: [64]
+    concat_network_size: [64]
+  ppo:
+    learning_rate: 6.e-4
+    gamma: 0.99
+    lambda: 0.95
+    clip_range: 0.1
+    num_threads: 6
+
+#list:
+#  sampling:
+#    w_factor: [.0, .5, 1.]
+---
+name: "eval_relative_env"
+
+params:
+  sampling:
+    num_kilobots: 10
+    num_worker_steps: 500
+    environment: 'relative'
+  policy:
+    mlp_size: [128, 128]
+  ppo:
+    learning_rate: 1.e-4
+
+list:
+  sampling:
+    w_factor: [.0, .5, 1.]
+---
+name: "eval_absolute_env"
+iterations: 100
+
+params:
+  sampling:
+    num_kilobots: 10
+    num_workers: 24
+    num_worker_steps: 250
+    environment: 'absolute'
+    done_after_steps: 125
+  policy:
+    swarm_network_size: [64, 64]
+    light_network_size: null
+    objects_network_size: null
+    concat_network_size: [64]
+  ppo:
+    learning_rate: 6.e-4
+    gamma: 0.99
+    lambda: 0.95
+    clip_range: 0.1
+---
+name: "eval_policy_type"
+iterations: 100
+repetitions: 10
+
+params:
+  sampling:
+    num_kilobots: 10
+    num_worker_steps: 250
+    environment: 'relative'
+    done_after_steps: 125
+  policy:
+    swarm_network_size: [256, 256]
+    light_network_size: null
+    objects_network_size: null
+    concat_network_size: [256, 256]
+  ppo:
+    learning_rate: 6.e-4
+    gamma: 0.99
+    lambda: 0.95
+    clip_range: 0.1
+
+grid:
+  sampling:
+    w_factor: [.0, .5, 1.]
+  policy:
+    type: ['mlp', 'me_mlp', 'mean_mlp', 'mean_var_mlp']
+
+---
+name: "eval_network_size"
+iterations: 300
+
+params:
+  sampling:
+    num_kilobots: 10
+    num_workers: 24
+    num_worker_steps: 250
+    environment: absolute
+    done_after_steps: 125
+  policy:
+    swarm_network_size: [64]
+    object_dims: 4
+    objects_network_size: [128]
+    extra_dims: 2
+    extra_network_size: [64]
+    concat_network_size: [256, 256]
+  ppo:
+    learning_rate: 6.e-4
+    gamma: 0.99
+    lambda: 0.95
+    clip_range: 0.1
+    num_threads: 12
+
+grid:
+  policy:
+    swarm_network_size: [[64], [128], [256], [128, 128]]
+#    concat_network_size: [[64], [128], [64, 64], [128, 128], [256], [256, 256], [64, 64, 64], [128, 128, 128]]
+---
+name: "eval_direct_input"
+
+params:
+  policy:
+    use_mean_embedding: False
+    mlp_size: [128, 128, 128, 128]
+
+grid:
+  sampling:
+    num_kilobots: [5, 10, 15]
+
+---
+name: 'create_model'
+iterations: 1
+repetitions: 1
+
+params:
+  sampling:
+    num_kilobots: 10
+    num_workers: 1
+    num_worker_steps: 250
+    num_minibatches: 1
+    environment: 'absolute'
+    done_after_steps: 125
+  policy:
+    swarm_network_size: [256, 256]
+    light_network_size: [256, 256]
+    objects_network_size: null
+    concat_network_size: [256, 256]
+    ppo:
+      learning_rate: 6.e-4
+      num_train_epochs: 1
+      gamma: 0.99
+      lambda: 0.95
+      clip_range: 0.1

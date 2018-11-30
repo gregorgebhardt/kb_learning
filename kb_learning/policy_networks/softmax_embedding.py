@@ -1,13 +1,15 @@
 import baselines.common.tf_util as U
 import numpy as np
 import tensorflow as tf
+import tensorflow.contrib as tfc
 
 
 class SoftMaxEmbedding:
-    def __init__(self, input_ph, hidden_sizes, nr_obs, dim_obs, activation=tf.nn.relu,
+    def __init__(self, input_ph, hidden_sizes, nr_obs, dim_obs, activation=tf.nn.leaky_relu,
                  last_as_valid=False):
         assert len(hidden_sizes) > 0
-        alpha = tf.Variable(np.ones(hidden_sizes[-1]) * .5, dtype=tf.float32)
+        beta = tf.get_variable(name='beta', shape=hidden_sizes[-1],
+                               initializer=tf.random_uniform_initializer(maxval=10))
 
         reshaped_input = tf.reshape(input_ph, shape=(-1, int(dim_obs)))
         if last_as_valid:
@@ -24,18 +26,23 @@ class SoftMaxEmbedding:
                                        activation=activation,
                                        kernel_initializer=U.normc_initializer(1.0))
 
-        # compute weights w = exp(phi * alpha)
-        w = tf.exp(last_out * alpha)
+        phi = tf.reshape(last_out, shape=(-1, nr_obs, hidden_sizes[-1]))
+
+        # compute weights w = exp(φ * β)
+        # 1. take product of features φ and temperature β
+        phi_beta = phi * beta
+        # 2. find max of φ * β along each feature dimension
+        Z = tf.reduce_max(phi_beta, axis=1, keepdims=True)
+        # 3. subtract Z and take exp
+        w = tf.exp(phi_beta - Z)
 
         if last_as_valid:
             # set weights to zero for invalid observations
+            layer_valid = tf.reshape(layer_valid, shape=(-1, nr_obs, 1))
             w = tf.multiply(w, layer_valid)
 
-        reshaped_output = tf.reshape(last_out, shape=(-1, nr_obs, hidden_sizes[-1]))
-        reshaped_w = tf.reshape(w, shape=(-1, nr_obs, hidden_sizes[-1]))
-
-        # compute ∑ phi * w / ∑ w (w is zero for invalid observations)
-        softmax_features = tf.reduce_sum(reshaped_output * reshaped_w, axis=1) / tf.reduce_sum(reshaped_w, axis=1)
-        # softmax_features = tf.where(tf.is_nan(softmax_features), tf.zeros_like(softmax_features), softmax_features)
+        # compute ∑ φ * w / ∑ w
+        softmax_features = tf.reduce_sum(phi * w, axis=1) / tf.reduce_sum(w, axis=1)
+        softmax_features = tf.where(tf.is_nan(softmax_features), tf.zeros_like(softmax_features), softmax_features)
 
         self.out = softmax_features

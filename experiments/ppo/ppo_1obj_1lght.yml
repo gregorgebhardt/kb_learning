@@ -1,0 +1,90 @@
+---
+# DEFAULT
+name: "DEFAULT"
+repetitions: 5
+iterations: 350
+path: "data/ppo/1obj_1lght"
+gui: false
+
+params: {}
+
+env_config:
+  !EvalEnv
+  width: 1.2
+  height: 1.2
+  resolution: 600
+
+  objects:
+    - !ObjectConf
+      idx: 0
+      shape: square
+      width: .15
+      height: .15
+      init: random
+      target: !TargetPose
+        pose: random
+        accuracy: [.02, .02, .05]
+        periodic: True
+        frequency: 4
+
+  light: !LightConf
+    type: momentum
+    radius: .2
+    init: object
+
+  kilobots: !KilobotsConf
+    num: 10
+    mean: light
+    std: .03
+
+---
+name: eval_policy_type
+iterations: 400
+repetitions: 3
+
+params:
+  sampling:
+    timesteps_per_batch: 4096
+    done_after_steps: 64
+  trpo:
+    max_kl: 0.01
+    gamma: .99
+    lambda: .95
+  policy:
+    type: 'mlp'
+    swarm_net_type: 'softmax'
+    swarm_net_size: [64]
+    objects_net_type: 'softmax'
+    objects_net_size: [32]
+    extra_net_size: [32]
+    concat_net_size: [128, 64]
+
+grid:
+  policy:
+    type: ['mlp', 'swarm']
+
+---
+name: test
+iterations: 400
+repetitions: 3
+
+params:
+  sampling:
+    timesteps_per_batch: 4096
+    done_after_steps: 64
+  ppo:
+    epochs: 10
+    gamma: .99
+    lambda: .95
+  policy:
+    type: 'mlp'
+    swarm_net_type: 'softmax'
+    swarm_net_size: [64]
+    objects_net_type: 'softmax'
+    objects_net_size: [32]
+    extra_net_size: [32]
+    concat_net_size: [128, 64]
+  buffer_len: 3000
+
+---
+name: "test2"

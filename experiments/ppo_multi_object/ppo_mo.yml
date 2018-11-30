@@ -8,7 +8,7 @@ gui: false
 
 params:
   sampling:
-    num_workers: 40
+    num_workers: 20
 
 env_config:
   !EvalEnv
@@ -23,15 +23,15 @@ env_config:
       width: .15
       height: .15
       init: random
-    - !ObjectConf
-      idx: 1
-      shape: square
-      width: .15
-      height: .15
-      init: random
+#    - !ObjectConf
+#      idx: 1
+#      shape: square
+#      width: .15
+#      height: .15
+#      init: random
 
   light: !LightConf
-    type: momentum
+    type: circular
     radius: .2
     init: random
 
@@ -47,13 +47,13 @@ iterations: 400
 params:
   sampling:
 #    num_workers: 1
-    num_worker_steps: 1500
-    done_after_steps: 150
+    num_worker_steps: 1000
+    done_after_steps: 1000
   policy:
-    swarm_network_size: [64]
-    objects_network_size: [64]
-    extra_network_size: [64]
-    concat_network_size: [256]
+    swarm_net_size: [64]
+    objects_net_size: [64]
+    extra_net_size: [64]
+    concat_net_size: [256]
   ppo:
     learning_rate: 6.e-4
     gamma: 0.99

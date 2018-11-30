@@ -37,3 +37,6 @@ class NormalizeActionWrapper(ActionWrapper):
 
     def reverse_action(self, action):
         return (action - self.mean) / self.scale
+
+    def render(self, mode=None):
+        return self.env.render(mode)
