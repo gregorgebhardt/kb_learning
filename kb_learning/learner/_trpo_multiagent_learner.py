@@ -230,6 +230,9 @@ class TRPOMultiAgentLearner(ClusterWork):
         var_list = [v for v in all_var_list if v.name.split("/")[1].startswith("pol")]
         vf_var_list = [v for v in all_var_list if v.name.split("/")[1].startswith("vf")]
 
+        # pol_beta_vars = [v for v in var_list if 'beta' in v.name]
+        # vf_beta_vars = [v for v in vf_var_list if 'beta' in v.name]
+
         self.vfadam = MpiAdam(vf_var_list, comm=self._COMM)
 
         self.get_flat = tf_util.GetFlat(var_list)
@@ -255,6 +258,9 @@ class TRPOMultiAgentLearner(ClusterWork):
         self.compute_fvp = tf_util.function([flat_tangent, ob, ac, atarg], fvp)
         self.compute_vflossandgrad = tf_util.function([ob, ret], tf_util.flatgrad(vf_error, vf_var_list))
         self.vf_loss = tf_util.function([ob, ret], vf_error)
+
+        # self.pol_beta_grad = tf_util.function([ob, ac, atarg], [tf_util.flatgrad(optimgain, pol_beta_vars)])
+        # self.vf_beta_grad = tf_util.function([ob, ret], tf_util.flatgrad(vf_error, vf_beta_vars))
 
         self.pi = ActWrapper(pi, policy_params)
 
@@ -318,7 +324,7 @@ class TRPOMultiAgentLearner(ClusterWork):
         mean_losses = None
 
         if self._params['sampling']['num_objects'] == 'random':
-            num_objects = random.randint(1, len(config['env_config'].objects))
+            num_objects = random.randint(2, len(config['env_config'].objects))
             self.env.num_objects = num_objects
             logger.debug('using env with {} objects'.format(num_objects))
 

@@ -212,13 +212,16 @@ class ActWrapper(object):
         shutil.rmtree(self._tmp_dir, ignore_errors=True)
 
     @staticmethod
-    def load(path, pol_fn, name='pi'):
+    def load(path, pol_fn, name='pi', update_params=None):
         with open(path, "rb") as f:
             model_data, act_params = cloudpickle.load(f)
         if "dim_rec_o" in act_params:
             act_params['ob_space'].dim_rec_o = act_params["dim_rec_o"]
             act_params['ob_space'].dim_local_o = act_params['ob_space'].shape[0] - np.prod(act_params["dim_rec_o"])
             del act_params["dim_rec_o"]
+
+        if update_params:
+            act_params.update(update_params)
 
         act = pol_fn(name=name, **act_params)
         sess = tf.Session()

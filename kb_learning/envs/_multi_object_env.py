@@ -4,6 +4,7 @@ import random
 
 import gym_kilobots
 import numpy as np
+from cycler import cycler
 from gym import spaces
 from gym_kilobots.envs import DirectControlKilobotsEnv, YamlKilobotsEnv
 from gym_kilobots.kb_plotting import get_body_from_shape
@@ -177,11 +178,11 @@ class MultiObjectEnv(YamlKilobotsEnv):
     def _init_objects(self):
         if self._num_objects == 'random':
             num_objs = random.randint(1, len(self.conf.objects))
-            for o in self.conf.objects[:num_objs]:
-                self._init_object(o.shape, o.width, o.height, o.init, getattr(o, 'color', None))
         else:
-            for o in self.conf.objects[:self._num_objects]:
-                self._init_object(o.shape, o.width, o.height, o.init, getattr(o, 'color', None))
+            num_objs = self._num_objects
+        for o in self.conf.objects[:num_objs]:
+            self._init_object(object_shape=o.shape, object_width=o.width, object_height=o.height,
+                              object_init=o.init, object_color=getattr(o, 'color', None))
 
     def has_finished(self, state, action):
         return self._sim_steps >= self._done_after_steps * self._steps_per_action
@@ -431,11 +432,22 @@ class MultiObjectAssemblyEnv(MultiObjectEnv):
 
 
 class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
-    def __init__(self, reward_function, agent_reward, swarm_reward, agent_type='SimpleVelocityControlKilobot',
+    def __init__(self, reward_function, agent_type='SimpleVelocityControlKilobot',
                  **kwargs):
         self._reward_function = reward_function
-        self._agent_reward = agent_reward
-        self._swarm_reward = swarm_reward
+        self._object_colors = [(200, 150, 0),
+                               (0, 150, 200),
+                               (0, 200, 150),
+                               (150, 0, 200)]
+        self._num_cluster = 2
+        self._color_cycle = itertools.cycle(self._object_colors[:self._num_cluster])
+        self._cluster_cycle = itertools.cycle(range(self._num_cluster))
+        self._cluster_idx = []
+
+        self._reward_fuctions_with_obj_type = ['object_clustering', 'object_clustering_amp', 'fisher_clustering']
+        self._observe_object_type = False
+        if self._reward_function in self._reward_fuctions_with_obj_type:
+            self._observe_object_type = True
 
         self._agent_score = None
         self._swarm_score = None
@@ -447,6 +459,7 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         super(MultiObjectDirectControlEnv, self).__init__(**kwargs)
 
     def reset(self):
+        self._cluster_idx = []
         return super(MultiObjectEnv, self).reset()
 
     def _configure_environment(self):
@@ -499,16 +512,28 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         obj_rel_angle -= kb_states[..., [2]]
         # relative orientations
         obj_rel_orientations = -kb_states[..., [2]] + obj_states[..., 2].reshape(1, -1, 1)
+        # object color
+        # obj_color = np.tile(np.array([[o.color for o in self._objects]], dtype=np.float64), (self.num_kilobots, 1, 1))
+        # obj_color /= 255.
+        # object cluster as one-hot-encoding
+        obj_type = np.zeros((self.num_kilobots, len(self._objects), self._num_cluster))
+        obj_type[:, range(len(self._objects)), self._cluster_idx] = 1
+        # obj_type = np.tile(np.asarray(self._cluster_idx).reshape(1, -1, 1), (self.num_kilobots, 1, 1))
+
+        # is this a valid object
         obj_valid = np.ones((self.num_kilobots, len(self._objects), 1))
 
         B = np.concatenate((obj_rel_radius, np.sin(obj_rel_angle), np.cos(obj_rel_angle),
-                            np.sin(obj_rel_orientations), np.cos(obj_rel_orientations), obj_valid), axis=2)
+                            np.sin(obj_rel_orientations), np.cos(obj_rel_orientations),
+                            obj_type if self._observe_object_type else None,
+                            obj_valid), axis=2)
+        object_dims = B.shape[2]
         B = B.reshape(self.num_kilobots, -1)
 
         # append zeros if env has less objects than defined in conf
         if len(self._objects) < len(self.conf.objects):
             num_missing_objects = len(self.conf.objects) - len(self._objects)
-            B = np.concatenate((B, np.zeros((self.num_kilobots, 6 * num_missing_objects))), axis=1)
+            B = np.concatenate((B, np.zeros((self.num_kilobots, object_dims * num_missing_objects))), axis=1)
 
         # proprioceptive observations
         kb_states = kb_states[:, 0, :]
@@ -731,8 +756,78 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         actions = np.array([kb.get_action() for kb in self._kilobots])
         action_cost = - .01 * np.abs(actions[:, 0])
 
-        reward = dist_gain + .1 * angular_distance_gain + action_cost
+        reward = dist_gain + .5 * angular_distance_gain + action_cost
         return np.tile(reward, self.num_kilobots)
+
+    def _object_clustering_reward(self, state, action, next_state):
+        obj_dims = self.object_state_space.shape[0]
+        obj_state = state[-obj_dims:].reshape(-1, 3)
+        next_obj_state = next_state[-obj_dims:].reshape(-1, 3)
+
+        # compute relative distance between objects
+        from scipy.spatial.distance import pdist, squareform
+
+        intra_cluster_gain = .0
+        cluster_centers = []
+        next_cluster_centers = []
+
+        cluster_idx = np.asarray(self._cluster_idx)
+        for c_idx in range(self._num_cluster):
+            cluster_objs = cluster_idx == c_idx
+            cluster_dists = pdist(obj_state[cluster_objs, :2])
+            cluster_next_dists = pdist(next_obj_state[cluster_objs, :2])
+            intra_cluster_gain += np.mean(cluster_dists - cluster_next_dists)
+
+            cluster_centers.append(obj_state[cluster_objs, :2].mean(axis=0))
+            next_cluster_centers.append(next_obj_state[cluster_objs, :2].mean(axis=0))
+
+        extra_cluster_gain = np.mean(pdist(np.asarray(next_cluster_centers)) - pdist(np.asarray(cluster_centers)))
+
+        reward = 1.5 * intra_cluster_gain / self._num_cluster + extra_cluster_gain
+
+        return np.tile(reward, self.num_kilobots)
+
+    def _object_clustering_amp_reward(self, state, action, next_state):
+        reward = self._object_clustering_reward(state, action, next_state)
+        return 20 * reward
+
+    def _fisher_clustering_reward(self, state, action, next_state):
+        obj_dims = self.object_state_space.shape[0]
+        obj_state = state[-obj_dims:].reshape(-1, 3)
+        next_obj_state = next_state[-obj_dims:].reshape(-1, 3)
+
+        cluster_means = []
+        cluster_vars = []
+        next_cluster_means = []
+        next_cluster_vars = []
+
+        cluster_idx = np.asarray(self._cluster_idx)
+        for c_idx in range(self._num_cluster):
+            cluster_objs = cluster_idx == c_idx
+            cluster_means.append(obj_state[cluster_objs, :2].mean(axis=0))
+            cluster_vars.append(obj_state[cluster_objs, :2].var(axis=0))
+            next_cluster_means.append(next_obj_state[cluster_objs, :2].mean(axis=0))
+            next_cluster_vars.append(next_obj_state[cluster_objs, :2].var(axis=0))
+
+        from scipy.spatial.distance import pdist
+        fisher_crit = np.sum(pdist(np.array(cluster_means))**2) / np.sum(cluster_vars)
+        next_fisher_crit = np.sum(pdist(np.array(next_cluster_means))**2) / np.sum(next_cluster_vars)
+
+        return 20 * np.tile(next_fisher_crit - fisher_crit, self.num_kilobots)
+
+    @staticmethod
+    def _clustering(obj_positions: np.ndarray, num_clusters):
+        mean_position = obj_positions.mean(axis=0)
+        # normalize object_positions with mean
+        obj_positions -= mean_position
+        # check if an object is exactly on zero position
+        obj_positions[np.all(obj_positions == (.0, .0), axis=1), :] = .01 * np.random.rand(2)
+        # compute polar coordinates
+        obj_angles = np.arctan2(obj_positions[:, 1], obj_positions[:, 0])
+
+        clusters = np.split(np.argsort(obj_angles), num_clusters)
+
+        return clusters
 
     @property
     def kilobots_observation_space(self):
@@ -749,9 +844,15 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
 
     @property
     def object_observation_space(self):
-        # radius, angle as sin+cos, orientation as sin+cos, object observation valid
-        obj_low = np.array([.0, -1., -1., -1., -1., 0])
-        obj_high = np.array([np.sqrt(-self.world_width * -self.world_height), 1., 1., 1., 1., 1])
+        # radius, angle as sin+cos, orientation as sin+cos, type, object observation valid
+        if self._reward_function in self._reward_fuctions_with_obj_type:
+            cluster_one_hot_low = np.zeros(self._num_cluster)
+            cluster_one_hot_high = cluster_one_hot_low + 1
+            obj_low = np.r_[.0, -1., -1., -1., -1., cluster_one_hot_low, 0]
+            obj_high = np.r_[np.sqrt(-self.world_width * -self.world_height), 1., 1., 1., 1., cluster_one_hot_high, 1]
+        else:
+            obj_low = np.r_[.0, -1., -1., -1., -1., 0]
+            obj_high = np.r_[np.sqrt(-self.world_width * -self.world_height), 1., 1., 1., 1., 1]
 
         return spaces.Box(low=obj_low, high=obj_high, dtype=np.float64)
 
@@ -779,6 +880,11 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
 
         return spaces.Box(np.tile(obs_space_low, (self.num_kilobots, 1)),
                           np.tile(obs_space_high, (self.num_kilobots, 1)), dtype=np.float64)
+
+    def _init_object(self, *, object_color, **kwargs):
+        object_color = self._color_cycle.__next__()
+        self._cluster_idx.append(self._cluster_cycle.__next__())
+        super(MultiObjectDirectControlEnv, self)._init_object(object_color=object_color, **kwargs)
 
     def _init_kilobots(self, agent_type=None):
         num_kilobots = self.conf.kilobots.num

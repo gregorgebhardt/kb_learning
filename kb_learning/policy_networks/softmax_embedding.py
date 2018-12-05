@@ -1,7 +1,5 @@
 import baselines.common.tf_util as U
-import numpy as np
 import tensorflow as tf
-import tensorflow.contrib as tfc
 
 
 class SoftMaxEmbedding:
