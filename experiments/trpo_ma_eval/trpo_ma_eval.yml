@@ -1,0 +1,53 @@
+---
+# DEFAULT
+name: "DEFAULT"
+repetitions: 10
+iterations: 1
+path: "data/trpo_ma_eval"
+gui: false
+
+params:
+  render: True
+
+env_config:
+  !EvalEnv
+  width: 1.
+  height: 1.
+  resolution: 608
+
+  objects:
+    - !ObjectConf
+      idx: 0
+      shape: square
+      width: .1
+      height: .1
+      init: random
+
+  kilobots: !KilobotsConf
+    num: 10
+    mean: random
+    std: .03
+
+---
+name: object_assembly
+
+params:
+  policy_path: trpo_ma_eval/policy_assembly.pkl
+  reward_function: assembly_normalized
+
+grid:
+  num_objects: [2, 4, 6, 8, 10]
+  num_kilobots: [5, 10, 15, 20, 25]
+
+---
+name: object_sorting
+
+params:
+  policy_path: trpo_ma_eval/policy_sorting.pkl
+  reward_function: object_clustering_amp
+
+grid:
+  num_objects: [4, 6, 8, 10, 12]
+  num_kilobots: [5, 10, 15, 20, 25]
+
+

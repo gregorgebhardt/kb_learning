@@ -98,7 +98,7 @@ def main():
         num_agent_observations=env.num_kilobots - 1,
         num_object_observations=len(env_config.objects),
     )
-    policy_path = 'policies/nn_based/trpo_ma/object_sorting2/policy.pkl'
+    policy_path = 'policies/nn_based/trpo_ma/object_sorting3/mean_max/policy.pkl'
     pi = ActWrapper.load(policy_path, policy_fn, update_params=update_params)
 
     # get betas
@@ -186,5 +186,5 @@ def eval_beta_values():
 
 
 if __name__ == '__main__':
-    # main()
-    eval_beta_values()
+    main()
+    # eval_beta_values()

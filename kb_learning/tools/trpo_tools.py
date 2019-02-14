@@ -224,8 +224,8 @@ class ActWrapper(object):
             act_params.update(update_params)
 
         act = pol_fn(name=name, **act_params)
-        sess = tf.Session()
-        sess.__enter__()
+        # sess = tf.get_default_session()
+        # sess.__enter__()
         aw = ActWrapper(act, act_params)
         with tempfile.TemporaryDirectory() as td:
             arc_path = os.path.join(td, "packed.zip")

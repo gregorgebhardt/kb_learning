@@ -75,15 +75,15 @@ list:
 
 ---
 name: eval_assembly
-iterations: 250
-repetitions: 3
+iterations: 200
+repetitions: 10
 
 params:
   sampling:
     reward_function: assembly
     agent_type: SimpleVelocityControlKilobot
     num_objects: 4
-    timesteps_per_batch: 5120
+    timesteps_per_batch: 4096
     done_after_steps: 512
   trpo:
     gamma: .99

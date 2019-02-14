@@ -439,15 +439,17 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
                                (0, 150, 200),
                                (0, 200, 150),
                                (150, 0, 200)]
-        self._num_cluster = 2
-        self._color_cycle = itertools.cycle(self._object_colors[:self._num_cluster])
-        self._cluster_cycle = itertools.cycle(range(self._num_cluster))
-        self._cluster_idx = []
+        self._num_cluster = 1
 
         self._reward_fuctions_with_obj_type = ['object_clustering', 'object_clustering_amp', 'fisher_clustering']
         self._observe_object_type = False
         if self._reward_function in self._reward_fuctions_with_obj_type:
             self._observe_object_type = True
+            self._num_cluster = 2
+
+        self._color_cycle = itertools.cycle(self._object_colors[:self._num_cluster])
+        self._cluster_cycle = itertools.cycle(range(self._num_cluster))
+        self._cluster_idx = []
 
         self._agent_score = None
         self._swarm_score = None
@@ -512,21 +514,22 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         obj_rel_angle -= kb_states[..., [2]]
         # relative orientations
         obj_rel_orientations = -kb_states[..., [2]] + obj_states[..., 2].reshape(1, -1, 1)
-        # object color
-        # obj_color = np.tile(np.array([[o.color for o in self._objects]], dtype=np.float64), (self.num_kilobots, 1, 1))
-        # obj_color /= 255.
-        # object cluster as one-hot-encoding
-        obj_type = np.zeros((self.num_kilobots, len(self._objects), self._num_cluster))
-        obj_type[:, range(len(self._objects)), self._cluster_idx] = 1
-        # obj_type = np.tile(np.asarray(self._cluster_idx).reshape(1, -1, 1), (self.num_kilobots, 1, 1))
 
         # is this a valid object
         obj_valid = np.ones((self.num_kilobots, len(self._objects), 1))
 
-        B = np.concatenate((obj_rel_radius, np.sin(obj_rel_angle), np.cos(obj_rel_angle),
-                            np.sin(obj_rel_orientations), np.cos(obj_rel_orientations),
-                            obj_type if self._observe_object_type else None,
-                            obj_valid), axis=2)
+        if self._observe_object_type:
+            obj_type = np.zeros((self.num_kilobots, len(self._objects), self._num_cluster))
+            obj_type[:, range(len(self._objects)), self._cluster_idx] = 1
+
+            B = np.concatenate((obj_rel_radius, np.sin(obj_rel_angle), np.cos(obj_rel_angle),
+                                np.sin(obj_rel_orientations), np.cos(obj_rel_orientations),
+                                obj_type, obj_valid), axis=2)
+        else:
+            B = np.concatenate((obj_rel_radius, np.sin(obj_rel_angle), np.cos(obj_rel_angle),
+                                np.sin(obj_rel_orientations), np.cos(obj_rel_orientations),
+                                obj_valid), axis=2)
+
         object_dims = B.shape[2]
         B = B.reshape(self.num_kilobots, -1)
 
@@ -725,6 +728,21 @@ class MultiObjectDirectControlEnv(DirectControlKilobotsEnv, MultiObjectEnv):
         #                                     np.cos(next_obj_state[:, 2] * symmetries)])
         #
         # angular_gain = np.sum(obj_angular_dist - next_obj_angular_dist)
+
+        reward = dist_gain
+        return np.tile(reward, self.num_kilobots)
+
+    def _assembly_normalized_reward(self, state, action, next_state):
+        obj_dims = self.object_state_space.shape[0]
+        obj_state = state[-obj_dims:].reshape(-1, 3)
+        next_obj_state = next_state[-obj_dims:].reshape(-1, 3)
+
+        # compute reward based on relative distance between objects
+        from scipy.spatial.distance import pdist
+        obj_dists = pdist(obj_state[:, :2])
+        next_obj_dists = pdist(next_obj_state[:, :2])
+
+        dist_gain = np.mean(obj_dists - next_obj_dists)
 
         reward = dist_gain
         return np.tile(reward, self.num_kilobots)
