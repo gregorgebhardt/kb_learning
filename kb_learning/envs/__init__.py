@@ -31,7 +31,7 @@ def _check_parameters(*, num_kilobots, object_width, object_height, light_type, 
 
 
 def register_object_relative_env(weight: float, num_kilobots: int, object_shape: str, object_width: float,
-                                 object_height: float, observe_object: Union[str, bool], light_type: str, light_radius:
+                                 object_height: float, light_type: str, light_radius:
                                                                                                       float = \
     None):
     from gym.envs.registration import register, registry
@@ -50,8 +50,7 @@ def register_object_relative_env(weight: float, num_kilobots: int, object_shape:
 
     register(id=_id, entry_point='kb_learning.envs:ObjectRelativeEnv',
              kwargs=dict(object_shape=object_shape, object_width=object_width, object_height=object_height,
-                         observe_object=observe_object, num_kilobots=num_kilobots, weight=weight,
-                         light_type=light_type, light_radius=light_radius))
+                         num_kilobots=num_kilobots, weight=weight, light_type=light_type, light_radius=light_radius))
 
     return _id
 

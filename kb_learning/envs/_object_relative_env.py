@@ -14,7 +14,6 @@ class ObjectRelativeEnv(ObjectEnv):
                  object_width=.15,
                  object_height=.15,
                  object_init=None,
-                 observe_object=False,
                  light_type='circular',
                  light_radius=.2,
                  done_after_steps=125):
@@ -34,13 +33,12 @@ class ObjectRelativeEnv(ObjectEnv):
                                                 object_width=object_width,
                                                 object_height=object_height,
                                                 object_init=object_init,
-                                                observe_object=observe_object,
                                                 light_type=light_type,
                                                 light_radius=light_radius)
 
         if self._weight is None:
-            self._weight_state_space = spaces.Box(np.array([.0]), np.array([1.]), dtype=np.float32)
-            self._weight_observation_space = spaces.Box(np.array([.0]), np.array([1.]), dtype=np.float32)
+            self.weight_state_space = spaces.Box(np.array([.0]), np.array([1.]), dtype=np.float32)
+            self.weight_observation_space = spaces.Box(np.array([.0]), np.array([1.]), dtype=np.float32)
             self._weight = np.random.rand()
 
         _state_space_low = self.kilobots_space.low
@@ -48,29 +46,29 @@ class ObjectRelativeEnv(ObjectEnv):
         if self.light_state_space:
             _state_space_low = np.concatenate((_state_space_low, self.light_state_space.low))
             _state_space_high = np.concatenate((_state_space_high, self.light_state_space.high))
-        if self._weight_state_space:
-            _state_space_low = np.concatenate((_state_space_low, self._weight_state_space.low))
-            _state_space_high = np.concatenate((_state_space_high, self._weight_state_space.high))
+        if self.weight_state_space:
+            _state_space_low = np.concatenate((_state_space_low, self.weight_state_space.low))
+            _state_space_high = np.concatenate((_state_space_high, self.weight_state_space.high))
         if self.object_state_space:
             _state_space_low = np.concatenate((_state_space_low, self.object_state_space.low))
             _state_space_high = np.concatenate((_state_space_high, self.object_state_space.high))
 
-        self.state_space = spaces.Box(low=_state_space_low, high=_state_space_high, dtype=np.float32)
+        # self.state_space = spaces.Box(low=_state_space_low, high=_state_space_high, dtype=np.float32)
 
         _observation_spaces_low = self.kilobots_space.low
         _observation_spaces_high = self.kilobots_space.high
         if self.light_observation_space:
             _observation_spaces_low = np.concatenate((_observation_spaces_low, self.light_observation_space.low))
             _observation_spaces_high = np.concatenate((_observation_spaces_high, self.light_observation_space.high))
-        if self._weight_observation_space:
-            _observation_spaces_low = np.concatenate((_observation_spaces_low, self._weight_observation_space.low))
-            _observation_spaces_high = np.concatenate((_observation_spaces_high, self._weight_observation_space.high))
+        if self.weight_observation_space:
+            _observation_spaces_low = np.concatenate((_observation_spaces_low, self.weight_observation_space.low))
+            _observation_spaces_high = np.concatenate((_observation_spaces_high, self.weight_observation_space.high))
         if self.object_observation_space:
             _observation_spaces_low = np.concatenate((_observation_spaces_low, self.object_observation_space.low))
             _observation_spaces_high = np.concatenate((_observation_spaces_high, self.object_observation_space.high))
 
-        self.observation_space = spaces.Box(low=_observation_spaces_low, high=_observation_spaces_high,
-                                            dtype=np.float32)
+        # self.observation_space = spaces.Box(low=_observation_spaces_low, high=_observation_spaces_high,
+        #                                     dtype=np.float32)
 
     def get_state(self):
         return np.concatenate(tuple(k.get_position() for k in self._kilobots)
